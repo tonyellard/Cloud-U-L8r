@@ -15,10 +15,10 @@ server:
 # CloudFauxnt will route requests to these origins based on path patterns
 origins:
   # Example: S3 emulator (ess-three)
-  # For Docker: use http://ess-three:9000 (service name)
-  # For local: use http://127.0.0.1:9000 (IPv4 to avoid IPv6 issues)
+  # For Docker: use http://essthree:9300 (service name)
+  # For local: use http://127.0.0.1:9300 (IPv4 to avoid IPv6 issues)
   - name: s3
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns:
       - "/s3/*"
     strip_prefix: "/s3"
@@ -27,7 +27,7 @@ origins:
   # This enables flexible URL routing:
   #   /s3/file.txt  ->  /test-bucket/file.txt
   # - name: s3-with-rewrite
-  #   url: http://ess-three:9000
+  #   url: http://essthree:9300
   #   path_patterns:
   #     - "/s3/*"
   #   strip_prefix: "/s3"           # Remove /s3 from request path
@@ -35,7 +35,7 @@ origins:
   #
   # Example: Rewrite web files path
   # - name: myfiles-bucket
-  #   url: http://ess-three:9000
+  #   url: http://essthree:9300
   #   path_patterns:
   #     - "/MyFiles/*"
   #   strip_prefix: "/MyFiles"
@@ -46,7 +46,7 @@ origins:
   # - Different origins can require signatures independently
   # - Each origin can have its own default root object
   # - name: website
-  #   url: http://ess-three:9000
+  #   url: http://essthree:9300
   #   path_patterns:
   #     - "/website/*"
   #   strip_prefix: "/website"
@@ -62,7 +62,7 @@ origins:
   #   # Omit default_root_object to use global fallback (or no default if global is unset)
   #
   # - name: protected-content
-  #   url: http://ess-three:9000
+  #   url: http://essthree:9300
   #   path_patterns:
   #     - "/protected/*"
   #   default_root_object: "protected-index.html"  # Different default for this origin
