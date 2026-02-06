@@ -24,10 +24,13 @@ logs:
 
 # Run tests in all services
 test:
-	@echo "Running tests..."
+	@echo "Running unit tests..."
 	@cd services/essthree && go test ./... || true
 	@cd services/cloudfauxnt && go test ./... || true
 	@cd services/ess-queue-ess && go test ./... || true
+	@echo ""
+	@echo "Running integration tests..."
+	@./tests/integration/test_cross_service.sh
 
 # Clean up docker artifacts
 clean:
