@@ -1,0 +1,119 @@
+# CloudFauxnt Configuration Example
+# Copy this file to config.yaml and customize for your environment
+
+# HTTP server configuration
+server:
+  port: 9310
+  host: "0.0.0.0"
+  # Optional: Global default root object (fallback if origins don't specify one)
+  # When set, requests to "/" will serve this object instead of listing
+  # Can be overridden per-origin with the origin.default_root_object setting
+  default_root_object: "index.html"
+  timeout_seconds: 30
+
+# Backend origin servers
+# CloudFauxnt will route requests to these origins based on path patterns
+origins:
+  # Example: S3 emulator (ess-three)
+  # For Docker: use http://ess-three:9000 (service name)
+  # For local: use http://127.0.0.1:9000 (IPv4 to avoid IPv6 issues)
+  - name: s3
+    url: http://ess-three:9000
+    path_patterns:
+      - "/s3/*"
+    strip_prefix: "/s3"
+    target_prefix: "/test-bucket"
+  # Example: Path rewriting to specific S3 bucket
+  # This enables flexible URL routing:
+  #   /s3/file.txt  ->  /test-bucket/file.txt
+  # - name: s3-with-rewrite
+  #   url: http://ess-three:9000
+  #   path_patterns:
+  #     - "/s3/*"
+  #   strip_prefix: "/s3"           # Remove /s3 from request path
+  #   target_prefix: "/test-bucket" # Add /test-bucket to proxied path
+  #
+  # Example: Rewrite web files path
+  # - name: myfiles-bucket
+  #   url: http://ess-three:9000
+  #   path_patterns:
+  #     - "/MyFiles/*"
+  #   strip_prefix: "/MyFiles"
+  #   target_prefix: "/myfiles-bucket"
+
+  # Example: Per-origin signature enforcement and default root objects
+  # This allows flexible configuration per origin:
+  # - Different origins can require signatures independently
+  # - Each origin can have its own default root object
+  # - name: website
+  #   url: http://ess-three:9000
+  #   path_patterns:
+  #     - "/website/*"
+  #   strip_prefix: "/website"
+  #   target_prefix: "/website-bucket"
+  #   default_root_object: "index.html"   # Override global for this origin
+  #   require_signature: false             # Override global - allow unsigned access
+  #
+  # - name: api
+  #   url: http://api-backend:9310
+  #   path_patterns:
+  #     - "/api/*"
+  #   require_signature: true              # Override global - require signatures
+  #   # Omit default_root_object to use global fallback (or no default if global is unset)
+  #
+  # - name: protected-content
+  #   url: http://ess-three:9000
+  #   path_patterns:
+  #     - "/protected/*"
+  #   default_root_object: "protected-index.html"  # Different default for this origin
+  #   # Omit require_signature to use global signing.enabled setting
+
+  # Example: External API
+  # - name: external-api
+  #   url: https://api.example.com
+  #   path_patterns:
+  #     - "/api/*"
+
+# CORS (Cross-Origin Resource Sharing) configuration
+cors:
+  enabled: true
+  allowed_origins:
+    - "*"  # Allow all origins (use specific origins in production)
+    # - "http://localhost:3000"
+    # - "https://app.example.com"
+  allowed_methods:
+    - "GET"
+    - "HEAD"
+    - "OPTIONS"
+    - "PUT"
+    - "POST"
+    - "DELETE"
+  allowed_headers:
+    - "*"  # Allow all headers
+    # - "Content-Type"
+    # - "Authorization"
+  max_age: 3600  # Preflight cache duration in seconds
+
+# CloudFront signed URL/cookie validation
+signing:
+  enabled: true  # Set to true to enable signature validation
+  key_pair_id: "APKAJEXAMPLE123456"  # Your CloudFront key pair ID
+  public_key_path: "/app/keys/public.pem"  # Path to RSA public key
+  
+  # Token configuration options for testing and production
+  token_options:
+    # Clock skew in seconds - allows for clock differences between client and server
+    # when validating token expiration (recommended: 30-60 seconds)
+    clock_skew_seconds: 30
+    
+    # Default TTL for signed URLs (in seconds)
+    # Clients can override by specifying custom expiration times
+    default_url_ttl_seconds: 3600  # 1 hour
+    
+    # Default TTL for signed cookies (in seconds)
+    # Clients can override by specifying custom expiration times
+    default_cookie_ttl_seconds: 86400  # 24 hours
+    
+    # Allow wildcard patterns in signed URLs (e.g., /files/*)
+    # Note: Wildcards in URLs are not standard CloudFront behavior
+    allow_wildcard_patterns: false

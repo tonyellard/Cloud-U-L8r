@@ -1,0 +1,38 @@
+# .gitignore for .NET projects
+
+# Build results
+bin/
+obj/
+*.app
+*.exe
+*.dll
+*.pdb
+
+# Visual Studio
+.vs/
+.vscode/
+*.sln.iml
+.idea/
+
+# Dependencies
+packages/
+.nuget/
+
+# User-specific files
+*.user
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+
+# Local environment
+.env
+.local
+
+# Rider
+.idea/
+*.sln.iml

@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ess-Queue-Ess Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .header {
+            background: #232f3e;
+            color: white;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+        .header p {
+            color: #aaa;
+            margin-top: 0.5rem;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 {
+            color: #666;
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #ff9900;
+        }
+        .queues-section {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .section-header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header h2 {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        .refresh-btn {
+            background: #ff9900;
+            color: white;
+            border: none;
+            padding: 0.5rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .refresh-btn:hover {
+            background: #ec7211;
+        }
+        .queue-list {
+            list-style: none;
+        }
+        .queue-item {
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .queue-header {
+            padding: 1.5rem 2rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        .queue-header:hover {
+            background: #fafafa;
+        }
+        .queue-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #232f3e;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .queue-badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            border-radius: 3px;
+            letter-spacing: 0.5px;
+        }
+        .badge-fifo {
+            background: #4CAF50;
+            color: white;
+        }
+        .badge-dlq {
+            background: #f44336;
+            color: white;
+        }
+        .badge-has-dlq {
+            background: #2196F3;
+            color: white;
+        }
+        .queue-stats {
+            display: flex;
+            gap: 2rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .queue-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .queue-stat .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+        .queue-stat .count {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #ff9900;
+        }
+        .messages-container {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+            background: #fafafa;
+        }
+        .messages-container.expanded {
+            max-height: 2000px;
+        }
+        .messages {
+            padding: 1rem 2rem 2rem 2rem;
+        }
+        .message-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .message-id {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .message-time {
+            font-size: 0.85rem;
+            color: #999;
+        }
+        .message-body {
+            font-family: monospace;
+            font-size: 0.9rem;
+            background: #f5f5f5;
+            padding: 0.75rem;
+            border-radius: 4px;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+        .message-meta {
+            display: flex;
+            gap: 1.5rem;
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .no-messages {
+            text-align: center;
+            color: #999;
+            padding: 2rem;
+            font-style: italic;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #999;
+        }
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+        .expand-icon {
+            transition: transform 0.3s;
+        }
+        .expand-icon.rotated {
+            transform: rotate(180deg);
+        }
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .modal-header h2 {
+            font-size: 1.5rem;
+            color: #232f3e;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #999;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .close-btn:hover {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #333;
+        }
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-family: inherit;
+        }
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+            font-family: monospace;
+        }
+        .form-group small {
+            display: block;
+            margin-top: 0.25rem;
+            color: #666;
+            font-size: 0.85rem;
+        }
+        .btn {
+            background: #ff9900;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #ec7211;
+        }
+        .btn-secondary {
+            background: #6c757d;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .btn-danger {
+            background: #dc3545;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn-small {
+            padding: 0.4rem 1rem;
+            font-size: 0.85rem;
+        }
+        .btn-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-left: 1rem;
+        }
+        .queue-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 Ess-Queue-Ess Admin</h1>
+        <p>AWS SQS Emulator - Queue and Message Inspector</p>
+    </div>
+
+    <div class="container">
+        <div class="stats" id="stats">
+            <!-- Stats will be populated by JavaScript -->
+        </div>
+
+        <div class="queues-section">
+            <div class="section-header">
+                <h2>Queues</h2>
+                <div class="action-buttons">
+                    <button class="btn btn-small" onclick="showCreateQueueModal()">+ Create Queue</button>
+                    <button class="btn btn-secondary btn-small" onclick="exportConfig()">⬇ Export Config</button>
+                    <button class="btn btn-secondary btn-small" onclick="loadQueues()">↻ Refresh</button>
+                </div>
+            </div>
+            <ul class="queue-list" id="queueList">
+                <!-- Queues will be populated by JavaScript -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- Create Queue Modal -->
+    <div id="createQueueModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Queue</h2>
+                <button class="close-btn" onclick="closeModal('createQueueModal')">&times;</button>
+            </div>
+            <form id="createQueueForm" onsubmit="createQueue(event)">
+                <div class="form-group">
+                    <label for="queueName">Queue Name *</label>
+                    <input type="text" id="queueName" required pattern="[a-zA-Z0-9_.-]+" 
+                           placeholder="my-queue" maxlength="80">
+                    <small>Alphanumeric characters, hyphens, underscores, and periods. Add .fifo suffix for FIFO queues</small>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="isFifoQueue" onchange="toggleFifoOptions()">
+                        FIFO Queue (.fifo will be added to name)
+                    </label>
+                    <small>First-In-First-Out queue with exactly-once processing</small>
+                </div>
+                <div id="fifoOptions" style="display: none; padding-left: 1.5rem;">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="contentBasedDeduplication">
+                            Content-Based Deduplication
+                        </label>
+                        <small>Automatically deduplicate messages based on body content</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="visibilityTimeout">Visibility Timeout (seconds)</label>
+                    <input type="number" id="visibilityTimeout" value="30" min="0" max="43200">
+                    <small>Default: 30 seconds</small>
+                </div>
+                <div class="form-group">
+                    <label for="messageRetention">Message Retention Period (seconds)</label>
+                    <input type="number" id="messageRetention" value="345600" min="60" max="1209600">
+                    <small>Default: 345600 seconds (4 days)</small>
+                </div>
+                <div class="form-group">
+                    <label for="maxMessageSize">Maximum Message Size (bytes)</label>
+                    <input type="number" id="maxMessageSize" value="262144" min="1024" max="262144">
+                    <small>Default: 262144 bytes (256 KB)</small>
+                </div>
+                <div class="form-group">
+                    <label for="maxReceiveCount">Max Receive Count</label>
+                    <input type="number" id="maxReceiveCount" value="3" min="1" max="1000">
+                    <small>Maximum times a message can be received before moving to DLQ (if enabled)</small>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="createDlq" onchange="toggleDlqOptions()">
+                        Create Dead Letter Queue
+                    </label>
+                    <small>Automatically create a DLQ named {queue-name}-dlq</small>
+                </div>
+                <div class="btn-group">
+                    <button type="submit" class="btn">Create Queue</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('createQueueModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Send Message Modal -->
+    <div id="sendMessageModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Send Test Message</h2>
+                <button class="close-btn" onclick="closeModal('sendMessageModal')">&times;</button>
+            </div>
+            <form id="sendMessageForm" onsubmit="sendMessage(event)">
+                <input type="hidden" id="targetQueueName">
+                <input type="hidden" id="targetQueueIsFifo">
+                <div class="form-group">
+                    <label for="messageBody">Message Body *</label>
+                    <textarea id="messageBody" required placeholder="Enter your message body here..."></textarea>
+                </div>
+                <div id="fifoMessageFields" style="display: none;">
+                    <div class="form-group">
+                        <label for="messageGroupId">Message Group ID *</label>
+                        <input type="text" id="messageGroupId" placeholder="group-1">
+                        <small>Required for FIFO queues - messages in same group are ordered</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="messageDeduplicationId">Deduplication ID (Optional)</label>
+                        <input type="text" id="messageDeduplicationId" placeholder="unique-id-123">
+                        <small>Leave empty for content-based deduplication</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="delaySeconds">Delay (seconds)</label>
+                    <input type="number" id="delaySeconds" value="0" min="0" max="900">
+                    <small>Delay before message becomes available (0-900 seconds)</small>
+                </div>
+                <div class="btn-group">
+                    <button type="submit" class="btn">Send Message</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('sendMessageModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Queue Modal -->
+    <div id="deleteQueueModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Delete Queue</h2>
+                <button class="close-btn" onclick="closeModal('deleteQueueModal')">&times;</button>
+            </div>
+            <div>
+                <input type="hidden" id="deleteQueueName">
+                <p style="margin-bottom: 1.5rem; color: #666;">
+                    Are you sure you want to delete queue <strong id="deleteQueueNameDisplay"></strong>?
+                    This action cannot be undone.
+                </p>
+                <div class="btn-group">
+                    <button class="btn btn-danger" onclick="deleteQueue()">Delete Queue</button>
+                    <button class="btn btn-secondary" onclick="closeModal('deleteQueueModal')">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let queuesData = [];
+
+        async function loadQueues() {
+            try {
+                const response = await fetch('/admin/api/queues');
+                const data = await response.json();
+                queuesData = data.queues || [];
+                renderStats();
+                renderQueues();
+            } catch (error) {
+                console.error('Failed to load queues:', error);
+            }
+        }
+
+        function renderStats() {
+            const totalQueues = queuesData.length;
+            const totalMessages = queuesData.reduce((sum, q) => sum + q.message_count, 0);
+            const totalVisible = queuesData.reduce((sum, q) => sum + q.visible_count, 0);
+            const totalNotVisible = queuesData.reduce((sum, q) => sum + q.not_visible_count, 0);
+
+            const statsHtml = `
+                <div class="stat-card">
+                    <h3>Total Queues</h3>
+                    <div class="value">${totalQueues}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Messages</h3>
+                    <div class="value">${totalMessages}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Visible Messages</h3>
+                    <div class="value">${totalVisible}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>In Flight</h3>
+                    <div class="value">${totalNotVisible}</div>
+                </div>
+            `;
+            document.getElementById('stats').innerHTML = statsHtml;
+        }
+
+        function renderQueues() {
+            const queueList = document.getElementById('queueList');
+            
+            if (queuesData.length === 0) {
+                queueList.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="9" y1="9" x2="15" y2="15"/>
+                            <line x1="15" y1="9" x2="9" y2="15"/>
+                        </svg>
+                        <p>No queues available. Create a queue using the SQS API.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const queuesHtml = queuesData.map((queue, index) => {
+                const messagesHtml = queue.messages && queue.messages.length > 0
+                    ? queue.messages.map(msg => `
+                        <div class="message-card">
+                            <div class="message-header">
+                                <span class="message-id">ID: ${msg.message_id}</span>
+                                <span class="message-time">${new Date(msg.sent_timestamp).toLocaleString()}</span>
+                            </div>
+                            <div class="message-body">${escapeHtml(msg.body)}</div>
+                            <div class="message-meta">
+                                <span>Receive Count: ${msg.receive_count}</span>
+                                <span>MD5: ${msg.md5_of_body.substring(0, 8)}...</span>
+                                ${msg.sequence_number ? `<span>Seq: ${msg.sequence_number}</span>` : ''}
+                                ${msg.message_group_id ? `<span>Group: ${msg.message_group_id}</span>` : ''}
+                                ${msg.message_deduplication_id ? `<span>Dedup ID: ${msg.message_deduplication_id.substring(0, 8)}...</span>` : ''}
+                            </div>
+                        </div>
+                    `).join('')
+                    : '<div class="no-messages">No messages in this queue</div>';
+
+                const isFifo = queue.name.endsWith('.fifo');
+                const hasDlq = queue.redrive_policy && queue.redrive_policy.deadLetterTargetArn;
+                const isDlq = queuesData.some(q => q.redrive_policy && q.redrive_policy.deadLetterTargetArn && q.redrive_policy.deadLetterTargetArn.includes(queue.name));
+                
+                return `
+                    <li class="queue-item">
+                        <div class="queue-header" onclick="toggleMessages(${index})">
+                            <span class="queue-name">
+                                ${queue.name}
+                                ${isFifo ? '<span class="queue-badge badge-fifo">FIFO</span>' : ''}
+                                ${isDlq ? '<span class="queue-badge badge-dlq">DLQ</span>' : ''}
+                                ${hasDlq ? '<span class="queue-badge badge-has-dlq">→ DLQ</span>' : ''}
+                            </span>
+                            <div style="display: flex; align-items: center; gap: 2rem;">
+                                <div class="queue-stats">
+                                    <div class="queue-stat">
+                                        <span class="label">Visible</span>
+                                        <span class="count">${queue.visible_count}</span>
+                                    </div>
+                                    <div class="queue-stat">
+                                        <span class="label">In Flight</span>
+                                        <span class="count">${queue.not_visible_count}</span>
+                                    </div>
+                                    <div class="queue-stat">
+                                        <span class="label">Delayed</span>
+                                        <span class="count">${queue.delayed_count}</span>
+                                    </div>
+                                </div>
+                                <div class="queue-actions" onclick="event.stopPropagation()">
+                                    <button class="btn btn-small" onclick="showSendMessageModal('${queue.name}', ${isFifo})">📤 Send</button>
+                                    ${isDlq ? `<button class="btn btn-small" onclick="redriveMessages('${queue.name}')">↩️ Redrive</button>` : ''}
+                                    <button class="btn btn-danger btn-small" onclick="showDeleteQueueModal('${queue.name}')">🗑 Delete</button>
+                                </div>
+                                <span class="expand-icon" id="icon-${index}">▼</span>
+                            </div>
+                        </div>
+                        <div class="messages-container" id="messages-${index}">
+                            <div class="messages">
+                                ${messagesHtml}
+                            </div>
+                        </div>
+                    </li>
+                `;
+            }).join('');
+
+            queueList.innerHTML = queuesHtml;
+        }
+
+        function toggleMessages(index) {
+            const container = document.getElementById(`messages-${index}`);
+            const icon = document.getElementById(`icon-${index}`);
+            container.classList.toggle('expanded');
+            icon.classList.toggle('rotated');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Modal functions
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        function showCreateQueueModal() {
+            document.getElementById('createQueueForm').reset();
+            document.getElementById('fifoOptions').style.display = 'none';
+            showModal('createQueueModal');
+        }
+
+        function showSendMessageModal(queueName, isFifo) {
+            document.getElementById('sendMessageForm').reset();
+            document.getElementById('targetQueueName').value = queueName;
+            document.getElementById('targetQueueIsFifo').value = isFifo ? 'true' : 'false';
+            
+            // Show/hide FIFO fields
+            const fifoFields = document.getElementById('fifoMessageFields');
+            if (isFifo) {
+                fifoFields.style.display = 'block';
+                document.getElementById('messageGroupId').required = true;
+            } else {
+                fifoFields.style.display = 'none';
+                document.getElementById('messageGroupId').required = false;
+            }
+            
+            showModal('sendMessageModal');
+        }
+
+        function showDeleteQueueModal(queueName) {
+            document.getElementById('deleteQueueName').value = queueName;
+            document.getElementById('deleteQueueNameDisplay').textContent = queueName;
+            showModal('deleteQueueModal');
+        }
+
+        function toggleFifoOptions() {
+            const isFifo = document.getElementById('isFifoQueue').checked;
+            document.getElementById('fifoOptions').style.display = isFifo ? 'block' : 'none';
+            
+            // Update queue name pattern
+            const queueNameInput = document.getElementById('queueName');
+            if (isFifo && !queueNameInput.value.endsWith('.fifo')) {
+                queueNameInput.value = queueNameInput.value.replace(/\.fifo$/, '') + '.fifo';
+            } else if (!isFifo) {
+                queueNameInput.value = queueNameInput.value.replace(/\.fifo$/, '');
+            }
+        }
+
+        // API functions
+        async function createQueue(event) {
+            event.preventDefault();
+            
+            let queueName = document.getElementById('queueName').value;
+            const isFifo = document.getElementById('isFifoQueue').checked;
+            const createDlq = document.getElementById('createDlq').checked;
+            const maxReceiveCount = parseInt(document.getElementById('maxReceiveCount').value);
+            
+            // Ensure .fifo suffix for FIFO queues
+            if (isFifo && !queueName.endsWith('.fifo')) {
+                queueName += '.fifo';
+            }
+            
+            let dlqName = null;
+            
+            // Create DLQ first if requested
+            if (createDlq) {
+                // Generate DLQ name
+                dlqName = queueName.replace(/\.fifo$/, '') + '-dlq' + (isFifo ? '.fifo' : '');
+                
+                const dlqData = {
+                    name: dlqName,
+                    visibility_timeout: parseInt(document.getElementById('visibilityTimeout').value),
+                    message_retention_period: parseInt(document.getElementById('messageRetention').value),
+                    max_message_size: parseInt(document.getElementById('maxMessageSize').value),
+                    attributes: {}
+                };
+                
+                if (isFifo) {
+                    dlqData.attributes.FifoQueue = 'true';
+                }
+                
+                try {
+                    const dlqResponse = await fetch('/admin/api/queue', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(dlqData)
+                    });
+                    
+                    if (!dlqResponse.ok) {
+                        const error = await dlqResponse.text();
+                        alert(`Failed to create DLQ: ${error}`);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error creating DLQ:', error);
+                    alert('Failed to create DLQ. Please try again.');
+                    return;
+                }
+            }
+            
+            const queueData = {
+                name: queueName,
+                visibility_timeout: parseInt(document.getElementById('visibilityTimeout').value),
+                message_retention_period: parseInt(document.getElementById('messageRetention').value),
+                max_message_size: parseInt(document.getElementById('maxMessageSize').value),
+                attributes: {}
+            };
+
+            // Add FIFO attributes
+            if (isFifo) {
+                queueData.attributes.FifoQueue = 'true';
+                if (document.getElementById('contentBasedDeduplication').checked) {
+                    queueData.attributes.ContentBasedDeduplication = 'true';
+                }
+            }
+
+            // Add max receive count as attribute
+            queueData.attributes.MaxReceiveCount = maxReceiveCount.toString();
+
+            // Add DLQ configuration if created
+            if (dlqName) {
+                queueData.attributes.RedrivePolicy = JSON.stringify({
+                    deadLetterTargetArn: `arn:aws:sqs:us-east-1:000000000000:${dlqName}`,
+                    maxReceiveCount: maxReceiveCount
+                });
+            }
+
+            try {
+                const response = await fetch('/admin/api/queue', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(queueData)
+                });
+
+                if (response.ok) {
+                    closeModal('createQueueModal');
+                    await loadQueues();
+                    const message = dlqName ? 
+                        `Queue "${queueData.name}" and DLQ "${dlqName}" created successfully!` :
+                        `Queue "${queueData.name}" created successfully!`;
+                    alert(message);
+                } else {
+                    const error = await response.text();
+                    alert(`Failed to create queue: ${error}`);
+                }
+            } catch (error) {
+                console.error('Error creating queue:', error);
+                alert('Failed to create queue. Please try again.');
+            }
+        }
+
+        async function deleteQueue() {
+            const queueName = document.getElementById('deleteQueueName').value;
+
+            try {
+                const response = await fetch(`/admin/api/queue?name=${encodeURIComponent(queueName)}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    closeModal('deleteQueueModal');
+                    await loadQueues();
+                    alert(`Queue "${queueName}" deleted successfully!`);
+                } else {
+                    const error = await response.text();
+                    alert(`Failed to delete queue: ${error}`);
+                }
+            } catch (error) {
+                console.error('Error deleting queue:', error);
+                alert('Failed to delete queue. Please try again.');
+            }
+        }
+
+        async function sendMessage(event) {
+            event.preventDefault();
+            
+            const isFifo = document.getElementById('targetQueueIsFifo').value === 'true';
+            
+            const messageData = {
+                queue_name: document.getElementById('targetQueueName').value,
+                message_body: document.getElementById('messageBody').value,
+                delay_seconds: parseInt(document.getElementById('delaySeconds').value),
+                attributes: {}
+            };
+
+            // Add FIFO-specific fields
+            if (isFifo) {
+                messageData.message_group_id = document.getElementById('messageGroupId').value;
+                const dedupId = document.getElementById('messageDeduplicationId').value;
+                if (dedupId) {
+                    messageData.message_deduplication_id = dedupId;
+                }
+            }
+
+            try {
+                const response = await fetch('/admin/api/message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(messageData)
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    closeModal('sendMessageModal');
+                    await loadQueues();
+                    let msg = `Message sent successfully!\nMessage ID: ${result.message_id}`;
+                    if (result.sequence_number) {
+                        msg += `\nSequence Number: ${result.sequence_number}`;
+                    }
+                    alert(msg);
+                } else {
+                    const error = await response.text();
+                    alert(`Failed to send message: ${error}`);
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Failed to send message. Please try again.');
+            }
+        }
+
+        async function redriveMessages(dlqName) {
+            if (!confirm(`Redrive messages from ${dlqName} back to source queue?`)) {
+                return;
+            }
+
+            try {
+                // Find the source queue for this DLQ
+                const sourceQueue = queuesData.find(q => 
+                    q.redrive_policy && 
+                    q.redrive_policy.deadLetterTargetArn && 
+                    q.redrive_policy.deadLetterTargetArn.includes(dlqName)
+                );
+
+                if (!sourceQueue) {
+                    alert('Could not find source queue for this DLQ');
+                    return;
+                }
+
+                const dlqArn = `arn:aws:sqs:us-east-1:000000000000:${dlqName}`;
+                const sourceArn = `arn:aws:sqs:us-east-1:000000000000:${sourceQueue.name}`;
+
+                // Use AWS SQS API to start message move task
+                const response = await fetch('/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-amz-json-1.0',
+                        'X-Amz-Target': 'AmazonSQS.StartMessageMoveTask'
+                    },
+                    body: JSON.stringify({
+                        SourceArn: dlqArn,
+                        DestinationArn: sourceArn
+                    })
+                });
+
+                if (response.ok) {
+                    await loadQueues();
+                    alert(`Messages redriven from ${dlqName} to ${sourceQueue.name}`);
+                } else {
+                    const error = await response.text();
+                    alert(`Failed to redrive messages: ${error}`);
+                }
+            } catch (error) {
+                console.error('Error redriving messages:', error);
+                alert('Failed to redrive messages. Please try again.');
+            }
+        }
+
+        async function exportConfig() {
+            try {
+                const response = await fetch('/admin/api/config/export');
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'config.yaml';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    alert('Failed to export configuration');
+                }
+            } catch (error) {
+                console.error('Error exporting config:', error);
+                alert('Failed to export configuration. Please try again.');
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('show');
+            }
+        }
+
+        // Load queues on page load
+        loadQueues();
+
+        // Auto-refresh every 5 seconds
+        setInterval(loadQueues, 5000);
+    </script>
+</body>
+</html>

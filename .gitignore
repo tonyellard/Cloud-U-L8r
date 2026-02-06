@@ -1,0 +1,40 @@
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go
+bin/
+*.exe
+*.test
+vendor/
+go.work.sum
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Service data
+**/data/objects/**
+**/data/metadata/**
+**/data/multipart/**
+**/test-bucket/
+
+# Keys and secrets
+**/keys/*.pem
+!**/keys/README.md
+
+# Build artifacts
+**/obj/
+**/bin/
+
+# Logs
+**/*.log
+
+# Terraform
+**/*.tfstate
+**/*.tfstate.backup

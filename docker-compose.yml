@@ -1,0 +1,51 @@
+services:
+  essthree:
+    build: 
+      context: ./services/essthree
+    container_name: essthree
+    ports:
+      - "9300:9300"
+    volumes:
+      - ./services/essthree/data:/data
+    environment:
+      - DATA_DIR=/data
+      - TZ=UTC
+    restart: unless-stopped
+    networks:
+      - shared-network
+
+  cloudfauxnt:
+    build: 
+      context: ./services/cloudfauxnt
+    container_name: cloudfauxnt
+    ports:
+      - "9310:9310"
+    volumes:
+      - ./services/cloudfauxnt/config.yaml:/app/config.yaml:ro
+      - ./services/cloudfauxnt/keys:/app/keys:ro
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+    depends_on:
+      - essthree
+    networks:
+      - shared-network
+
+  ess-queue-ess:
+    build: 
+      context: ./services/ess-queue-ess
+    container_name: ess-queue-ess
+    ports:
+      - "9320:9320"
+    environment:
+      - PORT=9320
+    volumes:
+      - ./services/ess-queue-ess/data:/app/data
+      - ./services/ess-queue-ess/config.yaml:/app/config.yaml:ro
+    command: ["./ess-queue-ess", "--config", "/app/config.yaml"]
+    networks:
+      - shared-network
+
+networks:
+  shared-network:
+    driver: bridge

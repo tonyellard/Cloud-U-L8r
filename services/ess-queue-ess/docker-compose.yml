@@ -1,0 +1,18 @@
+services:
+  ess-queue-ess:
+    build: .
+    ports:
+      - "9320:9320"
+    environment:
+      - PORT=9320
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["./ess-queue-ess", "--config", "/app/config.yaml"]
+    container_name: ess-queue-ess
+    networks:
+      - shared-network
+
+networks:
+  shared-network:
+    external: true

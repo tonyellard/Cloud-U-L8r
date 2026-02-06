@@ -1,0 +1,18 @@
+services:
+  ess-three:
+    build: .
+    container_name: ess-three
+    ports:
+      - "9300:9300"
+    volumes:
+      - ./data:/data
+    environment:
+      - DATA_DIR=/data
+      - TZ=UTC
+    restart: unless-stopped
+    networks:
+      - shared-network
+
+networks:
+  shared-network:
+    external: true
