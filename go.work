@@ -3,5 +3,6 @@ go 1.25.6
 use (
 	./services/cloudfauxnt
 	./services/ess-queue-ess
+	./services/ess-enn-ess
 	./services/essthree
 )

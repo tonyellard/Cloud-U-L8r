@@ -1,0 +1,4 @@
+*.log
+*.db
+*.yaml
+!config.example.yaml

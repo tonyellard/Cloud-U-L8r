@@ -1,0 +1,87 @@
+# SNS Emulator Configuration
+# This is an example configuration file for the ess-enn-ess (SNS emulator) service
+
+server:
+  # API server settings
+  api_port: 9330
+  admin_port: 9331
+  host: "0.0.0.0"
+  timeout_seconds: 30
+
+storage:
+  # Storage backend type (currently only "memory" is supported)
+  type: "memory"
+  # Maximum number of activity log entries to keep in memory
+  activity_log_size: 10000
+  # Whether to persist configuration to disk
+  persist_config: true
+  # File path for persisted state and configuration
+  config_file: "./data/sns_state.yaml"
+
+activity_log:
+  # Enable/disable activity logging
+  enabled: true
+  # File path for activity log output (in addition to console)
+  log_file: "./data/activity.log"
+  # How many days to retain activity logs before cleanup
+  retention_days: 7
+  # Stream activity log entries to admin UI in real-time
+  stream_to_admin_ui: true
+
+sqs:
+  # Enable/disable SQS integration for subscriptions
+  enabled: true
+  # SQS endpoint URL (should be your ess-queue-ess service)
+  endpoint: "http://ess-queue-ess:9320"
+  # AWS region for SQS operations
+  region: "us-east-1"
+  # Action when delivery queue is not found: "create_queue", "log_error", "skip"
+  on_queue_not_found: "log_error"
+  # Maximum number of delivery retry attempts
+  max_retries: 3
+  # Backoff time in milliseconds between retries
+  retry_backoff_ms: 100
+
+http:
+  # Enable/disable HTTP endpoint subscriptions
+  enabled: true
+  # Maximum number of delivery retry attempts
+  max_retries: 3
+  # Backoff time in milliseconds between retries
+  retry_backoff_ms: 100
+  # Timeout for HTTP requests in seconds
+  timeout_seconds: 10
+
+messages:
+  # Maximum message size in bytes (AWS default is 262KB)
+  max_size: 262144
+  # How long to keep messages in the system (in hours)
+  retention_period: 96
+
+admin:
+  # Enable/disable admin UI
+  enabled: true
+  # Admin UI port
+  port: 9331
+
+telemetry:
+  # Enable/disable metrics collection
+  metrics_enabled: true
+  # Enable/disable request tracing
+  tracing_enabled: true
+  # Telemetry export interval in seconds
+  export_interval_seconds: 60
+
+aws:
+  # AWS Account ID to use in ARNs
+  account_id: "123456789012"
+  # AWS Region
+  region: "us-east-1"
+
+developer:
+  # Disable authentication (use only in development)
+  no_auth: true
+  # Show verbose error messages
+  verbose_errors: true
+  # Auto-confirm subscriptions without validation
+  auto_confirm_subscriptions: true
