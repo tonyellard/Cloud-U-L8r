@@ -46,6 +46,22 @@ services:
     networks:
       - shared-network
 
+  ess-enn-ess:
+    build: 
+      context: ./services/ess-enn-ess
+    container_name: ess-enn-ess
+    ports:
+      - "9330:9330"
+      - "9331:9331"
+    volumes:
+      - ./services/ess-enn-ess/config:/app/config
+      - ./services/ess-enn-ess/data:/app/data
+    command: ["-config", "/app/config/config.yaml"]
+    networks:
+      - shared-network
+    depends_on:
+      - ess-queue-ess
+
 networks:
   shared-network:
     driver: bridge
