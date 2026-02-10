@@ -38,3 +38,6 @@ docker-compose.override.yml
 # Terraform
 **/*.tfstate
 **/*.tfstate.backup
+
+# Planning documents (local development only)
+planning/
