@@ -1,8 +1,8 @@
-# SNS Emulator (ess-enn-ess) - Phase 1 Implementation Summary
+# SNS Emulator (ess-enn-ess) - Phase 1 & 2 Implementation Summary
 
-**Status**: ✅ Phase 1 Complete and Running  
+**Status**: ✅ Phase 1 Complete | ✅ Phase 2 Complete (Admin Dashboard)  
 **Last Updated**: February 10, 2025  
-**Commits**: 3 commits (ce6e0fc, 3dc5553, ed5d834)
+**Commits**: Phase 1 (ce6e0fc, 3dc5553, ed5d834) | Phase 2 (pending)
 
 ## Overview
 
@@ -237,27 +237,93 @@ The Admin UI component (port 9331) is ready for implementation with:
 5. **Developer Friendly**: No auth, verbose errors, sensible defaults
 6. **Fully Dockerized**: Complete container setup with health checks
 7. **Well Documented**: Comprehensive README and inline code comments
+8. **Admin Dashboard**: Web-based UI for monitoring topics and activities in real-time
+9. **REST Admin API**: JSON endpoints for programmatic access to topics and logs
+10. **Configuration Export**: YAML export for backup and migration
+
+## Phase 2: Admin Dashboard Implementation
+
+### Admin Server
+- **Admin HTTP Server** (`internal/admin/admin.go`)
+  - Runs on port 9331 (separate from API port 9330)
+  - Serves embedded web dashboard (HTML/CSS/JavaScript all-in-one)
+  - RESTful API endpoints for topic and activity data
+  - JSON responses with comprehensive metadata
+  
+### Web Dashboard
+- **Interactive UI** (Embedded in admin.go)
+  - Real-time topic list with metadata (ARN, name, type, subscriptions)
+  - Activity log viewer with auto-refresh every 3 seconds
+  - Color-coded status indicators (Green = success, Red = failed)
+  - Topic sidebar navigation
+  - Stat cards: Topics count, Subscriptions count, Events count
+  - Export configuration button (YAML format)
+  - Responsive design for desktop/mobile viewing
+
+### Admin API Endpoints
+1. **GET /api/topics** - List all topics with metadata
+   - Returns: Topic ARN, display name, FIFO status, creation time, subscription count
+   - Format: JSON array
+
+2. **GET /api/activities** - Recent activity log with filtering
+   - Query params: `topic`, `event_type`, `status`, `limit`
+   - Returns: Event ID, timestamp, type, topic, status, duration, error message
+   - Format: JSON array
+
+3. **GET /api/export** - Download configuration as YAML
+   - Returns: All topics in YAML format (suitable for backup/migration)
+   - Content-Type: application/x-yaml
+
+4. **POST /api/import** - Import configuration from YAML (placeholder for Phase 3)
+   - Status: Reserved for future implementation
+
+5. **GET /api/activities-stream** - Real-time activity streaming (placeholder)
+   - Status: Reserved for WebSocket/SSE implementation
+
+### Integration with Main Server
+- **Concurrent Operation**: Both SNS API (9330) and Admin UI (9331) run simultaneously
+- **Shared State**: Admin server accesses same topic store and activity logger as API
+- **Graceful Shutdown**: Both servers properly closed on SIGINT/SIGTERM
+- **Updated main.go**: Creates both servers in separate goroutines with WaitGroup synchronization
+
+### Dashboard Features Implemented
+✅ Topic listing and search  
+✅ Real-time activity log with auto-refresh  
+✅ Activity filtering by topic, event type, and status  
+✅ Configuration export to YAML  
+✅ Professional UI with embedded styling and interactivity  
+✅ Auto-connecting to admin API endpoints  
+✅ Error handling and empty state displays  
 
 ## Running the Service
 
 ```bash
-# Start SNS emulator (and dependencies)
+# Start SNS emulator with admin dashboard
 docker-compose up -d ess-enn-ess
 
-# Verify health
+# Verify health - API endpoint
 curl http://localhost:9330/health
 
-# Create a topic
+# Verify health - Admin dashboard
+curl http://localhost:9331/health
+
+# Access web dashboard
+# Open in browser: http://localhost:9331
+
+# Create a topic (visible in dashboard)
 curl -X POST http://localhost:9330/ -d "Action=CreateTopic" -d "Name=my-topic"
 
-# List topics
-curl -X POST http://localhost:9330/ -d "Action=ListTopics"
+# List topics via admin API
+curl http://localhost:9331/api/topics
 
-# View logs with activity tracking
-docker-compose logs ess-enn-ess
+# Export configuration
+curl http://localhost:9331/api/export > backup.yaml
+
+# View logs
+docker-compose logs -f ess-enn-ess
 ```
 
 ---
 
-**Status**: Ready for Phase 2 - Admin Dashboard Implementation  
-**Next Steps**: Implement web-based admin interface with real-time activity streaming
+**Status**: Phase 1 & 2 Complete - SNS API + Admin Dashboard fully operational  
+**Next Steps**: Phase 3 - Subscription management and delivery

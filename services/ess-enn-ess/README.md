@@ -48,6 +48,107 @@ go build -o ess-enn-ess ./cmd/ess-enn-ess
 ./ess-enn-ess -config config/config.yaml
 ```
 
+## Admin Dashboard
+
+The SNS emulator includes a web-based admin dashboard for monitoring and managing topics in real-time.
+
+### Accessing the Dashboard
+
+After starting the emulator, open your browser to:
+
+```
+http://localhost:9331
+```
+
+### Dashboard Features
+
+- **Topics Overview**: View all created topics with metadata
+  - Topic ARN
+  - Display name
+  - Topic type (FIFO or Standard)
+  - Subscription count
+  - Creation timestamp
+
+- **Activity Log**: Real-time monitoring of all SNS operations
+  - Event type (CreateTopic, Subscribe, Publish, etc.)
+  - Topic affected
+  - Operation status (Success/Failed)
+  - Execution time
+  - Error messages
+  - Auto-refreshes every 3 seconds
+
+- **Export Configuration**: Download current topic state as YAML
+  - Includes all topics and their configuration
+  - Useful for backup or migration
+
+### Admin API Endpoints
+
+#### GET /api/topics
+
+Returns all topics with metadata.
+
+```bash
+curl http://localhost:9331/api/topics
+```
+
+**Response:**
+```json
+[
+  {
+    "topic_arn": "arn:aws:sns:us-east-1:123456789012:my-topic",
+    "display_name": "my-topic",
+    "fifo_topic": false,
+    "content_based_deduplication": false,
+    "created_at": "2026-02-10T18:22:41Z",
+    "subscription_count": 0
+  }
+]
+```
+
+#### GET /api/activities
+
+Returns recent activity log entries with optional filtering.
+
+**Query Parameters:**
+- `topic` (optional): Filter by topic ARN
+- `event_type` (optional): Filter by event type (create_topic, subscribe, publish, etc.)
+- `status` (optional): Filter by status (success, failed, pending)
+- `limit` (optional): Maximum entries to return (default: 100)
+
+```bash
+# Get all activities
+curl http://localhost:9331/api/activities
+
+# Filter by topic
+curl 'http://localhost:9331/api/activities?topic=arn:aws:sns:us-east-1:123456789012:my-topic'
+
+# Filter by event type and status
+curl 'http://localhost:9331/api/activities?event_type=create_topic&status=success'
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "1770747761962385239",
+    "timestamp": "2026-02-10T18:22:41Z",
+    "event_type": "create_topic",
+    "topic_arn": "arn:aws:sns:us-east-1:123456789012:my-topic",
+    "status": "success",
+    "duration_ms": 5,
+    "error": ""
+  }
+]
+```
+
+#### GET /api/export
+
+Exports all topics and subscriptions as YAML format.
+
+```bash
+curl http://localhost:9331/api/export > backup.yaml
+```
+
 ## Configuration
 
 Configuration is done via YAML file. An example configuration is provided at `config/config.example.yaml`.
