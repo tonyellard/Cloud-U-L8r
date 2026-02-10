@@ -50,7 +50,7 @@ go build -o ess-enn-ess ./cmd/ess-enn-ess
 
 ## Admin Dashboard
 
-The SNS emulator includes a web-based admin dashboard for monitoring and managing topics in real-time.
+The SNS emulator includes a fully-functional web-based admin dashboard for monitoring and managing topics and subscriptions in real-time. The dashboard features real-time statistics, subscription management, activity logging, and comprehensive data visualization.
 
 ### Accessing the Dashboard
 
@@ -62,24 +62,48 @@ http://localhost:9331
 
 ### Dashboard Features
 
-- **Topics Overview**: View all created topics with metadata
-  - Topic ARN
-  - Display name
-  - Topic type (FIFO or Standard)
-  - Subscription count
-  - Creation timestamp
+#### Statistics Cards
+- **Topics**: Count of created topics
+- **Subscriptions**: Total subscriptions with confirmed count
+- **Messages Published**: Total published message count
+- **Deliveries**: Successful + failed delivery tracking
+- **Total Events**: Activity log entry count
+- Auto-refreshes every 3 seconds
 
-- **Activity Log**: Real-time monitoring of all SNS operations
-  - Event type (CreateTopic, Subscribe, Publish, etc.)
-  - Topic affected
-  - Operation status (Success/Failed)
-  - Execution time
-  - Error messages
-  - Auto-refreshes every 3 seconds
+#### Topics Tab
+View all SNS topics with:
+- Topic ARN
+- Display name
+- Topic type badge (FIFO or Standard)
+- Subscription count
+- Creation timestamp
+- Click refresh to reload
 
-- **Export Configuration**: Download current topic state as YAML
-  - Includes all topics and their configuration
-  - Useful for backup or migration
+#### Subscriptions Tab
+View all subscriptions with:
+- Subscription ARN
+- Topic ARN
+- Protocol badge (HTTP, SQS, Email, Lambda)
+- Endpoint
+- Status badge (Confirmed, Pending)
+- Creation timestamp
+- Filter by topic using query parameter
+- Click refresh to reload
+
+#### Activity Log Tab
+Real-time monitoring of all SNS operations:
+- Event type (CreateTopic, Subscribe, Publish, Deliver, etc.)
+- Operation status (Success/Failed/Retrying)
+- Topic and message identifiers
+- Execution duration in milliseconds
+- Error messages for failed operations
+- Auto-scrolls to latest events
+- Reverse chronological order (newest first)
+- Auto-refreshes every 3 seconds
+
+#### Export/Import Tab
+- Download topics and subscriptions as YAML
+- Import feature coming soon
 
 ### Admin API Endpoints
 
@@ -100,7 +124,36 @@ curl http://localhost:9331/api/topics
     "fifo_topic": false,
     "content_based_deduplication": false,
     "created_at": "2026-02-10T18:22:41Z",
-    "subscription_count": 0
+    "subscription_count": 2
+  }
+]
+```
+
+#### GET /api/subscriptions
+
+Returns all subscriptions with optional filtering by topic.
+
+**Query Parameters:**
+- `topic` (optional): Filter by topic ARN
+
+```bash
+# Get all subscriptions
+curl http://localhost:9331/api/subscriptions
+
+# Filter by topic
+curl 'http://localhost:9331/api/subscriptions?topic=arn:aws:sns:us-east-1:123456789012:my-topic'
+```
+
+**Response:**
+```json
+[
+  {
+    "subscription_arn": "arn:aws:sns:us-east-1:123456789012:my-topic:11111111-1111-1111-1111-111111111111",
+    "topic_arn": "arn:aws:sns:us-east-1:123456789012:my-topic",
+    "protocol": "http",
+    "endpoint": "http://example.com/webhook",
+    "status": "confirmed",
+    "created_at": "2026-02-10T18:22:41Z"
   }
 ]
 ```
@@ -112,7 +165,7 @@ Returns recent activity log entries with optional filtering.
 **Query Parameters:**
 - `topic` (optional): Filter by topic ARN
 - `event_type` (optional): Filter by event type (create_topic, subscribe, publish, etc.)
-- `status` (optional): Filter by status (success, failed, pending)
+- `status` (optional): Filter by status (success, failed, pending, retrying)
 - `limit` (optional): Maximum entries to return (default: 100)
 
 ```bash
@@ -123,7 +176,7 @@ curl http://localhost:9331/api/activities
 curl 'http://localhost:9331/api/activities?topic=arn:aws:sns:us-east-1:123456789012:my-topic'
 
 # Filter by event type and status
-curl 'http://localhost:9331/api/activities?event_type=create_topic&status=success'
+curl 'http://localhost:9331/api/activities?event_type=publish&status=success'
 ```
 
 **Response:**
@@ -132,13 +185,44 @@ curl 'http://localhost:9331/api/activities?event_type=create_topic&status=succes
   {
     "id": "1770747761962385239",
     "timestamp": "2026-02-10T18:22:41Z",
-    "event_type": "create_topic",
+    "event_type": "publish",
     "topic_arn": "arn:aws:sns:us-east-1:123456789012:my-topic",
     "status": "success",
-    "duration_ms": 5,
+    "message_id": "11111111-1111-1111-1111-111111111111",
+    "duration_ms": 125,
     "error": ""
   }
 ]
+```
+
+#### GET /api/stats
+
+Returns aggregated statistics for dashboard.
+
+```bash
+curl http://localhost:9331/api/stats
+```
+
+**Response:**
+```json
+{
+  "topics": {
+    "total": 2
+  },
+  "subscriptions": {
+    "total": 3,
+    "confirmed": 3,
+    "pending": 0
+  },
+  "messages": {
+    "published": 2,
+    "delivered": 4,
+    "failed": 1
+  },
+  "events": {
+    "total": 12
+  }
+}
 ```
 
 #### GET /api/export
@@ -148,6 +232,8 @@ Exports all topics and subscriptions as YAML format.
 ```bash
 curl http://localhost:9331/api/export > backup.yaml
 ```
+
+**Response:** YAML-formatted configuration with topics and subscriptions
 
 ## Configuration
 
@@ -355,14 +441,71 @@ go run ./cmd/ess-enn-ess -config ./config/config.yaml
 - ✅ API handlers for topic operations
 - ✅ Docker setup
 
-### In Progress (Phase 2+)
+### Completed (Phase 3-5)
 
-- 🔄 Subscription management (Phase 3)
-- 🔄 Message publishing (Phase 4)
-- 🔄 SQS delivery integration (Phase 5)
-- 🔄 Admin dashboard UI (Phase 2)
-- 🔄 HTTP subscription delivery (Phase 6)
+- ✅ Subscription management (Phase 3)
+  - Subscribe/Unsubscribe actions
+  - List subscriptions by topic
+  - Get/Set subscription attributes
+  - Multiple protocol support (HTTP, SQS, Email, Lambda)
+- ✅ Message publishing (Phase 4)
+  - Publish action with message distribution
+  - Asynchronous delivery to confirmed subscribers
+  - Protocol-specific delivery handlers
+  - Activity logging for publish and delivery events
+- ✅ SQS delivery integration (Phase 5)
+  - Real SQS message delivery via ess-queue-ess
+  - SNS notification format wrapping
+  - Configurable SQS endpoint
+  - Error handling and retry support
+- ✅ HTTP delivery enhancements (Phase 6)
+  - Automatic retry with exponential backoff
+  - Configurable max retries and backoff timing
+  - Smart error categorization (transient vs permanent)
+  - Enhanced delivery logging with retry tracking
+  - Status code-based retry decisions (5xx, 429, 408)
+
+### Completed (Phase 7 - Admin Dashboard)
+
+- ✅ Comprehensive web-based admin dashboard
+  - Multi-tab interface (Topics, Subscriptions, Activity Log, Export)
+  - Real-time statistics with auto-refresh every 3 seconds
+  - Subscription management with protocol and status display
+  - Complete activity logging with event filtering
+  - YAML export functionality
+  - Responsive design with modern UI
+  - Auto-fetch of all API data (topics, subscriptions, activities, stats)
+
+### In Progress (Phase 8+)
+
 - 🔄 Advanced features (FIFO, DLQ, message attributes)
+- 🔄 Subscription filtering in admin UI
+- 🔄 Import functionality for YAML configuration
+
+## Testing
+
+### Integration Tests
+
+**Test message publishing:**
+```bash
+cd services/ess-enn-ess
+./test_publish.sh
+```
+
+**Test SQS integration:**
+```bash
+# Requires both ess-enn-ess and ess-queue-ess running
+./test_sqs_integration.sh
+
+# Or use the quick test (starts both services):
+./test_sqs_quick.sh
+```
+
+**Test HTTP retry logic:**
+```bash
+# Requires ess-enn-ess running
+./test_http_retry.sh
+```
 
 ## Monitoring
 

@@ -13,10 +13,17 @@ up:
 	@echo "Starting services..."
 	docker compose up -d
 
-# Stop services and remove containers
+# Stop services and remove containers (including any stray containers)
 down:
 	@echo "Stopping services..."
-	docker compose down
+	docker compose down -v
+	@echo "Stopping any remaining emulator containers..."
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess" --quiet | xargs -r docker stop 2>/dev/null || true
+	@echo "Removing stray containers by name..."
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess 2>/dev/null || true
+	@echo "Removing any remaining emulator containers by ID..."
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@echo "✅ All services stopped and cleaned up"
 
 # View logs
 logs:
@@ -32,17 +39,31 @@ test:
 	@echo "Running integration tests..."
 	@./tests/integration/test_cross_service.sh
 
-# Clean up docker artifacts
+# Clean up docker artifacts (containers, volumes, images)
 clean:
-	@echo "Cleaning up..."
-	docker compose down -v --rmi local
+	@echo "Cleaning up all Docker artifacts..."
+	docker compose down -v --rmi local 2>/dev/null || true
+	@echo "Stopping any remaining emulator containers..."
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess" --quiet | xargs -r docker stop 2>/dev/null || true
+	@echo "Removing stray containers by name..."
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess 2>/dev/null || true
+	@echo "Removing any remaining emulator containers by ID..."
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@echo "Removing stray volumes..."
+	docker volume rm cloud-u-l8r_shared-network 2>/dev/null || true
+	@echo "✅ Cleanup complete"
 
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build  - Build all Docker images"
-	@echo "  up     - Start all services"
-	@echo "  down   - Stop all services"
-	@echo "  logs   - View logs from all services"
-	@echo "  test   - Run Go tests in all services"
-	@echo "  clean  - Remove containers, volumes, and images"
+	@echo "  build        - Build all Docker images"
+	@echo "  up           - Start all services"
+	@echo "  down         - Stop all services (removes stray containers)"
+	@echo "  logs         - View logs from all services"
+	@echo "  test         - Run Go tests in all services"
+	@echo "  clean        - Remove containers, volumes, and images"
+	@echo ""
+	@echo "Utility scripts:"
+	@echo "  bash cleanup-stack.sh      - Manual aggressive cleanup"
+	@echo "  bash verify-stack.sh       - Check all services health"
+	@echo "  bash test-cleanup.sh       - Test cleanup procedure"

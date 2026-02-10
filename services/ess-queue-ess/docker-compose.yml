@@ -1,18 +1,11 @@
-services:
-  ess-queue-ess:
-    build: .
-    ports:
-      - "9320:9320"
-    environment:
-      - PORT=9320
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    command: ["./ess-queue-ess", "--config", "/app/config.yaml"]
-    container_name: ess-queue-ess
-    networks:
-      - shared-network
+# This file is DISABLED - it interferes with the main docker-compose.yml
+# DO NOT USE THIS FILE DIRECTLY
+# Instead, run from the main cloud-u-l8r directory:
+#   cd /home/tony/Documents/cloud-u-l8r
+#   docker-compose up -d
+#
+# Or use the startup script:
+#   bash /home/tony/Documents/cloud-u-l8r/start-stack.sh
 
-networks:
-  shared-network:
-    external: true
+version: '3'
+services: {}

@@ -36,7 +36,7 @@ func main() {
 	// Create server
 	logger.Info("Creating SNS server", "api_port", cfg.Server.APIPort, "admin_port", cfg.Server.AdminPort)
 	snsServer := server.NewServer(cfg, logger)
-	adminServer := admin.NewServer(cfg, logger, snsServer.GetTopicStore(), snsServer.GetActivityLogger())
+	adminServer := admin.NewServer(cfg, logger, snsServer.GetTopicStore(), snsServer.GetSubscriptionStore(), snsServer.GetActivityLogger())
 
 	// Start both servers in goroutines
 	serverErrors := make(chan error, 2)
