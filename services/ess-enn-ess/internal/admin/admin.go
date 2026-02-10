@@ -172,10 +172,10 @@ func (s *Server) handleSubscriptions(w http.ResponseWriter, r *http.Request) {
 		// Validate protocol
 		protocol := subscription.Protocol(req.Protocol)
 		if protocol != subscription.ProtocolHTTP &&
-			protocol != subscription.ProtocolHTTPS &&
 			protocol != subscription.ProtocolEmail &&
-			protocol != subscription.ProtocolSQS {
-			http.Error(w, "Invalid protocol. Must be http, https, email, or sqs", http.StatusBadRequest)
+			protocol != subscription.ProtocolSQS &&
+			protocol != subscription.ProtocolLambda {
+			http.Error(w, "Invalid protocol. Must be http, email, sqs, or lambda", http.StatusBadRequest)
 			return
 		}
 

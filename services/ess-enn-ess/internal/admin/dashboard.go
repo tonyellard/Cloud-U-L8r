@@ -455,9 +455,9 @@ const dashboardHTML = `<!DOCTYPE html>
                             <label for="subProtocol">Protocol *</label>
                             <select id="subProtocol">
                                 <option value="http">HTTP</option>
-                                <option value="https">HTTPS</option>
                                 <option value="sqs">SQS</option>
                                 <option value="email">Email</option>
+                                <option value="lambda">Lambda</option>
                             </select>
                         </div>
                     </div>
