@@ -32,8 +32,8 @@ COPY --from=builder /build/ess-enn-ess .
 # Create data directory
 RUN mkdir -p /app/data
 
-# Expose ports
-EXPOSE 9330 9331
+# Expose port
+EXPOSE 9330
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

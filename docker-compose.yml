@@ -52,7 +52,6 @@ services:
     container_name: ess-enn-ess
     ports:
       - "9330:9330"
-      - "9331:9331"
     volumes:
       - ./services/ess-enn-ess/config:/app/config
       - ./services/ess-enn-ess/data:/app/data

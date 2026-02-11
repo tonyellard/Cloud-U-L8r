@@ -13,6 +13,36 @@ import (
 	"github.com/tonyellard/ess-enn-ess/internal/topic"
 )
 
+// GetAdminRouteHandlers returns all admin dashboard route handlers
+// This allows the admin routes to be registered on the SNS server's mux
+func GetAdminRouteHandlers(cfg *config.Config, logger *slog.Logger, topicStore *topic.Store, subscriptionStore *subscription.Store, activityLogger *activity.Logger) (http.HandlerFunc, map[string]http.HandlerFunc) {
+	// Create a temporary admin server just to get its methods
+	s := &Server{
+		config:            cfg,
+		logger:            logger,
+		topicStore:        topicStore,
+		subscriptionStore: subscriptionStore,
+		activityLogger:    activityLogger,
+	}
+
+	// Return the dashboard handler and a map of API handlers
+	dashboardHandler := s.handleDashboard
+
+	apiHandlers := map[string]http.HandlerFunc{
+		"/api/topics":               s.handleTopics,
+		"/api/topics/delete":        s.handleDeleteTopic,
+		"/api/subscriptions":        s.handleSubscriptions,
+		"/api/subscriptions/delete": s.handleDeleteSubscription,
+		"/api/activities":           s.handleGetActivities,
+		"/api/stats":                s.handleGetStats,
+		"/api/export":               s.handleExport,
+		"/api/import":               s.handleImport,
+		"/api/activities-stream":    s.handleActivityStream,
+	}
+
+	return dashboardHandler, apiHandlers
+}
+
 // Server represents the admin dashboard server
 type Server struct {
 	config            *config.Config

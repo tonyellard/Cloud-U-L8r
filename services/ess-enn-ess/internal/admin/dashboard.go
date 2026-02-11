@@ -1,5 +1,10 @@
 package admin
 
+// GetDashboardHTML returns the dashboard HTML content
+func GetDashboardHTML() string {
+	return dashboardHTML
+}
+
 const dashboardHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>

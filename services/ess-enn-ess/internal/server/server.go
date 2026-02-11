@@ -47,6 +47,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", s.handleHealth)
 }
 
+// RegisterAdminRoutes registers the admin dashboard routes on the same server
+func (s *Server) RegisterAdminRoutes(dashboardHandler http.HandlerFunc, apiHandlers map[string]http.HandlerFunc) {
+	s.mux.HandleFunc("/admin", dashboardHandler)
+	for path, handler := range apiHandlers {
+		s.mux.HandleFunc(path, handler)
+	}
+}
+
 // handleHealth handles health check requests
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
