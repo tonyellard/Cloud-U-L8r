@@ -446,6 +446,27 @@ const dashboardHTML = `<!DOCTYPE html>
                         <tr><td colspan="6" class="empty-state">No topics yet</td></tr>
                     </tbody>
                 </table>
+                
+                <hr style="margin: 2rem 0; border: none; border-top: 2px solid #e9ecef;">
+                
+                <div class="form-card">
+                    <h3 style="margin-bottom: 1rem;">Send Message to Topic</h3>
+                    <div class="form-group">
+                        <label for="msgTopicArn">Topic ARN *</label>
+                        <select id="msgTopicArn" required>
+                            <option value="">-- Select a topic --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="msgSubject">Subject (optional)</label>
+                        <input type="text" id="msgSubject" placeholder="Message subject">
+                    </div>
+                    <div class="form-group">
+                        <label for="msgBody">Message *</label>
+                        <textarea id="msgBody" placeholder="Enter your message" required style="width: 100%; padding: 0.5rem; border: 1px solid #ced4da; border-radius: 4px; font-size: 0.9rem; min-height: 100px; font-family: monospace;"></textarea>
+                    </div>
+                    <button class="btn" onclick="sendMessage()">📤 Send Message</button>
+                </div>
             </div>
             
             <div id="subscriptions-tab" class="tab-content">
@@ -533,7 +554,10 @@ const dashboardHTML = `<!DOCTYPE html>
             event.target.classList.add('active');
             currentTab = tabName;
             
-            if (tabName === 'topics') loadTopics();
+            if (tabName === 'topics') {
+                loadTopics();
+                loadMessagesDropdown();
+            }
             else if (tabName === 'subscriptions') {
                 loadTopicsDropdown();
                 loadSubscriptions();
@@ -682,6 +706,75 @@ const dashboardHTML = `<!DOCTYPE html>
             } catch (error) {
                 console.error('Error deleting topic:', error);
                 alert('Error deleting topic: ' + error.message);
+            }
+        }
+        
+        async function loadMessagesDropdown() {
+            try {
+                const response = await fetch('/api/topics');
+                const topics = await response.json();
+                const select = document.getElementById('msgTopicArn');
+                
+                // Keep the "Select a topic" option and clear others
+                select.innerHTML = '<option value="">-- Select a topic --</option>';
+                
+                if (topics.length > 0) {
+                    for (let i = 0; i < topics.length; i++) {
+                        const topic = topics[i];
+                        const option = document.createElement('option');
+                        option.value = topic.topic_arn;
+                        option.textContent = topic.display_name || topic.topic_arn;
+                        select.appendChild(option);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading topics dropdown:', error);
+            }
+        }
+        
+        async function sendMessage() {
+            const topicArn = document.getElementById('msgTopicArn').value.trim();
+            const subject = document.getElementById('msgSubject').value.trim();
+            const message = document.getElementById('msgBody').value.trim();
+            
+            if (!topicArn || !message) {
+                alert('Topic ARN and Message are required');
+                return;
+            }
+            
+            try {
+                // Use form data for SNS Publish API call
+                const formData = new FormData();
+                formData.append('Action', 'Publish');
+                formData.append('TopicArn', topicArn);
+                formData.append('Message', message);
+                if (subject) {
+                    formData.append('Subject', subject);
+                }
+                
+                const response = await fetch('/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    alert('Error sending message: ' + error);
+                    return;
+                }
+                
+                // Clear form
+                document.getElementById('msgTopicArn').value = '';
+                document.getElementById('msgSubject').value = '';
+                document.getElementById('msgBody').value = '';
+                
+                // Reload stats and activity
+                await loadStats();
+                if (currentTab === 'activity') await loadActivities();
+                alert('Message sent successfully!');
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Error sending message: ' + error.message);
             }
         }
         
@@ -845,6 +938,7 @@ const dashboardHTML = `<!DOCTYPE html>
         window.addEventListener('load', () => {
             loadStats();
             loadTopics();
+            loadMessagesDropdown();
             
             // Auto-refresh every 3 seconds
             setInterval(() => {
