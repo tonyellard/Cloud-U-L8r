@@ -33,7 +33,7 @@ sqs:
   enabled: true
   # SQS endpoint URL (should be your ess-queue-ess service)
   # Use "http://localhost:9320" when running locally, "http://ess-queue-ess:9320" in Docker
-  endpoint: "http://localhost:9320"
+  endpoint: "http://ess-queue-ess:9320"
   # AWS region for SQS operations
   region: "us-east-1"
   # Action when delivery queue is not found: "create_queue", "log_error", "skip"

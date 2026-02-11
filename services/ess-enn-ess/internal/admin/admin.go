@@ -2,9 +2,12 @@ package admin
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tonyellard/ess-enn-ess/internal/activity"
@@ -33,6 +36,7 @@ func GetAdminRouteHandlers(cfg *config.Config, logger *slog.Logger, topicStore *
 		"/api/topics/delete":        s.handleDeleteTopic,
 		"/api/subscriptions":        s.handleSubscriptions,
 		"/api/subscriptions/delete": s.handleDeleteSubscription,
+		"/api/sqs/queues":           s.handleSQSQueues,
 		"/api/activities":           s.handleGetActivities,
 		"/api/stats":                s.handleGetStats,
 		"/api/export":               s.handleExport,
@@ -202,10 +206,8 @@ func (s *Server) handleSubscriptions(w http.ResponseWriter, r *http.Request) {
 		// Validate protocol
 		protocol := subscription.Protocol(req.Protocol)
 		if protocol != subscription.ProtocolHTTP &&
-			protocol != subscription.ProtocolEmail &&
-			protocol != subscription.ProtocolSQS &&
-			protocol != subscription.ProtocolLambda {
-			http.Error(w, "Invalid protocol. Must be http, email, sqs, or lambda", http.StatusBadRequest)
+			protocol != subscription.ProtocolSQS {
+			http.Error(w, "Invalid protocol. Must be http or sqs", http.StatusBadRequest)
 			return
 		}
 
@@ -407,6 +409,70 @@ func (s *Server) handleActivityStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	fmt.Fprintf(w, "data: {\"status\":\"connected\"}\n\n")
 	s.logger.Debug("Activity stream connected")
+}
+
+// handleSQSQueues lists available SQS queues
+func (s *Server) handleSQSQueues(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Call SQS ListQueues API
+	sqsEndpoint := s.config.SQS.Endpoint
+	resp, err := http.Post(sqsEndpoint, "application/x-www-form-urlencoded", strings.NewReader("Action=ListQueues"))
+	if err != nil {
+		s.logger.Error("failed to call SQS ListQueues", "error", err)
+		http.Error(w, fmt.Sprintf("Failed to list SQS queues: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Parse SQS XML response
+	type ListQueuesResult struct {
+		QueueUrls []string `xml:"QueueUrl"`
+	}
+	type ListQueuesResponse struct {
+		Result ListQueuesResult `xml:"ListQueuesResult"`
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		s.logger.Error("failed to read SQS response", "error", err)
+		http.Error(w, "Failed to read SQS response", http.StatusInternalServerError)
+		return
+	}
+
+	var result ListQueuesResponse
+	if err := xml.Unmarshal(body, &result); err != nil {
+		s.logger.Warn("failed to parse SQS response", "error", err)
+		// Return empty list instead of error for graceful degradation
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]string{})
+		return
+	}
+
+	// Convert to JSON response
+	queues := make([]map[string]string, 0)
+	for _, queueUrl := range result.Result.QueueUrls {
+		queues = append(queues, map[string]string{
+			"url":  queueUrl,
+			"name": extractQueueName(queueUrl),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(queues)
+}
+
+// extractQueueName extracts the queue name from a queue URL
+func extractQueueName(queueUrl string) string {
+	// Queue URL format: http://localhost:9320/queue-name
+	parts := strings.Split(queueUrl, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return queueUrl
 }
 
 // Start starts the admin HTTP server

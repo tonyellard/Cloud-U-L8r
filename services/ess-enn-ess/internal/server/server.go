@@ -73,9 +73,17 @@ func (s *Server) handleSNSRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
+	// Handle both application/x-www-form-urlencoded and multipart/form-data
+	if r.Header.Get("Content-Type") != "" && r.Header.Get("Content-Type")[:9] == "multipart" {
+		if err := r.ParseMultipartForm(10 << 20); err != nil { // 10MB limit
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
 	}
 
 	action := r.FormValue("Action")

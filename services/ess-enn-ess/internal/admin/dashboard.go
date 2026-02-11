@@ -481,17 +481,23 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
                         <div class="form-group">
                             <label for="subProtocol">Protocol *</label>
-                            <select id="subProtocol">
+                            <select id="subProtocol" onchange="updateProtocolDisplay()">
                                 <option value="http">HTTP</option>
                                 <option value="sqs">SQS</option>
-                                <option value="email">Email</option>
-                                <option value="lambda">Lambda</option>
                             </select>
                         </div>
                     </div>
-                    <div class="form-group">
+                    <div id="httpEndpointGroup" class="form-group" style="display: block;">
                         <label for="subEndpoint">Endpoint *</label>
-                        <input type="text" id="subEndpoint" placeholder="http://localhost:8080/webhook or queue-name" required>
+                        <input type="text" id="subEndpoint" placeholder="http://localhost:8080/webhook" required>
+                    </div>
+                    <div id="sqsQueueGroup" class="form-group" style="display: none;">
+                        <label for="sqsQueueSelect">Select Queue</label>
+                        <select id="sqsQueueSelect">
+                            <option value="">-- Loading queues --</option>
+                        </select>
+                        <small style="color: #666; display: block; margin-top: 0.5rem;">Or enter manually:</small>
+                        <input type="text" id="sqsEndpointManual" placeholder="http://localhost:9320/queue-name" style="margin-top: 0.5rem;">
                     </div>
                     <div class="checkbox-group" style="margin-bottom: 1rem;">
                         <input type="checkbox" id="autoConfirm" checked>
@@ -561,6 +567,7 @@ const dashboardHTML = `<!DOCTYPE html>
             else if (tabName === 'subscriptions') {
                 loadTopicsDropdown();
                 loadSubscriptions();
+                loadSQSQueues();
             }
             else if (tabName === 'activity') loadActivities();
         }
@@ -675,6 +682,7 @@ const dashboardHTML = `<!DOCTYPE html>
                 // Reload topics
                 await loadTopics();
                 await loadStats();
+                await loadMessagesDropdown();
                 alert('Topic created successfully!');
             } catch (error) {
                 console.error('Error creating topic:', error);
@@ -702,6 +710,7 @@ const dashboardHTML = `<!DOCTYPE html>
                 
                 await loadTopics();
                 await loadStats();
+                await loadMessagesDropdown();
                 alert('Topic deleted successfully!');
             } catch (error) {
                 console.error('Error deleting topic:', error);
@@ -814,10 +823,60 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
         
+        async function loadSQSQueues() {
+            try {
+                const response = await fetch('/api/sqs/queues');
+                const queues = await response.json();
+                const select = document.getElementById('sqsQueueSelect');
+                
+                // Keep the "Select a queue" option and clear others
+                select.innerHTML = '<option value="">-- Select a queue --</option>';
+                
+                if (queues && queues.length > 0) {
+                    for (let i = 0; i < queues.length; i++) {
+                        const queue = queues[i];
+                        const option = document.createElement('option');
+                        option.value = queue.url;
+                        option.textContent = queue.name;
+                        select.appendChild(option);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading SQS queues:', error);
+                const select = document.getElementById('sqsQueueSelect');
+                select.innerHTML = '<option value="">Error loading queues</option>';
+            }
+        }
+        
+        function updateProtocolDisplay() {
+            const protocol = document.getElementById('subProtocol').value;
+            const httpGroup = document.getElementById('httpEndpointGroup');
+            const sqsGroup = document.getElementById('sqsQueueGroup');
+            
+            if (protocol === 'sqs') {
+                httpGroup.style.display = 'none';
+                sqsGroup.style.display = 'block';
+                loadSQSQueues();
+            } else {
+                httpGroup.style.display = 'block';
+                sqsGroup.style.display = 'none';
+            }
+        }
+        
         async function createSubscription() {
             const topicArn = document.getElementById('subTopicArn').value.trim();
             const protocol = document.getElementById('subProtocol').value;
-            const endpoint = document.getElementById('subEndpoint').value.trim();
+            let endpoint = '';
+            
+            if (protocol === 'http') {
+                endpoint = document.getElementById('subEndpoint').value.trim();
+            } else if (protocol === 'sqs') {
+                // Try to get from dropdown first, then manual entry
+                const selected = document.getElementById('sqsQueueSelect').value.trim();
+                const manual = document.getElementById('sqsEndpointManual').value.trim();
+                endpoint = selected || manual;
+            }
+            
             const autoConfirm = document.getElementById('autoConfirm').checked;
             
             if (!topicArn || !endpoint) {
@@ -846,6 +905,7 @@ const dashboardHTML = `<!DOCTYPE html>
                 // Clear form
                 document.getElementById('subTopicArn').value = '';
                 document.getElementById('subEndpoint').value = '';
+                document.getElementById('sqsEndpointManual').value = '';
                 document.getElementById('autoConfirm').checked = true;
                 
                 // Reload subscriptions

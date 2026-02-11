@@ -1,4 +1,4 @@
-.PHONY: all build rebuild up down logs test clean help
+.PHONY: all build rebuild up down logs test clean status help
 
 # ============================================================
 # Cloud-U-L8r Stack Management
@@ -44,6 +44,10 @@ down:
 logs:
 	docker compose logs -f
 
+# Show status of all containers
+status:
+	docker ps -a
+
 # Run tests in all services
 test:
 	@echo "Running unit tests..."
@@ -80,6 +84,7 @@ help:
 	@echo "  up           - Build and start all services (automatically rebuilds if code changed)"
 	@echo "  down         - Stop all services (removes stray containers)"
 	@echo "  logs         - View logs from all services"
+	@echo "  status       - Show status of all Docker containers"
 	@echo "  test         - Run Go tests in all services"
 	@echo "  clean        - Remove containers, volumes, networks, and images (full reset)"
 	@echo ""
