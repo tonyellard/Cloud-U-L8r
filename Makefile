@@ -14,12 +14,12 @@ all: build
 # Build all docker services (rebuild all images)
 build:
 	@echo "Building all services..."
-	docker compose build --parallel 2
+	docker compose --parallel 2 build
 
 # Force a full rebuild (clean old images and rebuild)
 rebuild: clean
 	@echo "Full rebuild in progress..."
-	docker compose build --no-cache --parallel 2
+	docker compose --no-cache --parallel 2 build
 	@echo "✅ Full rebuild complete"
 
 # Start services in detached mode (depends on build to ensure fresh images)
