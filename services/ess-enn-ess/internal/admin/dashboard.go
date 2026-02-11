@@ -454,7 +454,9 @@ const dashboardHTML = `<!DOCTYPE html>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="subTopicArn">Topic ARN *</label>
-                            <input type="text" id="subTopicArn" placeholder="arn:aws:sns:us-east-1:000000000000:my-topic" required>
+                            <select id="subTopicArn" required>
+                                <option value="">-- Select a topic --</option>
+                            </select>
                         </div>
                         <div class="form-group">
                             <label for="subProtocol">Protocol *</label>
@@ -532,7 +534,10 @@ const dashboardHTML = `<!DOCTYPE html>
             currentTab = tabName;
             
             if (tabName === 'topics') loadTopics();
-            else if (tabName === 'subscriptions') loadSubscriptions();
+            else if (tabName === 'subscriptions') {
+                loadTopicsDropdown();
+                loadSubscriptions();
+            }
             else if (tabName === 'activity') loadActivities();
         }
         
@@ -550,6 +555,29 @@ const dashboardHTML = `<!DOCTYPE html>
                 document.getElementById('totalEvents').textContent = stats.events.total;
             } catch (error) {
                 console.error('Error loading stats:', error);
+            }
+        }
+        
+        async function loadTopicsDropdown() {
+            try {
+                const response = await fetch('/api/topics');
+                const topics = await response.json();
+                const select = document.getElementById('subTopicArn');
+                
+                // Keep the "Select a topic" option and clear others
+                select.innerHTML = '<option value="">-- Select a topic --</option>';
+                
+                if (topics.length > 0) {
+                    for (let i = 0; i < topics.length; i++) {
+                        const topic = topics[i];
+                        const option = document.createElement('option');
+                        option.value = topic.topic_arn;
+                        option.textContent = topic.display_name || topic.topic_arn;
+                        select.appendChild(option);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading topics dropdown:', error);
             }
         }
         
