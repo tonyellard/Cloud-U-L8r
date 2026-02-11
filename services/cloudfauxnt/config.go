@@ -90,7 +90,7 @@ func LoadConfig(path string) (*Config, error) {
 	// Load public key if signing is enabled
 	if config.Signing.Enabled {
 		if err := config.loadPublicKey(); err != nil {
-			return nil, fmt.Errorf("failed to load public key: %w", err)
+			return nil, err
 		}
 	}
 
@@ -171,7 +171,7 @@ func (c *Config) Validate() error {
 func (c *Config) loadPublicKey() error {
 	keyData, err := os.ReadFile(c.Signing.PublicKeyPath)
 	if err != nil {
-		return fmt.Errorf("failed to read public key file: %w", err)
+		return fmt.Errorf("failed to read public key file at %q: %w. Please generate signing keys by following the instructions in services/cloudfauxnt/keys/README.md", c.Signing.PublicKeyPath, err)
 	}
 
 	block, _ := pem.Decode(keyData)
