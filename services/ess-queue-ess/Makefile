@@ -4,7 +4,7 @@
 BINARY_NAME=ess-queue-ess
 DOCKER_IMAGE=ess-queue-ess:latest
 PORT=9320
-CONFIG_FILE=config.yaml
+CONFIG_FILE=../../config/ess-queue-ess.config.yaml
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -64,7 +64,8 @@ deps: ## Download Go dependencies
 	go mod download
 	go mod tidy
 
-config: ## Create config.yaml from example
+config: ## Create central config from example
+	@mkdir -p ../../config
 	@if [ ! -f $(CONFIG_FILE) ]; then \
 		cp config.example.yaml $(CONFIG_FILE); \
 		echo "Created $(CONFIG_FILE) from example"; \

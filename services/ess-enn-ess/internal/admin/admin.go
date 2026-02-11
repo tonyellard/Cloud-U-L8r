@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/tonyellard/ess-enn-ess/internal/activity"
 	"github.com/tonyellard/ess-enn-ess/internal/config"
 	"github.com/tonyellard/ess-enn-ess/internal/subscription"
@@ -357,7 +359,7 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
-// handleExport exports current state as YAML
+// handleExport exports current configuration and state as YAML
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -365,29 +367,25 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/yaml")
-	w.Header().Set("Content-Disposition", "attachment; filename=sns_export.yaml")
+	w.Header().Set("Content-Disposition", "attachment; filename=sns-export.yaml")
 
-	topics := s.topicStore.ListTopics()
-	subscriptions := s.subscriptionStore.ListAll()
-
-	fmt.Fprintf(w, "topics:\n")
-	for _, t := range topics {
-		fmt.Fprintf(w, "  - arn: %s\n", t.TopicArn)
-		fmt.Fprintf(w, "    display_name: %s\n", t.DisplayName)
-		fmt.Fprintf(w, "    fifo_topic: %v\n", t.FifoTopic)
-		fmt.Fprintf(w, "    content_based_deduplication: %v\n", t.ContentBased)
+	// Create export structure with config and state
+	export := map[string]interface{}{
+		"config":        s.config,
+		"topics":        s.topicStore.ListTopics(),
+		"subscriptions": s.subscriptionStore.ListAll(),
 	}
 
-	fmt.Fprintf(w, "\nsubscriptions:\n")
-	for _, sub := range subscriptions {
-		fmt.Fprintf(w, "  - arn: %s\n", sub.SubscriptionArn)
-		fmt.Fprintf(w, "    topic: %s\n", sub.TopicArn)
-		fmt.Fprintf(w, "    protocol: %s\n", sub.Protocol)
-		fmt.Fprintf(w, "    endpoint: %s\n", sub.Endpoint)
-		fmt.Fprintf(w, "    status: %s\n", sub.Status)
+	// Marshal to YAML
+	data, err := yaml.Marshal(export)
+	if err != nil {
+		s.logger.Error("failed to marshal export", "error", err)
+		http.Error(w, "Failed to marshal export", http.StatusInternalServerError)
+		return
 	}
 
-	s.logger.Info("SNS state exported")
+	w.Write(data)
+	s.logger.Info("SNS configuration and state exported")
 }
 
 // handleImport imports configuration from YAML (placeholder)

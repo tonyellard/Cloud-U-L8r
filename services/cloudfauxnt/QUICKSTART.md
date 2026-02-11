@@ -15,8 +15,9 @@ CloudFauxnt is a CloudFront emulator that adds CloudFront-like features to your 
 ### 1. Create Configuration
 
 ```bash
-# Copy the example config
-cp config.example.yaml config.yaml
+# Copy the example config into the central config directory
+mkdir -p ../../config
+cp config.example.yaml ../../config/cloudfauxnt.config.yaml
 ```
 
 The default config proxies to `http://ess-three:9000` with path rewriting: `/s3/*` → `/test-bucket/*`
@@ -57,7 +58,7 @@ curl http://localhost:9310/s3/MyTestFile.txt
 
 ## Configuration Basics
 
-Edit `config.yaml` to customize CloudFauxnt's behavior:
+Edit `config/cloudfauxnt.config.yaml` to customize CloudFauxnt's behavior:
 
 ```yaml
 server:
@@ -143,10 +144,10 @@ cd /path/to/ess-three
 ```bash
 cd /path/to/CloudFauxnt
 go build -o cloudfauxnt .
-./cloudfauxnt --config config.yaml
+./cloudfauxnt --config ../../config/cloudfauxnt.config.yaml
 ```
 
-**Update config.yaml:**
+**Update config/cloudfauxnt.config.yaml:**
 ```yaml
 origins:
   - name: s3
@@ -169,7 +170,7 @@ origins:
    cd ..
    ```
 
-2. **Update config.yaml:**
+2. **Update config/cloudfauxnt.config.yaml:**
    ```yaml
    signing:
      enabled: true
@@ -277,7 +278,7 @@ cors:
 
 ### "No origin found for path"
 
-- Check your `path_patterns` in config.yaml
+- Check your `path_patterns` in config/cloudfauxnt.config.yaml
 - Patterns match longest-first
 - Use `/*` as a catch-all
 
@@ -316,7 +317,7 @@ services:
     ports:
       - "9310:9310"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ../../config:/app/config:ro
       - ./keys:/app/keys:ro
     depends_on:
       - ess-three
@@ -340,6 +341,6 @@ Then your apps connect to `http://localhost:9310` instead of `http://localhost:9
 
 - Check logs: `docker compose logs cloudfauxnt` or `journalctl -u cloudfauxnt`
 - Test health: `curl http://localhost:9310/health`
-- Verify config: `./cloudfauxnt --config config.yaml` (will show validation errors)
+- Verify config: `./cloudfauxnt --config ../../config/cloudfauxnt.config.yaml` (will show validation errors)
 
 Happy coding! 🎉

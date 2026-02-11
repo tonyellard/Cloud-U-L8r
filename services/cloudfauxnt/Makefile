@@ -3,7 +3,7 @@
 # Variables
 BINARY_NAME=cloudfauxnt
 DOCKER_IMAGE=cloudfauxnt:latest
-CONFIG_FILE=config.yaml
+CONFIG_FILE=../../config/cloudfauxnt.config.yaml
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -37,7 +37,8 @@ keys: ## Generate RSA key pair for CloudFront signing
 	@echo "Public key: keys/public.pem"
 	@echo "Private key: keys/private.pem"
 
-config: ## Create config.yaml from example
+config: ## Create central config from example
+	@mkdir -p ../../config
 	@if [ ! -f $(CONFIG_FILE) ]; then \
 		cp config.example.yaml $(CONFIG_FILE); \
 		echo "Created $(CONFIG_FILE) from example"; \
@@ -65,7 +66,7 @@ docker-shell: ## Open shell in running container
 
 setup: config keys ## Initial setup (create config and generate keys)
 	@echo "Setup complete!"
-	@echo "1. Edit config.yaml for your environment"
+	@echo "1. Edit ../../config/cloudfauxnt.config.yaml for your environment"
 	@echo "2. Run 'make run' or 'make docker-run'"
 
 all: build ## Build everything

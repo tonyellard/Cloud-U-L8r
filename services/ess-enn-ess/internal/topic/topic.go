@@ -8,14 +8,14 @@ import (
 
 // Topic represents an SNS topic
 type Topic struct {
-	TopicArn          string            `json:"topic_arn"`
-	DisplayName       string            `json:"display_name"`
-	FifoTopic         bool              `json:"fifo_topic"`
-	ContentBased      bool              `json:"content_based"`
-	KmsMasterKeyId    string            `json:"kms_master_key_id"`
-	Attributes        map[string]string `json:"attributes"`
-	CreatedAt         time.Time         `json:"created_at"`
-	SubscriptionCount int               `json:"subscription_count"`
+	TopicArn          string            `json:"topic_arn" yaml:"topicarn"`
+	DisplayName       string            `json:"display_name" yaml:"displayname"`
+	FifoTopic         bool              `json:"fifo_topic" yaml:"fifotopic"`
+	ContentBased      bool              `json:"content_based" yaml:"contentbased"`
+	KmsMasterKeyId    string            `json:"kms_master_key_id" yaml:"kmsmasterkeyid"`
+	Attributes        map[string]string `json:"attributes" yaml:"attributes"`
+	CreatedAt         time.Time         `json:"created_at" yaml:"createdat"`
+	SubscriptionCount int               `json:"subscription_count" yaml:"subscriptioncount"`
 }
 
 // Store represents a thread-safe topic store
@@ -201,4 +201,11 @@ func (s *Store) GetCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.topics)
+}
+
+// Restore restores a topic from exported data
+func (s *Store) Restore(topic *Topic) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.topics[topic.TopicArn] = topic
 }

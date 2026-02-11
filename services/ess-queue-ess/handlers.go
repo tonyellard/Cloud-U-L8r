@@ -1007,7 +1007,7 @@ func adminExportConfigHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/x-yaml")
-	w.Header().Set("Content-Disposition", "attachment; filename=config.yaml")
+	w.Header().Set("Content-Disposition", "attachment; filename=ess-queue-ess.config.yaml")
 	w.Write([]byte(configYAML.String()))
 }
 

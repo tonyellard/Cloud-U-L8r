@@ -270,3 +270,32 @@ AutoConfirmSubscriptions: true,
 }
 return cfg
 }
+// LoadState loads topics and subscriptions from an exported config file
+// Returns the raw data structures for topics and subscriptions
+func LoadState(filePath string) ([]interface{}, []interface{}, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read state file: %w", err)
+	}
+
+	// Parse the entire file as a generic map
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse state file: %w", err)
+	}
+
+	var topics []interface{}
+	var subscriptions []interface{}
+
+	// Extract topics if present
+	if topicsData, ok := raw["topics"].([]interface{}); ok {
+		topics = topicsData
+	}
+
+	// Extract subscriptions if present
+	if subsData, ok := raw["subscriptions"].([]interface{}); ok {
+		subscriptions = subsData
+	}
+
+	return topics, subscriptions, nil
+}

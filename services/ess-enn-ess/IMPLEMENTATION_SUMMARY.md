@@ -208,7 +208,7 @@ The Admin UI component (port 9331) is ready for implementation with:
 ### Configuration & Deployment
 - `services/ess-enn-ess/Dockerfile` - Multi-stage Docker build
 - `services/ess-enn-ess/config/config.example.yaml` - Example configuration
-- `services/ess-enn-ess/config/config.yaml` - Runtime configuration
+- `config/ess-enn-ess.config.yaml` - Runtime configuration (root config directory)
 - `services/ess-enn-ess/data/.gitignore` - Data directory exclusion
 
 ### Documentation

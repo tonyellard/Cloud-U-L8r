@@ -67,7 +67,7 @@ Created comprehensive test suite:
 Fixed CloudFauxnt configuration:
 - Updated origin URLs to use correct service name (`essthree` instead of `ess-three`)
 - Updated port references (9000 → 9300)
-- Fixed both `config.yaml` and `config.example.yaml`
+- Fixed both `cloudfauxnt.config.yaml` (root config) and `config.example.yaml`
 
 ## Verification Results
 

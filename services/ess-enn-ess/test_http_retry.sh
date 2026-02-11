@@ -107,7 +107,7 @@ trap cleanup EXIT
 # Check if SNS is running
 if ! curl -s "$SNS_URL/health" > /dev/null 2>&1; then
     echo "ERROR: ess-enn-ess is not running on port 9330"
-    echo "Start it with: ./ess-enn-ess -config ./config/config.yaml"
+    echo "Start it with: ./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml"
     exit 1
 fi
 

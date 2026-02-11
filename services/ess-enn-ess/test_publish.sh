@@ -9,7 +9,7 @@ echo "=================================================="
 
 # Start server in background
 echo "Starting server..."
-./ess-enn-ess -config ./config/config.yaml &
+./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml &
 SERVER_PID=$!
 sleep 2
 

@@ -18,7 +18,8 @@ A lightweight CloudFront emulator for local development, providing CloudFront-li
 
 ```bash
 cd Cloudfauxnt
-cp config.example.yaml config.yaml
+mkdir -p ../../config
+cp config.example.yaml ../../config/cloudfauxnt.config.yaml
 ```
 
 ### 2. Create Shared Network
@@ -71,7 +72,7 @@ cd ..
 
 ### 4. Configure
 
-Edit `config.yaml` to match your environment:
+Edit `config/cloudfauxnt.config.yaml` to match your environment:
 
 ```yaml
 server:
@@ -166,7 +167,7 @@ curl http://localhost:9310/s3/myfile.txt
 
 ### With Signed URLs
 
-Enable signing in `config.yaml`:
+Enable signing in `config/cloudfauxnt.config.yaml`:
 
 ```yaml
 signing:
@@ -400,7 +401,7 @@ services:
     ports:
       - "9310:9310"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ../../config:/app/config:ro
       - ./keys:/app/keys:ro
     networks:
       - shared-network
@@ -422,7 +423,7 @@ cd /path/to/CloudFauxnt && docker compose up -d
 docker ps | grep -E "cloudfauxnt|ess-three"
 ```
 
-**CloudFauxnt config.yaml:**
+**CloudFauxnt config (config/cloudfauxnt.config.yaml):**
 ```yaml
 origins:
   - name: s3
@@ -523,7 +524,7 @@ curl "http://localhost:9310/s3/file.txt?Expires=$(($(date +%s) + 25))&Signature=
 curl "http://localhost:9310/s3/file.txt?Expires=$(($(date +%s) - 60))&Signature=...&Key-Pair-Id=..."
 
 # Test with custom clock skew configured
-# Edit config.yaml:
+# Edit config/cloudfauxnt.config.yaml:
 # signing:
 #   token_options:
 #     clock_skew_seconds: 60  # Allow 60-second tolerance
@@ -535,7 +536,7 @@ curl "http://localhost:9310/s3/file.txt?Expires=$(($(date +%s) - 60))&Signature=
 To test mixed security levels with different paths:
 
 ```yaml
-# config.yaml example
+# config/cloudfauxnt.config.yaml example
 signing:
   enabled: true
   key_pair_id: "APKAJEXAMPLE123456"
@@ -635,7 +636,7 @@ docker exec ess-three curl -v http://cloudfauxnt:9310/health
 ### Path Rewriting Not Working
 
 **Requests still going to wrong path:**
-- Verify `strip_prefix` and `target_prefix` are set in config.yaml origins section
+- Verify `strip_prefix` and `target_prefix` are set in config/cloudfauxnt.config.yaml origins section
 - After changing config, restart CloudFauxnt: `docker compose restart cloudfauxnt`
 - If code changes were made, rebuild without cache: `docker compose build --no-cache && docker compose up -d`
 - Check logs to verify path transformation: `docker logs cloudfauxnt | grep "path"`

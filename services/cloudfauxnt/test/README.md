@@ -138,7 +138,7 @@ print(url)
 " | xargs curl -v
 ```
 
-To adjust clock skew tolerance, edit `config.yaml`:
+To adjust clock skew tolerance, edit `config/cloudfauxnt.config.yaml`:
 
 ```yaml
 signing:

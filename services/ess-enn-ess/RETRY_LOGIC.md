@@ -75,7 +75,7 @@ All delivery attempts are tracked in the activity logger:
 
 ## Configuration
 
-### config.yaml
+### ess-enn-ess.config.yaml
 
 ```yaml
 http:

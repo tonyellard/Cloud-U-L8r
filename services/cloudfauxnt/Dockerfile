@@ -30,10 +30,10 @@ COPY --from=builder /build/cloudfauxnt .
 COPY --from=builder /build/LICENSE /build/NOTICE ./
 
 # Create directories for config and keys
-RUN mkdir -p /app/keys
+RUN mkdir -p /app/config /app/keys
 
 # Expose port
 EXPOSE 9310
 
 # Run the application
-CMD ["./cloudfauxnt", "--config", "/app/config.yaml"]
+CMD ["./cloudfauxnt", "--config", "/app/config/cloudfauxnt.config.yaml"]

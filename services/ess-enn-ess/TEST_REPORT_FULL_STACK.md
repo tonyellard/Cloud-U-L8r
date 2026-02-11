@@ -42,7 +42,7 @@ Successfully completed a full clean build, redeploy, and comprehensive test of t
 
 ### Configuration Updates
 ```
-✅ Updated config/config.yaml
+✅ Updated ../../config/ess-enn-ess.config.yaml
    - Changed SQS endpoint from "http://ess-queue-ess:9320"
    - To: "http://localhost:9320" (local testing)
    - Reason: Running SNS locally with Docker SQS

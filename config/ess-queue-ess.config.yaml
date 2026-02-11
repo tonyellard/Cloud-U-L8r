@@ -1,0 +1,13 @@
+# Ess-Queue-Ess Configuration
+# Central config for ess-queue-ess
+
+server:
+  port: 9320
+  host: 0.0.0.0
+
+queues:
+  - name: my-test-queue
+    visibility_timeout: 30
+    message_retention_period: 345600
+    maximum_message_size: 262144
+    max_receive_count: 3

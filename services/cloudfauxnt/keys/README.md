@@ -34,7 +34,7 @@ openssl rsa -in public.pem -pubin -text -noout
 
 1. Generate keys using the commands above
 2. Place `public.pem` in this directory
-3. Update `config.yaml` with the correct `public_key_path` and `key_pair_id`
+3. Update `config/cloudfauxnt.config.yaml` with the correct `public_key_path` and `key_pair_id`
 4. Keep `private.pem` in your application code for generating signed URLs
 
 ## CloudFront Key Pair ID

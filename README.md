@@ -55,10 +55,11 @@ All services use the 93xx port range with 10-port increments:
 
 ## Configuration
 
-Each service has its own configuration in `services/{service-name}/`:
-- `services/essthree/` - S3 emulator
-- `services/cloudfauxnt/config.yaml` - CDN configuration
-- `services/ess-queue-ess/config.yaml` - Queue configuration
+All service configs live in the root `config/` directory using the naming convention
+`[service].config.yaml`:
+- config/ess-enn-ess.config.yaml - SNS configuration
+- config/ess-queue-ess.config.yaml - SQS configuration
+- config/cloudfauxnt.config.yaml - CDN configuration
 
 ## Development
 

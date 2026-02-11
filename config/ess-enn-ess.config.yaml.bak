@@ -1,0 +1,30 @@
+# SNS Emulator Configuration
+# Streamlined config - only includes user-configurable settings
+
+sqs:
+  # Enable/disable SQS integration for subscriptions
+  enabled: true
+  # SQS endpoint URL (use "http://ess-queue-ess:9320" in Docker, "http://localhost:9320" locally)
+  endpoint: "http://ess-queue-ess:9320"
+
+http:
+  # Enable/disable HTTP endpoint subscriptions
+  enabled: true
+  # Maximum number of delivery retry attempts
+  max_retries: 3
+  # Backoff time in milliseconds between retries
+  retry_backoff_ms: 100
+
+admin:
+  # Enable/disable admin UI (dashboard at port 9331)
+  enabled: true
+
+storage:
+  # Maximum number of activity log entries to keep in memory
+  activity_log_size: 10000
+
+aws:
+  # AWS Account ID to use in ARNs
+  account_id: "123456789012"
+  # AWS Region
+  region: "us-east-1"

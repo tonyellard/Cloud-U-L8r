@@ -45,7 +45,7 @@ cd services/ess-enn-ess
 go build -o ess-enn-ess ./cmd/ess-enn-ess
 
 # Run
-./ess-enn-ess -config config/config.yaml
+./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
 ```
 
 ## Admin Dashboard
@@ -427,7 +427,7 @@ Check activity logs in the admin dashboard for delivery errors.
 Validate the YAML configuration:
 
 ```bash
-go run ./cmd/ess-enn-ess -config ./config/config.yaml
+go run ./cmd/ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
 ```
 
 ## Implementation Status

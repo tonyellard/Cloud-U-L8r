@@ -30,14 +30,14 @@ const (
 
 // Subscription represents an SNS subscription
 type Subscription struct {
-	SubscriptionArn   string             `json:"subscription_arn"`
-	TopicArn          string             `json:"topic_arn"`
-	Protocol          Protocol           `json:"protocol"`
-	Endpoint          string             `json:"endpoint"`
-	Status            SubscriptionStatus `json:"status"`
-	ConfirmationToken string             `json:"-"`
-	CreatedAt         time.Time          `json:"created_at"`
-	Attributes        map[string]string  `json:"attributes"`
+	SubscriptionArn   string             `json:"subscription_arn" yaml:"subscriptionarn"`
+	TopicArn          string             `json:"topic_arn" yaml:"topicarn"`
+	Protocol          Protocol           `json:"protocol" yaml:"protocol"`
+	Endpoint          string             `json:"endpoint" yaml:"endpoint"`
+	Status            SubscriptionStatus `json:"status" yaml:"status"`
+	ConfirmationToken string             `json:"-" yaml:"-"`
+	CreatedAt         time.Time          `json:"created_at" yaml:"createdat"`
+	Attributes        map[string]string  `json:"attributes" yaml:"attributes"`
 }
 
 // Store manages subscriptions in memory
@@ -195,4 +195,12 @@ func (s *Store) GetAttributes(subscriptionArn string) (map[string]string, error)
 		result[k] = v
 	}
 	return result, nil
+}
+
+// Restore restores a subscription from exported data
+func (s *Store) Restore(sub *Subscription) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.subscriptions[sub.SubscriptionArn] = sub
+	s.topicSubs[sub.TopicArn] = append(s.topicSubs[sub.TopicArn], sub)
 }

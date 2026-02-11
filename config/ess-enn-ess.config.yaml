@@ -1,0 +1,64 @@
+config:
+    server:
+        api_port: 9330
+        admin_port: 9331
+        host: 0.0.0.0
+        timeout_seconds: 30
+    storage:
+        type: memory
+        activity_log_size: 10000
+        persist_config: false
+        config_file: ./data/sns_state.yaml
+    activity_log:
+        enabled: false
+        log_file: ./data/activity.log
+        retention_days: 7
+        stream_to_admin_ui: false
+    sqs:
+        enabled: true
+        endpoint: http://ess-queue-ess:9320
+        region: us-east-1
+        on_queue_not_found: log_error
+        max_retries: 3
+        retry_backoff_ms: 100
+    http:
+        enabled: true
+        max_retries: 3
+        retry_backoff_ms: 100
+        timeout_seconds: 10
+    messages:
+        max_size: 262144
+        retention_period: 96
+    admin:
+        enabled: true
+        port: 9331
+    telemetry:
+        metrics_enabled: false
+        tracing_enabled: false
+        export_interval_seconds: 60
+    aws:
+        account_id: "123456789012"
+        region: us-east-1
+    developer:
+        no_auth: true
+        verbose_errors: true
+        auto_confirm_subscriptions: true
+subscriptions:
+    - subscriptionarn: arn:aws:sns:us-east-1:123456789012:my-test-topic:1
+      topicarn: arn:aws:sns:us-east-1:123456789012:my-test-topic
+      protocol: sqs
+      endpoint: http://ess-queue-ess:9320/my-test-queue
+      status: confirmed
+      confirmationtoken: token-1770835461197000490-2
+      createdat: 2026-02-11T18:44:21.197000917Z
+      attributes: {}
+topics:
+    - topicarn: arn:aws:sns:us-east-1:123456789012:my-test-topic
+      displayname: my-test-topic
+      fifotopic: false
+      contentbased: false
+      kmsmasterkeyid: ""
+      attributes:
+        DisplayName: test topic
+      createdat: 2026-02-11T18:44:04.428065479Z
+      subscriptioncount: 0

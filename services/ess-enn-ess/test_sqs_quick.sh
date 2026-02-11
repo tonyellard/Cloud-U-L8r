@@ -29,7 +29,7 @@ fi
 # Start ess-enn-ess if not running
 if ! curl -s http://localhost:9330/health > /dev/null 2>&1; then
     echo "Starting ess-enn-ess..."
-    ./ess-enn-ess -config ./config/config.yaml > /tmp/ess-enn-ess.log 2>&1 &
+    ./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml > /tmp/ess-enn-ess.log 2>&1 &
     echo $! > /tmp/ess-enn-ess.pid
     sleep 2
 fi

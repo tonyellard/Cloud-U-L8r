@@ -30,11 +30,11 @@ COPY --from=builder /build/ess-queue-ess .
 # Copy license files
 COPY --from=builder /build/LICENSE /build/NOTICE ./
 
-# Create directory for queue data
-RUN mkdir -p /app/data
+# Create directory for queue data and config
+RUN mkdir -p /app/data /app/config
 
 # Expose default SQS port
 EXPOSE 9320
 
 # Run the application
-CMD ["./ess-queue-ess"]
+CMD ["./ess-queue-ess", "--config", "/app/config/ess-queue-ess.config.yaml"]

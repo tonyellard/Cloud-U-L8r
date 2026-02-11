@@ -73,7 +73,7 @@ The admin UI at `http://localhost:9320/admin` provides a visual way to manage qu
 
 ### Export Configuration
 1. Click "**⬇ Export Config**" button
-2. Download `config.yaml` with your current queue setup
+2. Download your config file (ess-queue-ess.config.yaml) with your current queue setup
 3. Use this file to bootstrap queues on next startup
 
 This workflow lets you set up queues visually, then export the configuration for consistent deployments!
@@ -106,12 +106,12 @@ This workflow lets you set up queues visually, then export the configuration for
 
 ## Bootstrap Queues with Configuration
 
-1. **Create a config file**:
+1. **Create a central config file**:
    ```bash
-   make config  # Creates config.yaml from example
+   make config  # Creates ../../config/ess-queue-ess.config.yaml
    ```
 
-2. **Edit config.yaml** to define your queues:
+2. **Edit config/ess-queue-ess.config.yaml** to define your queues:
    ```yaml
    queues:
      - name: "my-app-queue"
@@ -123,7 +123,7 @@ This workflow lets you set up queues visually, then export the configuration for
    ```bash
    make run-with-config
    # OR
-   docker compose up -d  # Config is auto-mounted
+   docker compose up -d  # Config is auto-mounted from ../../config
    ```
 
 Your queues will be created automatically on startup!

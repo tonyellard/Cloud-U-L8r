@@ -219,12 +219,12 @@ The admin UI uses the following REST API endpoints (also available for programma
 
 Create queues automatically on startup using a configuration file:
 
-1. **Create config.yaml** (or use the example):
-   ```bash
-   make config  # Creates config.yaml from config.example.yaml
-   ```
+1. **Create central config** (or use the example):
+  ```bash
+  make config  # Creates ../../config/ess-queue-ess.config.yaml
+  ```
 
-2. **Edit config.yaml**:
+2. **Edit config/ess-queue-ess.config.yaml**:
    ```yaml
    server:
      port: 9320
@@ -245,9 +245,9 @@ Create queues automatically on startup using a configuration file:
    make run-with-config
    
    # Or directly
-   ./ess-queue-ess --config config.yaml
+  ./ess-queue-ess --config ../../config/ess-queue-ess.config.yaml
    
-   # Docker (config.yaml is auto-mounted)
+  # Docker (central config is auto-mounted)
    docker compose up -d
    ```
 
@@ -266,8 +266,8 @@ services:
     environment:
       - PORT=9320
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
-    command: ["./ess-queue-ess", "--config", "/app/config.yaml"]
+      - ../../config:/app/config:ro
+    command: ["./ess-queue-ess", "--config", "/app/config/ess-queue-ess.config.yaml"]
 ```
 
 ## Makefile Commands
@@ -276,8 +276,8 @@ services:
 make help              # Show all available commands
 make build             # Build the Go binary
 make run               # Run locally
-make run-with-config   # Run with config.yaml
-make config            # Create config.yaml from example
+make run-with-config   # Run with central config
+make config            # Create ../../config/ess-queue-ess.config.yaml
 make test              # Run unit tests
 make docker-build      # Build Docker image
 make docker-run        # Start with docker-compose

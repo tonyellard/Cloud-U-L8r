@@ -123,7 +123,7 @@ ess-enn-ess/
 
 ## Configuration Files
 
-- `config/config.yaml` - Main configuration
+- `config/ess-enn-ess.config.yaml` - Main configuration (root config directory)
 - All configuration is read at startup
 - No persistent data storage (in-memory only)
 

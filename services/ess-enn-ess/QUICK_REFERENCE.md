@@ -144,7 +144,7 @@ cd /home/tony/Documents/cloud-u-l8r/services/ess-enn-ess
 
 ## Configuration
 
-Edit `config/config.yaml`:
+Edit `../../config/ess-enn-ess.config.yaml`:
 
 ```yaml
 server:
@@ -231,8 +231,7 @@ ess-enn-ess/
 │   │   └── dashboard.go    # HTML UI
 │   └── config/             # Configuration
 ├── config/
-│   ├── config.yaml         # Configuration file
-│   └── config.example.yaml # Example config
+│   └── config.example.yaml # Example config (central config lives in ../../config)
 ├── test_*.sh               # Test scripts
 └── README.md               # Documentation
 ```

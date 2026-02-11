@@ -21,11 +21,12 @@ services:
     ports:
       - "9310:9310"
     volumes:
-      - ./services/cloudfauxnt/config.yaml:/app/config.yaml:ro
+      - ./config:/app/config:ro
       - ./services/cloudfauxnt/keys:/app/keys:ro
     environment:
       - TZ=UTC
     restart: unless-stopped
+    command: ["./cloudfauxnt", "--config", "/app/config/cloudfauxnt.config.yaml"]
     depends_on:
       - essthree
     networks:
@@ -41,8 +42,8 @@ services:
       - PORT=9320
     volumes:
       - ./services/ess-queue-ess/data:/app/data
-      - ./services/ess-queue-ess/config.yaml:/app/config.yaml:ro
-    command: ["./ess-queue-ess", "--config", "/app/config.yaml"]
+      - ./config:/app/config:ro
+    command: ["./ess-queue-ess", "--config", "/app/config/ess-queue-ess.config.yaml"]
     networks:
       - shared-network
 
@@ -53,9 +54,9 @@ services:
     ports:
       - "9330:9330"
     volumes:
-      - ./services/ess-enn-ess/config:/app/config
+      - ./config:/app/config:ro
       - ./services/ess-enn-ess/data:/app/data
-    command: ["-config", "/app/config/config.yaml"]
+    command: ["-config", "/app/config/ess-enn-ess.config.yaml"]
     networks:
       - shared-network
     depends_on:
