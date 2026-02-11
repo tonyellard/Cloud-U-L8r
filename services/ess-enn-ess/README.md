@@ -44,9 +44,63 @@ cd services/ess-enn-ess
 # Build
 go build -o ess-enn-ess ./cmd/ess-enn-ess
 
-# Run
+# Run (uses centralized config)
 ./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
 ```
+
+## Configuration
+
+The SNS emulator uses a centralized YAML configuration file located at `/config/ess-enn-ess.config.yaml` (mounted read-only in Docker containers).
+
+### Configuration Structure
+
+The streamlined configuration includes only essential user-configurable settings:
+
+```yaml
+sqs:
+  enabled: true
+  endpoint: "http://ess-queue-ess:9320"
+
+http:
+  enabled: true
+  max_retries: 3
+  retry_backoff_ms: 100
+
+admin:
+  enabled: true
+
+storage:
+  activity_log_size: 10000
+
+aws:
+  account_id: "123456789012"
+  region: "us-east-1"
+```
+
+### Configuration Fields
+
+- **SQS**: Enable/disable SQS integration and configure endpoint
+- **HTTP**: Enable/disable HTTP subscriptions and retry behavior
+- **Admin**: Enable/disable admin dashboard
+- **Storage**: Activity log size (circular buffer)
+- **AWS**: Account ID and region for ARN generation
+
+### State Persistence & Export/Import
+
+When you export the configuration through the admin dashboard (`/api/export`), it creates a complete backup including:
+- **Configuration**: All config settings
+- **Topics**: All created topics
+- **Subscriptions**: All subscriptions with their current state
+
+When the service restarts, it automatically loads any topics and subscriptions from the config file, enabling reproducible development environments.
+
+**To export:**
+1. Go to Admin Dashboard → Export/Import tab
+2. Click "Download Export"
+3. Save the YAML file as your backup
+
+**To restore:**
+Simply replace the config file with the exported YAML before restarting the service.
 
 ## Admin Dashboard
 
@@ -227,38 +281,28 @@ curl http://localhost:9331/api/stats
 
 #### GET /api/export
 
-Exports all topics and subscriptions as YAML format.
+Exports all topics, subscriptions, and configuration as YAML format. This export can be used to backup and restore the complete SNS state.
 
 ```bash
-curl http://localhost:9331/api/export > backup.yaml
+curl http://localhost:9331/api/export > sns-backup.yaml
 ```
 
-**Response:** YAML-formatted configuration with topics and subscriptions
+**Response:** Complete YAML backup including:
+- Configuration settings
+- All topics
+- All subscriptions with full state
 
-## Configuration
+## Admin Dashboard Export & Restore
 
-Configuration is done via YAML file. An example configuration is provided at `config/config.example.yaml`.
+The admin dashboard includes export functionality for complete state backups:
 
-### Key Configuration Options
+1. **Export**: Go to Admin Dashboard → Export/Import tab → "Download Export"
+   - Creates a complete YAML backup of config + topics + subscriptions
+   - Can be used to restore state after container restart
 
-```yaml
-server:
-  api_port: 9330        # SNS API port
-  admin_port: 9331      # Admin UI port
-  host: "0.0.0.0"
+2. **Automatic Restore on Startup**: The service automatically loads any topics and subscriptions from the config file when it starts
 
-sqs:
-  enabled: true
-  endpoint: "http://ess-queue-ess:9320"  # Connect to ess-queue-ess
-
-activity_log:
-  enabled: true
-  stream_to_admin_ui: true  # Real-time updates to dashboard
-
-developer:
-  no_auth: true               # No authentication
-  auto_confirm_subscriptions: true  # Auto-confirm for dev
-```
+This enables reproducible development environments where your topics and subscriptions persist across restarts.
 
 ## API Endpoints
 

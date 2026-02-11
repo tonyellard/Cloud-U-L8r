@@ -18,7 +18,7 @@ docker-compose up
 # Terminal 2: Build and start SNS emulator
 cd /home/tony/Documents/cloud-u-l8r/services/ess-enn-ess
 go build -o ess-enn-ess ./cmd/ess-enn-ess
-./ess-enn-ess
+./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
 ```
 
 ## Accessing Services
@@ -28,6 +28,44 @@ go build -o ess-enn-ess ./cmd/ess-enn-ess
 | SNS API | 9330 | http://localhost:9330 |
 | Admin Dashboard | 9331 | http://localhost:9331 |
 | SQS (ess-queue-ess) | 9320 | http://localhost:9320 |
+
+## Configuration
+
+Configuration is centralized in `/config/ess-enn-ess.config.yaml` (mounted read-only in containers).
+
+### Configurable Settings
+
+```yaml
+sqs:
+  enabled: true
+  endpoint: "http://ess-queue-ess:9320"
+
+http:
+  enabled: true
+  max_retries: 3
+  retry_backoff_ms: 100
+
+admin:
+  enabled: true
+
+storage:
+  activity_log_size: 10000
+
+aws:
+  account_id: "123456789012"
+  region: "us-east-1"
+```
+
+### State Export & Restore
+
+The admin dashboard (`/api/export`) creates a complete YAML backup including:
+- Configuration settings
+- All created topics
+- All subscriptions with full state
+
+**To export:** Admin Dashboard → Export/Import tab → "Download Export"
+
+**To restore:** Replace config file with exported YAML and restart the service.
 
 ## Key Endpoints
 
@@ -42,6 +80,8 @@ go build -o ess-enn-ess ./cmd/ess-enn-ess
 - Activities: `GET /api/activities`
 - Statistics: `GET /api/stats`
 - Export: `GET /api/export`
+- Export/Import Tab: `GET /admin#export`
+
 
 ## Common AWS CLI Commands
 
@@ -62,11 +102,11 @@ aws --endpoint-url=http://localhost:9330 sns list-topics
 
 # Get topic attributes
 aws --endpoint-url=http://localhost:9330 sns get-topic-attributes \
-  --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic
+  --topic-arn arn:aws:sns:us-east-1:123456789012:my-topic
 
 # Set topic attribute
 aws --endpoint-url=http://localhost:9330 sns set-topic-attributes \
-  --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic \
+  --topic-arn arn:aws:sns:us-east-1:123456789012:my-topic \
   --attribute-name DisplayName \
   --attribute-value "My Topic"
 ```
@@ -75,29 +115,29 @@ aws --endpoint-url=http://localhost:9330 sns set-topic-attributes \
 ```bash
 # Subscribe to HTTP endpoint
 aws --endpoint-url=http://localhost:9330 sns subscribe \
-  --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic \
+  --topic-arn arn:aws:sns:us-east-1:123456789012:my-topic \
   --protocol http \
   --notification-endpoint http://example.com/webhook
 
 # Subscribe to SQS
 aws --endpoint-url=http://localhost:9330 sns subscribe \
-  --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic \
+  --topic-arn arn:aws:sns:us-east-1:123456789012:my-topic \
   --protocol sqs \
-  --notification-endpoint arn:aws:sqs:us-east-1:000000000000:my-queue
+  --notification-endpoint arn:aws:sqs:us-east-1:123456789012:my-queue
 
 # List subscriptions
 aws --endpoint-url=http://localhost:9330 sns list-subscriptions
 
 # Unsubscribe
 aws --endpoint-url=http://localhost:9330 sns unsubscribe \
-  --subscription-arn arn:aws:sns:us-east-1:000000000000:my-topic:99999999-9999-9999-9999-999999999999
+  --subscription-arn arn:aws:sns:us-east-1:123456789012:my-topic:99999999-9999-9999-9999-999999999999
 ```
 
 ### Publishing
 ```bash
 # Publish message
 aws --endpoint-url=http://localhost:9330 sns publish \
-  --topic-arn arn:aws:sns:us-east-1:000000000000:my-topic \
+  --topic-arn arn:aws:sns:us-east-1:123456789012:my-topic \
   --message "Hello, World!" \
   --subject "Test Message"
 ```
