@@ -8,14 +8,14 @@ import (
 
 // Topic represents an SNS topic
 type Topic struct {
-TopicArn           string
-DisplayName        string
-FifoTopic          bool
-ContentBased       bool
-KmsMasterKeyId     string
-Attributes         map[string]string
-CreatedAt          time.Time
-SubscriptionCount  int
+	TopicArn           string            `json:"topic_arn"`
+	DisplayName        string            `json:"display_name"`
+	FifoTopic          bool              `json:"fifo_topic"`
+	ContentBased       bool              `json:"content_based"`
+	KmsMasterKeyId     string            `json:"kms_master_key_id"`
+	Attributes         map[string]string `json:"attributes"`
+	CreatedAt          time.Time         `json:"created_at"`
+	SubscriptionCount  int               `json:"subscription_count"`
 }
 
 // Store represents a thread-safe topic store
