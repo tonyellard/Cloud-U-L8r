@@ -591,4 +591,4 @@ Contributions welcome! Please ensure:
 
 ## License
 
-Part of the cloud-u-l8r project. See root repository for license details.
+Licensed under the Apache License, Version 2.0. See the root [LICENSE](../../LICENSE) file for details.

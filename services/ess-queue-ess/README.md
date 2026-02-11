@@ -343,6 +343,6 @@ make run
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+Licensed under the Apache License, Version 2.0. See the root [LICENSE](../../LICENSE) file for details.
 
 **Trademark Notice**: Not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon SQS is a trademark of Amazon.com, Inc. or its affiliates.

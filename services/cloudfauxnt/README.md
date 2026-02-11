@@ -727,6 +727,12 @@ Contributions welcome! Please:
 3. Add tests for new functionality
 4. Submit a pull request
 
+## License
+
+Licensed under the Apache License, Version 2.0. See the root [LICENSE](../../LICENSE) file for details.
+
+**Trademark Notice**: Not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon CloudFront and AWS are trademarks of Amazon.com, Inc. or its affiliates.
+
 ## Support
 
 For issues and questions:

@@ -1,0 +1,17 @@
+# Authors
+
+This project was created and is maintained by:
+
+- **Tony Ellard** - Project creator and primary maintainer
+
+## Acknowledgments
+
+Cloud-U-L8r is built with the excellent open-source community tools:
+- **Go** - Programming language
+- **Chi** - HTTP router
+- **Docker** - Containerization
+- **PostgreSQL** - Database
+- **gRPC** - RPC framework
+- **OpenTelemetry** - Observability
+
+For detailed contribution history, see the git commit log.

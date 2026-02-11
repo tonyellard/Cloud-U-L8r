@@ -286,7 +286,7 @@ This is a development tool and has some limitations:
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See `LICENSE`.
+Licensed under the Apache License, Version 2.0. See the root [LICENSE](../../LICENSE) file for details.
 
 ## Trademark notice
 

@@ -94,7 +94,16 @@ go work use ./services/essthree ./services/cloudfauxnt ./services/ess-queue-ess
 - [essthree Documentation](services/essthree/README.md)
 - [cloudfauxnt Documentation](services/cloudfauxnt/README.md)
 - [ess-queue-ess Documentation](services/ess-queue-ess/README.md)
+- [ess-enn-ess Documentation](services/ess-enn-ess/README.md)
 
 ## License
 
-See individual service directories for license information.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTORS.md](CONTRIBUTORS.md) for guidelines.
+
+## Authors
+
+See [AUTHORS](AUTHORS) for a list of contributors.
