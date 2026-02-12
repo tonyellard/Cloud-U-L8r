@@ -164,7 +164,11 @@ function queueRowTemplate(queue) {
           </div>
           <div class="flex items-center gap-2">
             <button class="px-3 py-1 rounded bg-amber-600 text-white text-sm" title="Remove all messages from this queue" aria-label="Purge queue" onclick="event.stopPropagation(); purgeQueue('${queue.queue_url}')">Purge</button>
-            <button class="h-8 w-8 rounded bg-red-600 text-white text-base leading-none flex items-center justify-center" title="Delete this queue" aria-label="Delete queue" onclick="event.stopPropagation(); deleteQueue('${queue.queue_url}')">🗑</button>
+            <button class="h-8 w-8 rounded bg-red-600 text-white leading-none flex items-center justify-center" title="Delete this queue" aria-label="Delete queue" onclick="event.stopPropagation(); deleteQueue('${queue.queue_url}')">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>
