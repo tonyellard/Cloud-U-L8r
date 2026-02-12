@@ -113,6 +113,58 @@ type QueueAttributesResponse struct {
 	RedriveFrom string            `json:"redrive_from,omitempty"`
 }
 
+type TopicView struct {
+	TopicARN          string    `json:"topic_arn"`
+	DisplayName       string    `json:"display_name"`
+	FIFOTopic         bool      `json:"fifo_topic"`
+	SubscriptionCount int       `json:"subscription_count"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+type SubscriptionView struct {
+	SubscriptionARN string    `json:"subscription_arn"`
+	TopicARN        string    `json:"topic_arn"`
+	Protocol        string    `json:"protocol"`
+	Endpoint        string    `json:"endpoint"`
+	Status          string    `json:"status"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type PubSubStateResponse struct {
+	Service       string             `json:"service"`
+	Topics        []TopicView        `json:"topics"`
+	Subscriptions []SubscriptionView `json:"subscriptions"`
+	Stats         struct {
+		Topics        int `json:"topics"`
+		Subscriptions int `json:"subscriptions"`
+	} `json:"stats"`
+}
+
+type CreateTopicRequest struct {
+	Name string `json:"name"`
+}
+
+type DeleteTopicRequest struct {
+	TopicARN string `json:"topic_arn"`
+}
+
+type CreateSubscriptionRequest struct {
+	TopicARN    string `json:"topic_arn"`
+	Protocol    string `json:"protocol"`
+	Endpoint    string `json:"endpoint"`
+	AutoConfirm bool   `json:"auto_confirm"`
+}
+
+type DeleteSubscriptionRequest struct {
+	SubscriptionARN string `json:"subscription_arn"`
+}
+
+type PublishTopicMessageRequest struct {
+	TopicARN string `json:"topic_arn"`
+	Subject  string `json:"subject"`
+	Message  string `json:"message"`
+}
+
 type DashboardSummary struct {
 	Services  []DashboardService `json:"services"`
 	UpdatedAt time.Time          `json:"updated_at"`
@@ -141,6 +193,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-queue-ess/queues", srv.handleQueueList)
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/messages/peek", srv.handleQueuePeek)
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/attributes", srv.handleQueueAttributes)
+	r.Get("/api/services/ess-enn-ess/state", srv.handlePubSubState)
 	r.Get("/api/services/{service}/config/export", srv.handleServiceConfigExport)
 	r.Post("/api/services/ess-queue-ess/actions/create-queue", srv.handleCreateQueue)
 	r.Post("/api/services/ess-queue-ess/actions/send-message", srv.handleSendMessage)
@@ -148,6 +201,11 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/ess-queue-ess/actions/purge-queue", srv.handlePurgeQueue)
 	r.Post("/api/services/ess-queue-ess/actions/delete-queue", srv.handleDeleteQueue)
 	r.Post("/api/services/ess-queue-ess/actions/start-redrive", srv.handleStartRedrive)
+	r.Post("/api/services/ess-enn-ess/actions/create-topic", srv.handleCreateTopic)
+	r.Post("/api/services/ess-enn-ess/actions/delete-topic", srv.handleDeleteTopic)
+	r.Post("/api/services/ess-enn-ess/actions/create-subscription", srv.handleCreateSubscription)
+	r.Post("/api/services/ess-enn-ess/actions/delete-subscription", srv.handleDeleteSubscription)
+	r.Post("/api/services/ess-enn-ess/actions/publish", srv.handlePublishTopicMessage)
 	r.Get("/api/events", srv.handleEvents)
 
 	fs := http.FileServer(http.Dir("./web"))
@@ -225,6 +283,153 @@ func (s *Server) handleQueueList(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, QueueViewResponse{Service: "ess-queue-ess", Queues: queues})
+}
+
+func (s *Server) handlePubSubState(w http.ResponseWriter, _ *http.Request) {
+	state, err := s.fetchPubSubState()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
+	var req CreateTopicRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callSNSAdminJSON(http.MethodPost, "/api/topics", map[string]any{
+		"name": strings.TrimSpace(req.Name),
+	}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "topic_name": strings.TrimSpace(req.Name)})
+}
+
+func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
+	var req DeleteTopicRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.TopicARN) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		return
+	}
+
+	if err := s.callSNSAdminJSON(http.MethodPost, "/api/topics/delete", map[string]any{
+		"topic_arn": strings.TrimSpace(req.TopicARN),
+	}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
+	var req CreateSubscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.TopicARN) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		return
+	}
+	protocol := strings.TrimSpace(req.Protocol)
+	if protocol == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("protocol is required"))
+		return
+	}
+	if strings.TrimSpace(req.Endpoint) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("endpoint is required"))
+		return
+	}
+
+	if protocol != "http" && protocol != "ess-queue-ess" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("protocol must be http or ess-queue-ess"))
+		return
+	}
+
+	upstreamProtocol := protocol
+	if protocol == "ess-queue-ess" {
+		upstreamProtocol = "sqs"
+	}
+
+	if err := s.callSNSAdminJSON(http.MethodPost, "/api/subscriptions", map[string]any{
+		"topic_arn":    strings.TrimSpace(req.TopicARN),
+		"protocol":     upstreamProtocol,
+		"endpoint":     strings.TrimSpace(req.Endpoint),
+		"auto_confirm": req.AutoConfirm,
+	}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDeleteSubscription(w http.ResponseWriter, r *http.Request) {
+	var req DeleteSubscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.SubscriptionARN) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("subscription_arn is required"))
+		return
+	}
+
+	if err := s.callSNSAdminJSON(http.MethodPost, "/api/subscriptions/delete", map[string]any{
+		"subscription_arn": strings.TrimSpace(req.SubscriptionARN),
+	}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handlePublishTopicMessage(w http.ResponseWriter, r *http.Request) {
+	var req PublishTopicMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.TopicARN) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		return
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("message is required"))
+		return
+	}
+
+	form := url.Values{}
+	form.Set("Action", "Publish")
+	form.Set("TopicArn", strings.TrimSpace(req.TopicARN))
+	form.Set("Message", req.Message)
+	if strings.TrimSpace(req.Subject) != "" {
+		form.Set("Subject", strings.TrimSpace(req.Subject))
+	}
+
+	if err := s.callSNSAction(form); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleQueuePeek(w http.ResponseWriter, r *http.Request) {
@@ -606,7 +811,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "dashboard"
 	}
-	if view != "dashboard" && view != "ess-queue-ess" {
+	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
 		return
 	}
@@ -667,6 +872,13 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 			return nil, err
 		}
 		return json.Marshal(QueueViewResponse{Service: "ess-queue-ess", Queues: queues})
+	}
+	if view == "ess-enn-ess" {
+		state, err := s.fetchPubSubState()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(state)
 	}
 
 	return json.Marshal(s.buildDashboardSummary())
@@ -748,6 +960,43 @@ func (s *Server) fetchSNSAdminStats() (int, int, error) {
 	return stats.Topics.Total, stats.Subscriptions.Total, nil
 }
 
+func (s *Server) fetchPubSubState() (PubSubStateResponse, error) {
+	topics, err := s.fetchTopics()
+	if err != nil {
+		return PubSubStateResponse{}, err
+	}
+
+	subscriptions, err := s.fetchSubscriptions()
+	if err != nil {
+		return PubSubStateResponse{}, err
+	}
+
+	state := PubSubStateResponse{
+		Service:       "ess-enn-ess",
+		Topics:        topics,
+		Subscriptions: subscriptions,
+	}
+	state.Stats.Topics = len(topics)
+	state.Stats.Subscriptions = len(subscriptions)
+	return state, nil
+}
+
+func (s *Server) fetchTopics() ([]TopicView, error) {
+	var topics []TopicView
+	if err := s.callSNSAdminJSON(http.MethodGet, "/api/topics", nil, &topics); err != nil {
+		return nil, err
+	}
+	return topics, nil
+}
+
+func (s *Server) fetchSubscriptions() ([]SubscriptionView, error) {
+	var subscriptions []SubscriptionView
+	if err := s.callSNSAdminJSON(http.MethodGet, "/api/subscriptions", nil, &subscriptions); err != nil {
+		return nil, err
+	}
+	return subscriptions, nil
+}
+
 func (s *Server) fetchQueues() ([]QueueView, error) {
 	resp, err := s.client.Get("http://ess-queue-ess:9320/admin/api/queues")
 	if err != nil {
@@ -800,6 +1049,68 @@ func (s *Server) callSQSAction(form url.Values) error {
 			message = http.StatusText(resp.StatusCode)
 		}
 		return fmt.Errorf("sqs action %q failed (%d): %s", form.Get("Action"), resp.StatusCode, message)
+	}
+
+	return nil
+}
+
+func (s *Server) callSNSAction(form url.Values) error {
+	resp, err := s.client.PostForm("http://ess-enn-ess:9330/", form)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		return fmt.Errorf("sns action %q failed (%d): %s", form.Get("Action"), resp.StatusCode, message)
+	}
+
+	return nil
+}
+
+func (s *Server) callSNSAdminJSON(method string, path string, payload any, target any) error {
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(encoded)
+	}
+
+	req, err := http.NewRequest(method, "http://ess-enn-ess:9330"+path, body)
+	if err != nil {
+		return err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(resp.Body)
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		return fmt.Errorf("sns admin request %s %s failed (%d): %s", method, path, resp.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil && err != io.EOF {
+		return err
 	}
 
 	return nil

@@ -5,6 +5,7 @@ const peekStatusHideTimers = new Map();
 const attributeStatusHideTimers = new Map();
 const queueAttributesCache = new Map();
 const queueAttributeEditMode = new Set();
+let subscriptionQueueTargets = [];
 
 const editableQueueAttributeKeys = [
   'VisibilityTimeout',
@@ -63,10 +64,14 @@ function switchView(view) {
     title.textContent = 'Dashboard';
     subtitle.textContent = 'Live status of active emulator surface';
     loadDashboard();
-  } else {
+  } else if (view === 'ess-queue-ess') {
     title.textContent = 'ess-queue-ess';
     subtitle.textContent = 'Queue operations and non-mutating message inspection';
     loadQueues();
+  } else {
+    title.textContent = 'ess-enn-ess';
+    subtitle.textContent = 'Topic, subscription, and publish operations';
+    loadPubSubState();
   }
 
   connectSSE(view);
@@ -152,6 +157,365 @@ async function loadQueues() {
   try {
     const data = await apiGet('/api/services/ess-queue-ess/queues');
     renderQueuesIncremental(data.queues || []);
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function loadPubSubState() {
+  try {
+    const data = await apiGet('/api/services/ess-enn-ess/state');
+    renderPubSubState(data);
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function renderPubSubState(data) {
+  const content = document.getElementById('view-content');
+  if (!content.querySelector('#pubsub-shell')) {
+    content.innerHTML = `
+      <div id="pubsub-shell" class="space-y-4">
+        <div class="grid lg:grid-cols-2 gap-4">
+          <div class="bg-white rounded border p-4">
+            <h3 class="font-semibold mb-2">Create Topic</h3>
+            <div class="flex gap-2">
+              <input id="topic-create-name" class="flex-1 border rounded px-2 py-1 text-sm" placeholder="Topic name" />
+              <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create topic" aria-label="Create topic" onclick="createTopic()">Create</button>
+            </div>
+          </div>
+          <div class="bg-white rounded border p-4">
+            <h3 class="font-semibold mb-2">Publish Message</h3>
+            <div class="grid gap-2">
+              <select id="publish-topic-arn" class="border rounded px-2 py-1 text-sm"></select>
+              <input id="publish-subject" class="border rounded px-2 py-1 text-sm" placeholder="Subject (optional)" />
+              <textarea id="publish-message" class="border rounded px-2 py-1 text-sm" rows="2" placeholder="Message body"></textarea>
+              <div class="flex justify-end">
+                <button class="px-3 py-1 rounded bg-blue-600 text-white text-sm" title="Publish message to selected topic" aria-label="Publish message" onclick="publishTopicMessage()">Publish</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded border p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold">Topics</h3>
+            <div class="flex items-center gap-2">
+              <span id="topics-count" class="text-xs text-slate-500">0 topics</span>
+              <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh topics and subscriptions" aria-label="Refresh topics and subscriptions" onclick="loadPubSubState()">↻</button>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="text-xs text-slate-500 border-b">
+                  <th class="text-left py-1 pr-2">Topic ARN</th>
+                  <th class="text-left py-1 pr-2">Display Name</th>
+                  <th class="text-left py-1 pr-2">Subscriptions</th>
+                  <th class="text-left py-1 pr-2">Type</th>
+                  <th class="text-right py-1">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="topics-body">
+                <tr><td colspan="5" class="py-2 text-sm text-slate-500">No topics found.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded border p-4">
+          <h3 class="font-semibold mb-2">Create Subscription</h3>
+          <div class="grid md:grid-cols-4 gap-2">
+            <select id="subscription-topic-arn" class="border rounded px-2 py-1 text-sm"></select>
+            <select id="subscription-protocol" class="border rounded px-2 py-1 text-sm" onchange="onSubscriptionProtocolChange()">
+              <option value="http">http</option>
+              <option value="ess-queue-ess">Ess-Queue-Ess</option>
+            </select>
+            <input id="subscription-endpoint" class="border rounded px-2 py-1 text-sm" placeholder="HTTP endpoint" />
+            <select id="subscription-queue-target" class="border rounded px-2 py-1 text-sm hidden"></select>
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create subscription" aria-label="Create subscription" onclick="createSubscription()">Create Subscription</button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded border p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-semibold">Subscriptions</h3>
+            <span id="subscriptions-count" class="text-xs text-slate-500">0 subscriptions</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="text-xs text-slate-500 border-b">
+                  <th class="text-left py-1 pr-2">Subscription ARN</th>
+                  <th class="text-left py-1 pr-2">Topic ARN</th>
+                  <th class="text-left py-1 pr-2">Protocol</th>
+                  <th class="text-left py-1 pr-2">Endpoint</th>
+                  <th class="text-left py-1 pr-2">Status</th>
+                  <th class="text-right py-1">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="subscriptions-body">
+                <tr><td colspan="6" class="py-2 text-sm text-slate-500">No subscriptions found.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const topics = data.topics || [];
+  const subscriptions = data.subscriptions || [];
+
+  renderTopicsTable(topics);
+  renderSubscriptionsTable(subscriptions);
+  syncTopicSelectors(topics);
+  onSubscriptionProtocolChange();
+
+  const topicsCount = document.getElementById('topics-count');
+  if (topicsCount) {
+    topicsCount.textContent = `${topics.length} topic${topics.length === 1 ? '' : 's'}`;
+  }
+  const subscriptionsCount = document.getElementById('subscriptions-count');
+  if (subscriptionsCount) {
+    subscriptionsCount.textContent = `${subscriptions.length} subscription${subscriptions.length === 1 ? '' : 's'}`;
+  }
+}
+
+async function loadSubscriptionQueueTargets() {
+  try {
+    const data = await apiGet('/api/services/ess-queue-ess/queues');
+    subscriptionQueueTargets = data.queues || [];
+    syncSubscriptionQueueTargets();
+  } catch {
+    subscriptionQueueTargets = [];
+    syncSubscriptionQueueTargets();
+  }
+}
+
+function syncSubscriptionQueueTargets() {
+  const select = document.getElementById('subscription-queue-target');
+  if (!select) return;
+
+  const existingValue = select.value;
+  const options = subscriptionQueueTargets.map((queue) => {
+    const queueName = queue.queue_name || queue.queue_url || '';
+    const queueURL = queue.queue_url || '';
+    return `<option value="${escapeHTML(queueURL)}">${escapeHTML(queueName)}</option>`;
+  }).join('');
+
+  select.innerHTML = options || '<option value="">No queues available</option>';
+  if (existingValue && subscriptionQueueTargets.some((queue) => queue.queue_url === existingValue)) {
+    select.value = existingValue;
+  }
+}
+
+function onSubscriptionProtocolChange() {
+  const protocolSelect = document.getElementById('subscription-protocol');
+  const endpointInput = document.getElementById('subscription-endpoint');
+  const queueTargetSelect = document.getElementById('subscription-queue-target');
+  if (!protocolSelect || !endpointInput || !queueTargetSelect) return;
+
+  const useQueueTarget = protocolSelect.value === 'ess-queue-ess';
+  endpointInput.classList.toggle('hidden', useQueueTarget);
+  queueTargetSelect.classList.toggle('hidden', !useQueueTarget);
+
+  if (useQueueTarget && queueTargetSelect.options.length === 0) {
+    loadSubscriptionQueueTargets();
+  }
+}
+
+function renderTopicsTable(topics) {
+  const body = document.getElementById('topics-body');
+  if (!body) return;
+
+  if (!topics.length) {
+    body.innerHTML = '<tr><td colspan="5" class="py-2 text-sm text-slate-500">No topics found.</td></tr>';
+    return;
+  }
+
+  const rows = topics.map((topic) => {
+    const typeLabel = topic.fifo_topic ? 'FIFO' : 'Standard';
+    return `
+      <tr class="border-b">
+        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(topic.topic_arn || '')}</td>
+        <td class="py-2 pr-2 text-xs">${escapeHTML(topic.display_name || '')}</td>
+        <td class="py-2 pr-2 text-xs">${Number(topic.subscription_count || 0)}</td>
+        <td class="py-2 pr-2 text-xs">${typeLabel}</td>
+        <td class="py-2 text-right">
+          <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete topic" aria-label="Delete topic" onclick="deleteTopic('${escapeHTML(topic.topic_arn || '')}')">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
+            </svg>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  body.innerHTML = rows;
+}
+
+function renderSubscriptionsTable(subscriptions) {
+  const body = document.getElementById('subscriptions-body');
+  if (!body) return;
+
+  if (!subscriptions.length) {
+    body.innerHTML = '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No subscriptions found.</td></tr>';
+    return;
+  }
+
+  const rows = subscriptions.map((subscription) => `
+    <tr class="border-b">
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(subscription.subscription_arn || '')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(subscription.topic_arn || '')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(subscription.protocol || '')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(subscription.endpoint || '')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(subscription.status || '')}</td>
+      <td class="py-2 text-right">
+        <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete subscription" aria-label="Delete subscription" onclick="deleteSubscription('${escapeHTML(subscription.subscription_arn || '')}')">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
+          </svg>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = rows;
+}
+
+function syncTopicSelectors(topics) {
+  syncTopicSelector('publish-topic-arn', topics);
+  syncTopicSelector('subscription-topic-arn', topics);
+}
+
+function syncTopicSelector(selectId, topics) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  const existingValue = select.value;
+  const options = topics.map((topic) => {
+    const arn = topic.topic_arn || '';
+    const name = topic.display_name || arn;
+    return `<option value="${escapeHTML(arn)}">${escapeHTML(name)}</option>`;
+  }).join('');
+
+  select.innerHTML = options || '<option value="">No topics available</option>';
+
+  if (existingValue && topics.some((topic) => topic.topic_arn === existingValue)) {
+    select.value = existingValue;
+  }
+}
+
+async function createTopic() {
+  try {
+    const input = document.getElementById('topic-create-name');
+    const name = input?.value?.trim() || '';
+    if (!name) {
+      setAlert('Topic name is required');
+      return;
+    }
+
+    await apiPost('/api/services/ess-enn-ess/actions/create-topic', { name });
+    if (input) input.value = '';
+    setAlert(`Topic created: ${name}`, 'info');
+    await loadPubSubState();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function deleteTopic(topicArn) {
+  try {
+    if (!topicArn) return;
+    if (!window.confirm(`Delete topic ${topicArn}?`)) return;
+    await apiPost('/api/services/ess-enn-ess/actions/delete-topic', { topic_arn: topicArn });
+    setAlert('Topic deleted.', 'info');
+    await loadPubSubState();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function createSubscription() {
+  try {
+    const topicSelect = document.getElementById('subscription-topic-arn');
+    const protocolSelect = document.getElementById('subscription-protocol');
+    const endpointInput = document.getElementById('subscription-endpoint');
+    const queueTargetSelect = document.getElementById('subscription-queue-target');
+
+    const topicArn = topicSelect?.value?.trim() || '';
+    const protocol = protocolSelect?.value?.trim() || 'http';
+    const endpoint = protocol === 'ess-queue-ess'
+      ? (queueTargetSelect?.value?.trim() || '')
+      : (endpointInput?.value?.trim() || '');
+
+    if (!topicArn) {
+      setAlert('Topic ARN is required for subscription');
+      return;
+    }
+    if (!endpoint) {
+      setAlert(protocol === 'ess-queue-ess' ? 'Select an Ess-Queue-Ess queue target' : 'Subscription endpoint is required');
+      return;
+    }
+
+    await apiPost('/api/services/ess-enn-ess/actions/create-subscription', {
+      topic_arn: topicArn,
+      protocol,
+      endpoint,
+      auto_confirm: true,
+    });
+
+    if (endpointInput) endpointInput.value = '';
+    setAlert('Subscription created.', 'info');
+    await loadPubSubState();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function deleteSubscription(subscriptionArn) {
+  try {
+    if (!subscriptionArn) return;
+    if (!window.confirm(`Delete subscription ${subscriptionArn}?`)) return;
+    await apiPost('/api/services/ess-enn-ess/actions/delete-subscription', { subscription_arn: subscriptionArn });
+    setAlert('Subscription deleted.', 'info');
+    await loadPubSubState();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function publishTopicMessage() {
+  try {
+    const topicSelect = document.getElementById('publish-topic-arn');
+    const subjectInput = document.getElementById('publish-subject');
+    const messageInput = document.getElementById('publish-message');
+
+    const topicArn = topicSelect?.value?.trim() || '';
+    const subject = subjectInput?.value?.trim() || '';
+    const message = messageInput?.value?.trim() || '';
+
+    if (!topicArn) {
+      setAlert('Select a topic to publish');
+      return;
+    }
+    if (!message) {
+      setAlert('Message body is required');
+      return;
+    }
+
+    await apiPost('/api/services/ess-enn-ess/actions/publish', {
+      topic_arn: topicArn,
+      subject,
+      message,
+    });
+
+    if (subjectInput) subjectInput.value = '';
+    if (messageInput) messageInput.value = '';
+    setAlert('Message published.', 'info');
+    await loadPubSubState();
   } catch (error) {
     setAlert(error.message);
   }
@@ -821,8 +1185,10 @@ function connectSSE(view) {
       if (view !== activeView) return;
       if (view === 'dashboard') {
         renderDashboard(payload);
-      } else {
+      } else if (view === 'ess-queue-ess') {
         renderQueuesIncremental(payload.queues || []);
+      } else {
+        renderPubSubState(payload);
       }
     } catch (error) {
       setAlert(`Failed to parse stream data: ${error.message}`);
@@ -836,5 +1202,6 @@ function connectSSE(view) {
 
 document.getElementById('menu-dashboard').addEventListener('click', () => switchView('dashboard'));
 document.getElementById('menu-ess-queue-ess').addEventListener('click', () => switchView('ess-queue-ess'));
+document.getElementById('menu-ess-enn-ess').addEventListener('click', () => switchView('ess-enn-ess'));
 
 switchView('dashboard');
