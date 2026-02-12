@@ -94,10 +94,6 @@ async function apiPost(path, body) {
   return response.json().catch(() => ({}));
 }
 
-function statCard(label, value) {
-  return `<div class="bg-white rounded border p-4"><div class="text-sm text-slate-500">${label}</div><div class="text-2xl font-semibold">${value}</div></div>`;
-}
-
 async function loadDashboard() {
   try {
     const data = await apiGet('/api/dashboard/summary');
@@ -108,26 +104,48 @@ async function loadDashboard() {
 }
 
 function renderDashboard(data) {
-  const statusRows = Object.entries(data.services || {}).map(([name, status]) => {
-    const badge = status === 'online'
+  const serviceRows = (data.services || []).map((service) => {
+    const badge = service.status === 'online'
       ? '<span class="px-2 py-1 rounded text-xs bg-emerald-100 text-emerald-800">online</span>'
       : '<span class="px-2 py-1 rounded text-xs bg-red-100 text-red-800">offline</span>';
-    return `<div class="flex items-center justify-between border-b py-2"><span class="font-medium">${name}</span>${badge}</div>`;
+
+    const stats = (service.stats || []).map((stat) => (
+      `<li class="text-sm text-slate-700">${stat.label}: <span class="font-semibold">${stat.value}</span></li>`
+    )).join('');
+
+    return `
+      <div class="bg-white rounded border p-4 flex items-start gap-4">
+        <div class="w-48 shrink-0">
+          <div class="font-medium">${service.name}</div>
+          <div class="mt-1">${badge}</div>
+        </div>
+        <div class="flex-1">
+          <ul class="space-y-1">
+            ${stats || '<li class="text-sm text-slate-500">No stats available.</li>'}
+          </ul>
+        </div>
+        <div class="shrink-0 ml-auto">
+          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Export service configuration" aria-label="Export service configuration" onclick="exportServiceConfig('${service.name}')">Export Config</button>
+        </div>
+      </div>
+    `;
   }).join('');
 
   document.getElementById('view-content').innerHTML = `
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      ${statCard('Queues', data.queues?.total ?? 0)}
-      ${statCard('Visible Messages', data.queues?.visible ?? 0)}
-      ${statCard('In Flight', data.queues?.in_flight ?? 0)}
-      ${statCard('Delayed', data.queues?.delayed ?? 0)}
-    </div>
-    <div class="bg-white rounded border p-4">
-      <h3 class="font-semibold mb-2">Service Status</h3>
-      ${statusRows || '<p class="text-sm text-slate-500">No service data.</p>'}
+    <div class="space-y-3">
+      ${serviceRows || '<div class="bg-white rounded border p-4 text-sm text-slate-500">No service data.</div>'}
     </div>
     <div class="text-xs text-slate-500">Updated: ${new Date(data.updated_at).toLocaleString()}</div>
   `;
+}
+
+function exportServiceConfig(serviceName) {
+  const anchor = document.createElement('a');
+  anchor.href = `/api/services/${encodeURIComponent(serviceName)}/config/export`;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 async function loadQueues() {

@@ -114,16 +114,19 @@ type QueueAttributesResponse struct {
 }
 
 type DashboardSummary struct {
-	Services map[string]string `json:"services"`
-	Queues   struct {
-		Total      int `json:"total"`
-		Visible    int `json:"visible"`
-		InFlight   int `json:"in_flight"`
-		Delayed    int `json:"delayed"`
-		WithDLQ    int `json:"with_dlq"`
-		FifoQueues int `json:"fifo_queues"`
-	} `json:"queues"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Services  []DashboardService `json:"services"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+type DashboardService struct {
+	Name   string          `json:"name"`
+	Status string          `json:"status"`
+	Stats  []DashboardStat `json:"stats"`
+}
+
+type DashboardStat struct {
+	Label string `json:"label"`
+	Value int    `json:"value"`
 }
 
 func NewRouter(logger *slog.Logger) http.Handler {
@@ -138,6 +141,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-queue-ess/queues", srv.handleQueueList)
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/messages/peek", srv.handleQueuePeek)
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/attributes", srv.handleQueueAttributes)
+	r.Get("/api/services/{service}/config/export", srv.handleServiceConfigExport)
 	r.Post("/api/services/ess-queue-ess/actions/create-queue", srv.handleCreateQueue)
 	r.Post("/api/services/ess-queue-ess/actions/send-message", srv.handleSendMessage)
 	r.Post("/api/services/ess-queue-ess/actions/update-attributes", srv.handleUpdateQueueAttributes)
@@ -160,34 +164,57 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleDashboardSummary(w http.ResponseWriter, _ *http.Request) {
-	queues, err := s.fetchQueues()
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+	writeJSON(w, http.StatusOK, s.buildDashboardSummary())
+}
+
+func (s *Server) handleServiceConfigExport(w http.ResponseWriter, r *http.Request) {
+	service := strings.TrimSpace(chi.URLParam(r, "service"))
+
+	var upstreamURL string
+	var fallbackFilename string
+	switch service {
+	case "ess-queue-ess":
+		upstreamURL = "http://ess-queue-ess:9320/admin/api/config/export"
+		fallbackFilename = "ess-queue-ess.config.yaml"
+	case "ess-enn-ess":
+		upstreamURL = "http://ess-enn-ess:9330/api/export"
+		fallbackFilename = "sns-export.yaml"
+	default:
+		writeError(w, http.StatusBadRequest, fmt.Errorf("unsupported service"))
 		return
 	}
 
-	summary := DashboardSummary{
-		Services: map[string]string{
-			"ess-queue-ess": "online",
-			"ess-enn-ess":   s.checkService("http://ess-enn-ess:9330/health"),
-		},
-		UpdatedAt: time.Now().UTC(),
+	resp, err := s.client.Get(upstreamURL)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("failed to fetch export: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		writeError(w, http.StatusBadGateway, fmt.Errorf("export failed for %s (%d): %s", service, resp.StatusCode, message))
+		return
 	}
 
-	summary.Queues.Total = len(queues)
-	for _, queue := range queues {
-		summary.Queues.Visible += queue.VisibleCount
-		summary.Queues.InFlight += queue.NotVisibleCount
-		summary.Queues.Delayed += queue.DelayedCount
-		if queue.HasDLQ {
-			summary.Queues.WithDLQ++
-		}
-		if queue.IsFIFO {
-			summary.Queues.FifoQueues++
-		}
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	contentDisposition := strings.TrimSpace(resp.Header.Get("Content-Disposition"))
+	if contentDisposition == "" {
+		contentDisposition = fmt.Sprintf("attachment; filename=%s", fallbackFilename)
 	}
 
-	writeJSON(w, http.StatusOK, summary)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", contentDisposition)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		s.logger.Error("failed to proxy export response", "service", service, "error", err)
+	}
 }
 
 func (s *Server) handleQueueList(w http.ResponseWriter, _ *http.Request) {
@@ -642,27 +669,83 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		return json.Marshal(QueueViewResponse{Service: "ess-queue-ess", Queues: queues})
 	}
 
-	summary := DashboardSummary{
-		Services: map[string]string{
-			"ess-queue-ess": s.checkService("http://ess-queue-ess:9320/health"),
-			"ess-enn-ess":   s.checkService("http://ess-enn-ess:9330/health"),
+	return json.Marshal(s.buildDashboardSummary())
+}
+
+func (s *Server) buildDashboardSummary() DashboardSummary {
+	summary := DashboardSummary{UpdatedAt: time.Now().UTC()}
+	services := make([]DashboardService, 0, 2)
+
+	queueService := DashboardService{
+		Name:   "ess-queue-ess",
+		Status: s.checkService("http://ess-queue-ess:9320/health"),
+		Stats: []DashboardStat{
+			{Label: "Queues", Value: 0},
+			{Label: "Visible", Value: 0},
+			{Label: "In Flight", Value: 0},
+			{Label: "Delayed", Value: 0},
 		},
-		UpdatedAt: time.Now().UTC(),
 	}
-	queues, err := s.fetchQueues()
-	if err != nil {
-		return nil, err
-	}
-	summary.Queues.Total = len(queues)
-	for _, queue := range queues {
-		summary.Queues.Visible += queue.VisibleCount
-		summary.Queues.InFlight += queue.NotVisibleCount
-		summary.Queues.Delayed += queue.DelayedCount
-		if queue.HasDLQ {
-			summary.Queues.WithDLQ++
+	if queueService.Status == "online" {
+		if queues, err := s.fetchQueues(); err == nil {
+			queueService.Stats[0].Value = len(queues)
+			for _, queue := range queues {
+				queueService.Stats[1].Value += queue.VisibleCount
+				queueService.Stats[2].Value += queue.NotVisibleCount
+				queueService.Stats[3].Value += queue.DelayedCount
+			}
+		} else {
+			s.logger.Warn("failed to fetch ess-queue-ess dashboard stats", "error", err)
 		}
 	}
-	return json.Marshal(summary)
+	services = append(services, queueService)
+
+	pubsubService := DashboardService{
+		Name:   "ess-enn-ess",
+		Status: s.checkService("http://ess-enn-ess:9330/health"),
+		Stats: []DashboardStat{
+			{Label: "Topics", Value: 0},
+			{Label: "Subscriptions", Value: 0},
+		},
+	}
+	if pubsubService.Status == "online" {
+		if topicsTotal, subscriptionsTotal, err := s.fetchSNSAdminStats(); err == nil {
+			pubsubService.Stats[0].Value = topicsTotal
+			pubsubService.Stats[1].Value = subscriptionsTotal
+		} else {
+			s.logger.Warn("failed to fetch ess-enn-ess dashboard stats", "error", err)
+		}
+	}
+	services = append(services, pubsubService)
+
+	summary.Services = services
+	return summary
+}
+
+func (s *Server) fetchSNSAdminStats() (int, int, error) {
+	resp, err := s.client.Get("http://ess-enn-ess:9330/api/stats")
+	if err != nil {
+		return 0, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, 0, fmt.Errorf("sns admin status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var stats struct {
+		Topics struct {
+			Total int `json:"total"`
+		} `json:"topics"`
+		Subscriptions struct {
+			Total int `json:"total"`
+		} `json:"subscriptions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return 0, 0, err
+	}
+
+	return stats.Topics.Total, stats.Subscriptions.Total, nil
 }
 
 func (s *Server) fetchQueues() ([]QueueView, error) {
