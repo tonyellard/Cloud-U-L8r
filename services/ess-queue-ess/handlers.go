@@ -66,6 +66,8 @@ func sqsHandler(w http.ResponseWriter, r *http.Request) {
 		handleDeleteMessage(w, r)
 	case "GetQueueAttributes":
 		handleGetQueueAttributes(w, r)
+	case "SetQueueAttributes":
+		handleSetQueueAttributes(w, r)
 	case "PurgeQueue":
 		handlePurgeQueue(w, r)
 	case "StartMessageMoveTask":
@@ -565,6 +567,73 @@ func handleGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 
 		sendXMLResponse(w, resp)
 	}
+}
+
+func handleSetQueueAttributes(w http.ResponseWriter, r *http.Request) {
+	var queueURL string
+	attributes := make(map[string]string)
+	isJSON := r.Header.Get("X-Amz-Target") != ""
+
+	if isJSON {
+		jsonBody, err := parseRequestJSON(r)
+		if err != nil {
+			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			return
+		}
+
+		if url, ok := jsonBody["QueueUrl"].(string); ok {
+			queueURL = url
+		}
+
+		if attrs, ok := jsonBody["Attributes"].(map[string]interface{}); ok {
+			for key, value := range attrs {
+				switch typed := value.(type) {
+				case string:
+					attributes[key] = typed
+				case float64:
+					attributes[key] = strconv.Itoa(int(typed))
+				case bool:
+					attributes[key] = strconv.FormatBool(typed)
+				default:
+					attributes[key] = fmt.Sprintf("%v", typed)
+				}
+			}
+		}
+	} else {
+		if err := r.ParseForm(); err != nil {
+			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			return
+		}
+		queueURL = r.FormValue("QueueUrl")
+		attributes = parseAttributes(r.Form, "Attribute")
+	}
+
+	queueName := extractQueueName(queueURL)
+	if queueName == "" {
+		sendError(w, "MissingParameter", "QueueUrl is required", http.StatusBadRequest)
+		return
+	}
+
+	queue, exists := queueManager.GetQueue(queueName)
+	if !exists {
+		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		return
+	}
+
+	if err := queue.SetAttributes(attributes); err != nil {
+		sendError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if isJSON {
+		sendJSONResponse(w, struct{}{})
+		return
+	}
+
+	type SetQueueAttributesResponse struct {
+		XMLName xml.Name `xml:"SetQueueAttributesResponse"`
+	}
+	sendXMLResponse(w, SetQueueAttributesResponse{})
 }
 
 func handlePurgeQueue(w http.ResponseWriter, r *http.Request) {

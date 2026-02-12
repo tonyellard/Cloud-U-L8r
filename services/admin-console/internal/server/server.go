@@ -1,0 +1,837 @@
+package server
+
+import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+)
+
+type Server struct {
+	logger *slog.Logger
+	client *http.Client
+}
+
+type QueueAdminResponse struct {
+	Queues []QueueAdmin `json:"queues"`
+}
+
+type QueueAdmin struct {
+	Name            string            `json:"name"`
+	URL             string            `json:"url"`
+	VisibleCount    int               `json:"visible_count"`
+	NotVisibleCount int               `json:"not_visible_count"`
+	DelayedCount    int               `json:"delayed_count"`
+	FifoQueue       bool              `json:"fifo_queue"`
+	RedrivePolicy   *json.RawMessage  `json:"redrive_policy"`
+	Messages        []json.RawMessage `json:"messages"`
+}
+
+type QueueView struct {
+	QueueName       string            `json:"queue_name"`
+	QueueURL        string            `json:"queue_url"`
+	VisibleCount    int               `json:"visible_count"`
+	NotVisibleCount int               `json:"not_visible_count"`
+	DelayedCount    int               `json:"delayed_count"`
+	IsFIFO          bool              `json:"is_fifo"`
+	HasDLQ          bool              `json:"has_dlq"`
+	IsDLQ           bool              `json:"is_dlq"`
+	Messages        []json.RawMessage `json:"messages"`
+	QueueID         string            `json:"queue_id"`
+}
+
+type QueueViewResponse struct {
+	Service string      `json:"service"`
+	Queues  []QueueView `json:"queues"`
+}
+
+type QueuePeekResponse struct {
+	QueueID   string            `json:"queue_id"`
+	QueueName string            `json:"queue_name"`
+	QueueURL  string            `json:"queue_url"`
+	Messages  []json.RawMessage `json:"messages"`
+}
+
+type CreateQueueRequest struct {
+	QueueName                 string `json:"queue_name"`
+	IsFIFO                    bool   `json:"is_fifo"`
+	ContentBasedDeduplication bool   `json:"content_based_deduplication"`
+	CreateDLQ                 bool   `json:"create_dlq"`
+	DLQMaxReceiveCount        int    `json:"dlq_max_receive_count"`
+	VisibilityTimeout         int    `json:"visibility_timeout"`
+	MessageRetentionPeriod    int    `json:"message_retention_period"`
+	MaximumMessageSize        int    `json:"maximum_message_size"`
+	DelaySeconds              int    `json:"delay_seconds"`
+	ReceiveMessageWaitTime    int    `json:"receive_message_wait_time_seconds"`
+}
+
+type SendMessageRequest struct {
+	QueueURL               string `json:"queue_url"`
+	MessageBody            string `json:"message_body"`
+	MessageGroupID         string `json:"message_group_id"`
+	MessageDeduplicationID string `json:"message_deduplication_id"`
+	DelaySeconds           int    `json:"delay_seconds"`
+}
+
+type QueueActionRequest struct {
+	QueueURL string `json:"queue_url"`
+}
+
+type UpdateQueueAttributesRequest struct {
+	QueueURL                      string `json:"queue_url"`
+	VisibilityTimeout             int    `json:"visibility_timeout"`
+	MessageRetentionPeriod        int    `json:"message_retention_period"`
+	MaximumMessageSize            int    `json:"maximum_message_size"`
+	DelaySeconds                  int    `json:"delay_seconds"`
+	ReceiveMessageWaitTimeSeconds int    `json:"receive_message_wait_time_seconds"`
+}
+
+type QueueRedriveRequest struct {
+	QueueURL                 string `json:"queue_url"`
+	DestinationQueueURL      string `json:"destination_queue_url"`
+	MaxMessagesPerSecondHint int    `json:"max_messages_per_second"`
+}
+
+type QueueAttributesResponse struct {
+	QueueID     string            `json:"queue_id"`
+	QueueName   string            `json:"queue_name"`
+	QueueURL    string            `json:"queue_url"`
+	Attributes  map[string]string `json:"attributes"`
+	FetchedAt   time.Time         `json:"fetched_at"`
+	IsFIFO      bool              `json:"is_fifo"`
+	HasDLQ      bool              `json:"has_dlq"`
+	IsDLQ       bool              `json:"is_dlq"`
+	RedriveFrom string            `json:"redrive_from,omitempty"`
+}
+
+type DashboardSummary struct {
+	Services map[string]string `json:"services"`
+	Queues   struct {
+		Total      int `json:"total"`
+		Visible    int `json:"visible"`
+		InFlight   int `json:"in_flight"`
+		Delayed    int `json:"delayed"`
+		WithDLQ    int `json:"with_dlq"`
+		FifoQueues int `json:"fifo_queues"`
+	} `json:"queues"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func NewRouter(logger *slog.Logger) http.Handler {
+	srv := &Server{
+		logger: logger,
+		client: &http.Client{Timeout: 5 * time.Second},
+	}
+
+	r := chi.NewRouter()
+	r.Get("/health", srv.handleHealth)
+	r.Get("/api/dashboard/summary", srv.handleDashboardSummary)
+	r.Get("/api/services/ess-queue-ess/queues", srv.handleQueueList)
+	r.Get("/api/services/ess-queue-ess/queues/{queueID}/messages/peek", srv.handleQueuePeek)
+	r.Get("/api/services/ess-queue-ess/queues/{queueID}/attributes", srv.handleQueueAttributes)
+	r.Post("/api/services/ess-queue-ess/actions/create-queue", srv.handleCreateQueue)
+	r.Post("/api/services/ess-queue-ess/actions/send-message", srv.handleSendMessage)
+	r.Post("/api/services/ess-queue-ess/actions/update-attributes", srv.handleUpdateQueueAttributes)
+	r.Post("/api/services/ess-queue-ess/actions/purge-queue", srv.handlePurgeQueue)
+	r.Post("/api/services/ess-queue-ess/actions/delete-queue", srv.handleDeleteQueue)
+	r.Post("/api/services/ess-queue-ess/actions/start-redrive", srv.handleStartRedrive)
+	r.Get("/api/events", srv.handleEvents)
+
+	fs := http.FileServer(http.Dir("./web"))
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/index.html")
+	})
+	r.Handle("/*", fs)
+
+	return r
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "admin-console"})
+}
+
+func (s *Server) handleDashboardSummary(w http.ResponseWriter, _ *http.Request) {
+	queues, err := s.fetchQueues()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	summary := DashboardSummary{
+		Services: map[string]string{
+			"ess-queue-ess": "online",
+			"ess-enn-ess":   s.checkService("http://ess-enn-ess:9330/health"),
+		},
+		UpdatedAt: time.Now().UTC(),
+	}
+
+	summary.Queues.Total = len(queues)
+	for _, queue := range queues {
+		summary.Queues.Visible += queue.VisibleCount
+		summary.Queues.InFlight += queue.NotVisibleCount
+		summary.Queues.Delayed += queue.DelayedCount
+		if queue.HasDLQ {
+			summary.Queues.WithDLQ++
+		}
+		if queue.IsFIFO {
+			summary.Queues.FifoQueues++
+		}
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleQueueList(w http.ResponseWriter, _ *http.Request) {
+	queues, err := s.fetchQueues()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, QueueViewResponse{Service: "ess-queue-ess", Queues: queues})
+}
+
+func (s *Server) handleQueuePeek(w http.ResponseWriter, r *http.Request) {
+	queueID := normalizeQueueIDParam(chi.URLParam(r, "queueID"))
+	if strings.TrimSpace(queueID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_id is required"))
+		return
+	}
+
+	limit := 10
+	if limitParam := r.URL.Query().Get("limit"); strings.TrimSpace(limitParam) != "" {
+		parsedLimit, err := strconv.Atoi(limitParam)
+		if err != nil || parsedLimit < 1 {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("limit must be a positive integer"))
+			return
+		}
+		if parsedLimit > 100 {
+			parsedLimit = 100
+		}
+		limit = parsedLimit
+	}
+
+	queues, err := s.fetchQueues()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	selected := findQueueByID(queues, queueID)
+	if selected == nil {
+		writeError(w, http.StatusNotFound, fmt.Errorf("queue not found"))
+		return
+	}
+
+	messages := selected.Messages
+	if len(messages) > limit {
+		messages = messages[:limit]
+	}
+
+	writeJSON(w, http.StatusOK, QueuePeekResponse{
+		QueueID:   selected.QueueID,
+		QueueName: selected.QueueName,
+		QueueURL:  selected.QueueURL,
+		Messages:  messages,
+	})
+}
+
+func (s *Server) handleCreateQueue(w http.ResponseWriter, r *http.Request) {
+	var req CreateQueueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.QueueName) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_name is required"))
+		return
+	}
+
+	queueName := strings.TrimSpace(req.QueueName)
+	if req.IsFIFO && !strings.HasSuffix(queueName, ".fifo") {
+		queueName += ".fifo"
+	}
+
+	visibilityTimeout := req.VisibilityTimeout
+	if visibilityTimeout == 0 {
+		visibilityTimeout = 30
+	}
+	messageRetention := req.MessageRetentionPeriod
+	if messageRetention == 0 {
+		messageRetention = 345600
+	}
+	maximumMessageSize := req.MaximumMessageSize
+	if maximumMessageSize == 0 {
+		maximumMessageSize = 262144
+	}
+	delaySeconds := req.DelaySeconds
+	receiveWait := req.ReceiveMessageWaitTime
+
+	if visibilityTimeout < 0 || messageRetention < 0 || maximumMessageSize <= 0 || delaySeconds < 0 || receiveWait < 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid create queue attribute values"))
+		return
+	}
+
+	dlqMaxReceiveCount := req.DLQMaxReceiveCount
+	if dlqMaxReceiveCount == 0 {
+		dlqMaxReceiveCount = 3
+	}
+	if req.CreateDLQ && dlqMaxReceiveCount <= 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("dlq_max_receive_count must be greater than zero"))
+		return
+	}
+
+	if req.CreateDLQ {
+		dlqName := deriveDLQName(queueName)
+		dlqForm := url.Values{}
+		dlqForm.Set("Action", "CreateQueue")
+		dlqForm.Set("QueueName", dlqName)
+		dlqForm.Set("Attribute.1.Name", "VisibilityTimeout")
+		dlqForm.Set("Attribute.1.Value", strconv.Itoa(visibilityTimeout))
+		dlqForm.Set("Attribute.2.Name", "MessageRetentionPeriod")
+		dlqForm.Set("Attribute.2.Value", strconv.Itoa(messageRetention))
+		dlqForm.Set("Attribute.3.Name", "MaximumMessageSize")
+		dlqForm.Set("Attribute.3.Value", strconv.Itoa(maximumMessageSize))
+		dlqForm.Set("Attribute.4.Name", "DelaySeconds")
+		dlqForm.Set("Attribute.4.Value", "0")
+		dlqForm.Set("Attribute.5.Name", "ReceiveMessageWaitTimeSeconds")
+		dlqForm.Set("Attribute.5.Value", strconv.Itoa(receiveWait))
+
+		if req.IsFIFO {
+			dlqForm.Set("Attribute.6.Name", "FifoQueue")
+			dlqForm.Set("Attribute.6.Value", "true")
+			if req.ContentBasedDeduplication {
+				dlqForm.Set("Attribute.7.Name", "ContentBasedDeduplication")
+				dlqForm.Set("Attribute.7.Value", "true")
+			}
+		}
+
+		if err := s.callSQSAction(dlqForm); err != nil {
+			writeError(w, http.StatusBadGateway, fmt.Errorf("failed to create DLQ: %w", err))
+			return
+		}
+	}
+
+	form := url.Values{}
+	form.Set("Action", "CreateQueue")
+	form.Set("QueueName", queueName)
+	form.Set("Attribute.1.Name", "VisibilityTimeout")
+	form.Set("Attribute.1.Value", strconv.Itoa(visibilityTimeout))
+	form.Set("Attribute.2.Name", "MessageRetentionPeriod")
+	form.Set("Attribute.2.Value", strconv.Itoa(messageRetention))
+	form.Set("Attribute.3.Name", "MaximumMessageSize")
+	form.Set("Attribute.3.Value", strconv.Itoa(maximumMessageSize))
+	form.Set("Attribute.4.Name", "DelaySeconds")
+	form.Set("Attribute.4.Value", strconv.Itoa(delaySeconds))
+	form.Set("Attribute.5.Name", "ReceiveMessageWaitTimeSeconds")
+	form.Set("Attribute.5.Value", strconv.Itoa(receiveWait))
+
+	if req.IsFIFO {
+		form.Set("Attribute.6.Name", "FifoQueue")
+		form.Set("Attribute.6.Value", "true")
+		if req.ContentBasedDeduplication {
+			form.Set("Attribute.7.Name", "ContentBasedDeduplication")
+			form.Set("Attribute.7.Value", "true")
+		}
+	}
+
+	if req.CreateDLQ {
+		dlqName := deriveDLQName(queueName)
+		redrivePolicy := fmt.Sprintf(`{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:%s","maxReceiveCount":%d}`, dlqName, dlqMaxReceiveCount)
+		form.Set("Attribute.8.Name", "RedrivePolicy")
+		form.Set("Attribute.8.Value", redrivePolicy)
+	}
+
+	if err := s.callSQSAction(form); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	response := map[string]any{"ok": true, "queue_name": queueName}
+	if req.CreateDLQ {
+		response["dlq_name"] = deriveDLQName(queueName)
+		response["dlq_max_receive_count"] = dlqMaxReceiveCount
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
+	var req SendMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.QueueURL) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		return
+	}
+	if strings.TrimSpace(req.MessageBody) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("message_body is required"))
+		return
+	}
+	if strings.HasSuffix(req.QueueURL, ".fifo") && strings.TrimSpace(req.MessageGroupID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("message_group_id is required for FIFO queues"))
+		return
+	}
+
+	form := url.Values{}
+	form.Set("Action", "SendMessage")
+	form.Set("QueueUrl", strings.TrimSpace(req.QueueURL))
+	form.Set("MessageBody", req.MessageBody)
+	if req.DelaySeconds > 0 {
+		form.Set("DelaySeconds", fmt.Sprintf("%d", req.DelaySeconds))
+	}
+	if strings.TrimSpace(req.MessageGroupID) != "" {
+		form.Set("MessageGroupId", strings.TrimSpace(req.MessageGroupID))
+	}
+	if strings.TrimSpace(req.MessageDeduplicationID) != "" {
+		form.Set("MessageDeduplicationId", strings.TrimSpace(req.MessageDeduplicationID))
+	}
+
+	if err := s.callSQSAction(form); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
+	var req QueueActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.QueueURL) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		return
+	}
+
+	form := url.Values{}
+	form.Set("Action", "PurgeQueue")
+	form.Set("QueueUrl", strings.TrimSpace(req.QueueURL))
+
+	if err := s.callSQSAction(form); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleUpdateQueueAttributes(w http.ResponseWriter, r *http.Request) {
+	var req UpdateQueueAttributesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+
+	if strings.TrimSpace(req.QueueURL) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		return
+	}
+	if req.VisibilityTimeout < 0 || req.MessageRetentionPeriod < 0 || req.MaximumMessageSize <= 0 || req.DelaySeconds < 0 || req.ReceiveMessageWaitTimeSeconds < 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid attribute values"))
+		return
+	}
+
+	payload := map[string]any{
+		"QueueUrl": strings.TrimSpace(req.QueueURL),
+		"Attributes": map[string]string{
+			"VisibilityTimeout":             strconv.Itoa(req.VisibilityTimeout),
+			"MessageRetentionPeriod":        strconv.Itoa(req.MessageRetentionPeriod),
+			"MaximumMessageSize":            strconv.Itoa(req.MaximumMessageSize),
+			"DelaySeconds":                  strconv.Itoa(req.DelaySeconds),
+			"ReceiveMessageWaitTimeSeconds": strconv.Itoa(req.ReceiveMessageWaitTimeSeconds),
+		},
+	}
+
+	if err := s.callSQSJSONAction("SetQueueAttributes", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
+	var req QueueActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.QueueURL) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		return
+	}
+
+	form := url.Values{}
+	form.Set("Action", "DeleteQueue")
+	form.Set("QueueUrl", strings.TrimSpace(req.QueueURL))
+
+	if err := s.callSQSAction(form); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleQueueAttributes(w http.ResponseWriter, r *http.Request) {
+	queueID := normalizeQueueIDParam(chi.URLParam(r, "queueID"))
+	if strings.TrimSpace(queueID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_id is required"))
+		return
+	}
+
+	queues, err := s.fetchQueues()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	selected := findQueueByID(queues, queueID)
+	if selected == nil {
+		writeError(w, http.StatusNotFound, fmt.Errorf("queue not found"))
+		return
+	}
+
+	var sqsResp struct {
+		Attributes map[string]string `json:"Attributes"`
+	}
+	if err := s.callSQSJSONAction("GetQueueAttributes", map[string]any{
+		"QueueUrl":       selected.QueueURL,
+		"AttributeNames": []string{"All"},
+	}, &sqsResp); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, QueueAttributesResponse{
+		QueueID:    selected.QueueID,
+		QueueName:  selected.QueueName,
+		QueueURL:   selected.QueueURL,
+		Attributes: sqsResp.Attributes,
+		FetchedAt:  time.Now().UTC(),
+		IsFIFO:     selected.IsFIFO,
+		HasDLQ:     selected.HasDLQ,
+		IsDLQ:      strings.Contains(strings.ToLower(selected.QueueName), "-dlq"),
+	})
+}
+
+func (s *Server) handleStartRedrive(w http.ResponseWriter, r *http.Request) {
+	var req QueueRedriveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.QueueURL) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		return
+	}
+
+	sourceArn, err := queueURLToARN(req.QueueURL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	payload := map[string]any{"SourceArn": sourceArn}
+	if strings.TrimSpace(req.DestinationQueueURL) != "" {
+		destinationArn, destinationErr := queueURLToARN(req.DestinationQueueURL)
+		if destinationErr != nil {
+			writeError(w, http.StatusBadRequest, destinationErr)
+			return
+		}
+		payload["DestinationArn"] = destinationArn
+	}
+	if req.MaxMessagesPerSecondHint > 0 {
+		payload["MaxNumberOfMessagesPerSecond"] = req.MaxMessagesPerSecondHint
+	}
+
+	var sqsResp struct {
+		TaskHandle string `json:"TaskHandle"`
+	}
+	if err := s.callSQSJSONAction("StartMessageMoveTask", payload, &sqsResp); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"task_handle": sqsResp.TaskHandle,
+		"source_arn":  sourceArn,
+	})
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	view := r.URL.Query().Get("view")
+	if view == "" {
+		view = "dashboard"
+	}
+	if view != "dashboard" && view != "ess-queue-ess" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "streaming unsupported"})
+		return
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	ctx := r.Context()
+
+	var lastPayload []byte
+	s.sendEventForView(w, flusher, view, &lastPayload)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.sendEventForView(w, flusher, view, &lastPayload)
+		}
+	}
+}
+
+func (s *Server) sendEventForView(w http.ResponseWriter, flusher http.Flusher, view string, lastPayload *[]byte) {
+	payload, err := s.payloadForView(view)
+	if err != nil {
+		s.logger.Error("event payload failure", "view", view, "error", err)
+		w.Write([]byte(": keep-alive\n\n"))
+		flusher.Flush()
+		return
+	}
+	if bytes.Equal(payload, *lastPayload) {
+		w.Write([]byte(": keep-alive\n\n"))
+		flusher.Flush()
+		return
+	}
+
+	w.Write([]byte("event: state\n"))
+	w.Write([]byte("data: "))
+	w.Write(payload)
+	w.Write([]byte("\n\n"))
+	flusher.Flush()
+	*lastPayload = payload
+}
+
+func (s *Server) payloadForView(view string) ([]byte, error) {
+	if view == "ess-queue-ess" {
+		queues, err := s.fetchQueues()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(QueueViewResponse{Service: "ess-queue-ess", Queues: queues})
+	}
+
+	summary := DashboardSummary{
+		Services: map[string]string{
+			"ess-queue-ess": s.checkService("http://ess-queue-ess:9320/health"),
+			"ess-enn-ess":   s.checkService("http://ess-enn-ess:9330/health"),
+		},
+		UpdatedAt: time.Now().UTC(),
+	}
+	queues, err := s.fetchQueues()
+	if err != nil {
+		return nil, err
+	}
+	summary.Queues.Total = len(queues)
+	for _, queue := range queues {
+		summary.Queues.Visible += queue.VisibleCount
+		summary.Queues.InFlight += queue.NotVisibleCount
+		summary.Queues.Delayed += queue.DelayedCount
+		if queue.HasDLQ {
+			summary.Queues.WithDLQ++
+		}
+	}
+	return json.Marshal(summary)
+}
+
+func (s *Server) fetchQueues() ([]QueueView, error) {
+	resp, err := s.client.Get("http://ess-queue-ess:9320/admin/api/queues")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("queue admin status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var adminResp QueueAdminResponse
+	if err := json.NewDecoder(resp.Body).Decode(&adminResp); err != nil {
+		return nil, err
+	}
+
+	queues := make([]QueueView, 0, len(adminResp.Queues))
+	for _, item := range adminResp.Queues {
+		decodedURL, _ := url.QueryUnescape(item.URL)
+		if decodedURL == "" {
+			decodedURL = item.URL
+		}
+		queues = append(queues, QueueView{
+			QueueName:       item.Name,
+			QueueURL:        decodedURL,
+			VisibleCount:    item.VisibleCount,
+			NotVisibleCount: item.NotVisibleCount,
+			DelayedCount:    item.DelayedCount,
+			IsFIFO:          item.FifoQueue,
+			HasDLQ:          item.RedrivePolicy != nil,
+			IsDLQ:           strings.HasSuffix(item.Name, "-dlq") || strings.HasSuffix(item.Name, "-dlq.fifo"),
+			Messages:        item.Messages,
+			QueueID:         base64.StdEncoding.EncodeToString([]byte(decodedURL)),
+		})
+	}
+	return queues, nil
+}
+
+func (s *Server) callSQSAction(form url.Values) error {
+	resp, err := s.client.PostForm("http://ess-queue-ess:9320/", form)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		return fmt.Errorf("sqs action %q failed (%d): %s", form.Get("Action"), resp.StatusCode, message)
+	}
+
+	return nil
+}
+
+func (s *Server) callSQSJSONAction(action string, payload map[string]any, target any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "http://ess-queue-ess:9320/", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	request.Header.Set("X-Amz-Target", "AmazonSQS."+action)
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("sqs action %q failed (%d): %s", action, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+func queueURLToARN(queueURL string) (string, error) {
+	decoded, _ := url.QueryUnescape(strings.TrimSpace(queueURL))
+	if decoded == "" {
+		return "", fmt.Errorf("queue_url is required")
+	}
+	queueName := strings.TrimPrefix(decoded, "/")
+	if queueName == "" {
+		return "", fmt.Errorf("invalid queue_url")
+	}
+	if strings.Contains(queueName, "/") {
+		parts := strings.Split(queueName, "/")
+		queueName = parts[len(parts)-1]
+	}
+	return "arn:aws:sqs:us-east-1:000000000000:" + queueName, nil
+}
+
+func normalizeQueueIDParam(queueID string) string {
+	trimmed := strings.TrimSpace(queueID)
+	if trimmed == "" {
+		return ""
+	}
+	if unescaped, err := url.PathUnescape(trimmed); err == nil && strings.TrimSpace(unescaped) != "" {
+		return strings.TrimSpace(unescaped)
+	}
+	if unescaped, err := url.QueryUnescape(trimmed); err == nil && strings.TrimSpace(unescaped) != "" {
+		return strings.TrimSpace(unescaped)
+	}
+	return trimmed
+}
+
+func findQueueByID(queues []QueueView, queueID string) *QueueView {
+	for index := range queues {
+		if queues[index].QueueID == queueID {
+			return &queues[index]
+		}
+	}
+	return nil
+}
+
+func deriveDLQName(queueName string) string {
+	trimmed := strings.TrimSpace(queueName)
+	if strings.HasSuffix(trimmed, ".fifo") {
+		base := strings.TrimSuffix(trimmed, ".fifo")
+		if strings.HasSuffix(base, "-dlq") {
+			return base + ".fifo"
+		}
+		return base + "-dlq.fifo"
+	}
+	if strings.HasSuffix(trimmed, "-dlq") {
+		return trimmed
+	}
+	return trimmed + "-dlq"
+}
+
+func (s *Server) checkService(healthURL string) string {
+	resp, err := s.client.Get(healthURL)
+	if err != nil {
+		return "offline"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "offline"
+	}
+	return "online"
+}
+
+func writeError(w http.ResponseWriter, code int, err error) {
+	writeJSON(w, code, map[string]string{"error": err.Error()})
+}
+
+func writeJSON(w http.ResponseWriter, code int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(payload)
+}
