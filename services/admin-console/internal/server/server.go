@@ -140,6 +140,21 @@ type PubSubStateResponse struct {
 	} `json:"stats"`
 }
 
+type TopicActivityEntry struct {
+	ID              string         `json:"id"`
+	Timestamp       time.Time      `json:"timestamp"`
+	EventType       string         `json:"event_type"`
+	TopicARN        string         `json:"topic_arn,omitempty"`
+	MessageID       string         `json:"message_id,omitempty"`
+	SubscriptionARN string         `json:"subscription_arn,omitempty"`
+	Protocol        string         `json:"protocol,omitempty"`
+	Endpoint        string         `json:"endpoint,omitempty"`
+	Status          string         `json:"status"`
+	Details         map[string]any `json:"details,omitempty"`
+	DurationMS      int64          `json:"duration_ms"`
+	Error           string         `json:"error,omitempty"`
+}
+
 type CreateTopicRequest struct {
 	Name string `json:"name"`
 }
@@ -194,6 +209,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/messages/peek", srv.handleQueuePeek)
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/attributes", srv.handleQueueAttributes)
 	r.Get("/api/services/ess-enn-ess/state", srv.handlePubSubState)
+	r.Get("/api/services/ess-enn-ess/topics/{topicARN}/activities", srv.handleTopicActivities)
 	r.Get("/api/services/{service}/config/export", srv.handleServiceConfigExport)
 	r.Post("/api/services/ess-queue-ess/actions/create-queue", srv.handleCreateQueue)
 	r.Post("/api/services/ess-queue-ess/actions/send-message", srv.handleSendMessage)
@@ -293,6 +309,26 @@ func (s *Server) handlePubSubState(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) handleTopicActivities(w http.ResponseWriter, r *http.Request) {
+	topicARN := strings.TrimSpace(normalizeQueueIDParam(chi.URLParam(r, "topicARN")))
+	if topicARN == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		return
+	}
+
+	var activities []TopicActivityEntry
+	path := "/api/activities?topic=" + url.QueryEscape(topicARN)
+	if err := s.callSNSAdminJSON(http.MethodGet, path, nil, &activities); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"topic_arn":  topicARN,
+		"activities": activities,
+	})
 }
 
 func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {

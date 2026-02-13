@@ -6,6 +6,10 @@ const attributeStatusHideTimers = new Map();
 const queueAttributesCache = new Map();
 const queueAttributeEditMode = new Set();
 let subscriptionQueueTargets = [];
+let activeTopicActivityARN = '';
+let activeTopicActivityName = '';
+let expandedPubSubTopicARN = '';
+let latestPubSubState = null;
 
 const editableQueueAttributeKeys = [
   'VisibilityTimeout',
@@ -172,6 +176,7 @@ async function loadPubSubState() {
 }
 
 function renderPubSubState(data) {
+  latestPubSubState = data;
   const content = document.getElementById('view-content');
   if (!content.querySelector('#pubsub-shell')) {
     content.innerHTML = `
@@ -209,6 +214,7 @@ function renderPubSubState(data) {
             <table class="w-full">
               <thead>
                 <tr class="text-xs text-slate-500 border-b">
+                  <th class="text-left py-1 pr-2">Expand</th>
                   <th class="text-left py-1 pr-2">Topic ARN</th>
                   <th class="text-left py-1 pr-2">Display Name</th>
                   <th class="text-left py-1 pr-2">Subscriptions</th>
@@ -217,47 +223,30 @@ function renderPubSubState(data) {
                 </tr>
               </thead>
               <tbody id="topics-body">
-                <tr><td colspan="5" class="py-2 text-sm text-slate-500">No topics found.</td></tr>
+                <tr><td colspan="6" class="py-2 text-sm text-slate-500">No topics found.</td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <div class="bg-white rounded border p-4">
-          <h3 class="font-semibold mb-2">Create Subscription</h3>
-          <div class="grid md:grid-cols-4 gap-2">
-            <select id="subscription-topic-arn" class="border rounded px-2 py-1 text-sm"></select>
-            <select id="subscription-protocol" class="border rounded px-2 py-1 text-sm" onchange="onSubscriptionProtocolChange()">
-              <option value="http">http</option>
-              <option value="ess-queue-ess">Ess-Queue-Ess</option>
-            </select>
-            <input id="subscription-endpoint" class="border rounded px-2 py-1 text-sm" placeholder="HTTP endpoint" />
-            <select id="subscription-queue-target" class="border rounded px-2 py-1 text-sm hidden"></select>
-            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create subscription" aria-label="Create subscription" onclick="createSubscription()">Create Subscription</button>
-          </div>
-        </div>
-
-        <div class="bg-white rounded border p-4">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-semibold">Subscriptions</h3>
-            <span id="subscriptions-count" class="text-xs text-slate-500">0 subscriptions</span>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="w-full">
-              <thead>
-                <tr class="text-xs text-slate-500 border-b">
-                  <th class="text-left py-1 pr-2">Subscription ARN</th>
-                  <th class="text-left py-1 pr-2">Topic ARN</th>
-                  <th class="text-left py-1 pr-2">Protocol</th>
-                  <th class="text-left py-1 pr-2">Endpoint</th>
-                  <th class="text-left py-1 pr-2">Status</th>
-                  <th class="text-right py-1">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="subscriptions-body">
-                <tr><td colspan="6" class="py-2 text-sm text-slate-500">No subscriptions found.</td></tr>
-              </tbody>
-            </table>
+        <div id="topic-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50">
+          <div class="bg-white w-full max-w-5xl rounded border shadow-lg">
+            <div class="px-4 py-3 border-b flex items-center justify-between">
+              <div>
+                <h3 class="font-semibold">Topic Activity</h3>
+                <p id="topic-activity-subtitle" class="text-xs text-slate-500"></p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh topic activity" aria-label="Refresh topic activity" onclick="refreshTopicActivityModal()">↻</button>
+                <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity modal" aria-label="Close activity modal" onclick="closeTopicActivityModal()">✕</button>
+              </div>
+            </div>
+            <div class="p-4">
+              <div id="topic-activity-status" class="hidden mb-2 text-xs px-2 py-1 rounded"></div>
+              <div id="topic-activity-body" class="max-h-[60vh] overflow-auto">
+                <p class="text-sm text-slate-500">No topic selected.</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -266,19 +255,16 @@ function renderPubSubState(data) {
 
   const topics = data.topics || [];
   const subscriptions = data.subscriptions || [];
+  const subscriptionsByTopic = groupSubscriptionsByTopic(subscriptions);
+  const subscriptionCounts = buildSubscriptionCountMap(subscriptionsByTopic);
 
-  renderTopicsTable(topics);
-  renderSubscriptionsTable(subscriptions);
-  syncTopicSelectors(topics);
-  onSubscriptionProtocolChange();
+  renderTopicsTable(topics, subscriptionsByTopic, subscriptionCounts);
+  syncTopicSelector('publish-topic-arn', topics);
+  loadSubscriptionQueueTargets();
 
   const topicsCount = document.getElementById('topics-count');
   if (topicsCount) {
     topicsCount.textContent = `${topics.length} topic${topics.length === 1 ? '' : 's'}`;
-  }
-  const subscriptionsCount = document.getElementById('subscriptions-count');
-  if (subscriptionsCount) {
-    subscriptionsCount.textContent = `${subscriptions.length} subscription${subscriptions.length === 1 ? '' : 's'}`;
   }
 }
 
@@ -286,15 +272,47 @@ async function loadSubscriptionQueueTargets() {
   try {
     const data = await apiGet('/api/services/ess-queue-ess/queues');
     subscriptionQueueTargets = data.queues || [];
-    syncSubscriptionQueueTargets();
+    const queueTargetSelects = document.querySelectorAll('[id^="subscription-queue-target-"]');
+    queueTargetSelects.forEach((select) => {
+      const topicKey = select.id.replace('subscription-queue-target-', '');
+      syncSubscriptionQueueTargetsForTopic(topicKey);
+    });
   } catch {
     subscriptionQueueTargets = [];
-    syncSubscriptionQueueTargets();
+    const queueTargetSelects = document.querySelectorAll('[id^="subscription-queue-target-"]');
+    queueTargetSelects.forEach((select) => {
+      const topicKey = select.id.replace('subscription-queue-target-', '');
+      syncSubscriptionQueueTargetsForTopic(topicKey);
+    });
   }
 }
 
-function syncSubscriptionQueueTargets() {
-  const select = document.getElementById('subscription-queue-target');
+function groupSubscriptionsByTopic(subscriptions) {
+  const grouped = new Map();
+  subscriptions.forEach((subscription) => {
+    const topicArn = subscription.topic_arn || '';
+    if (!grouped.has(topicArn)) {
+      grouped.set(topicArn, []);
+    }
+    grouped.get(topicArn).push(subscription);
+  });
+  return grouped;
+}
+
+function buildSubscriptionCountMap(subscriptionsByTopic) {
+  const counts = new Map();
+  subscriptionsByTopic.forEach((list, topicArn) => {
+    counts.set(topicArn, list.length);
+  });
+  return counts;
+}
+
+function getTopicDomKey(topicArn) {
+  return btoa(topicArn).replaceAll('=', '');
+}
+
+function syncSubscriptionQueueTargetsForTopic(topicKey) {
+  const select = document.getElementById(`subscription-queue-target-${topicKey}`);
   if (!select) return;
 
   const existingValue = select.value;
@@ -310,70 +328,30 @@ function syncSubscriptionQueueTargets() {
   }
 }
 
-function onSubscriptionProtocolChange() {
-  const protocolSelect = document.getElementById('subscription-protocol');
-  const endpointInput = document.getElementById('subscription-endpoint');
-  const queueTargetSelect = document.getElementById('subscription-queue-target');
+function onTopicSubscriptionProtocolChange(topicKey) {
+  const protocolSelect = document.getElementById(`subscription-protocol-${topicKey}`);
+  const endpointInput = document.getElementById(`subscription-endpoint-${topicKey}`);
+  const queueTargetSelect = document.getElementById(`subscription-queue-target-${topicKey}`);
   if (!protocolSelect || !endpointInput || !queueTargetSelect) return;
 
   const useQueueTarget = protocolSelect.value === 'ess-queue-ess';
   endpointInput.classList.toggle('hidden', useQueueTarget);
   queueTargetSelect.classList.toggle('hidden', !useQueueTarget);
 
-  if (useQueueTarget && queueTargetSelect.options.length === 0) {
-    loadSubscriptionQueueTargets();
+  if (useQueueTarget) {
+    syncSubscriptionQueueTargetsForTopic(topicKey);
   }
 }
 
-function renderTopicsTable(topics) {
-  const body = document.getElementById('topics-body');
-  if (!body) return;
-
-  if (!topics.length) {
-    body.innerHTML = '<tr><td colspan="5" class="py-2 text-sm text-slate-500">No topics found.</td></tr>';
-    return;
-  }
-
-  const rows = topics.map((topic) => {
-    const typeLabel = topic.fifo_topic ? 'FIFO' : 'Standard';
-    return `
-      <tr class="border-b">
-        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(topic.topic_arn || '')}</td>
-        <td class="py-2 pr-2 text-xs">${escapeHTML(topic.display_name || '')}</td>
-        <td class="py-2 pr-2 text-xs">${Number(topic.subscription_count || 0)}</td>
-        <td class="py-2 pr-2 text-xs">${typeLabel}</td>
-        <td class="py-2 text-right">
-          <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete topic" aria-label="Delete topic" onclick="deleteTopic('${escapeHTML(topic.topic_arn || '')}')">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
-            </svg>
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  body.innerHTML = rows;
-}
-
-function renderSubscriptionsTable(subscriptions) {
-  const body = document.getElementById('subscriptions-body');
-  if (!body) return;
-
-  if (!subscriptions.length) {
-    body.innerHTML = '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No subscriptions found.</td></tr>';
-    return;
-  }
-
+function renderTopicSubscriptionPanel(topicArn, topicKey, subscriptions) {
   const rows = subscriptions.map((subscription) => `
     <tr class="border-b">
       <td class="py-2 pr-2 text-xs break-all">${escapeHTML(subscription.subscription_arn || '')}</td>
-      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(subscription.topic_arn || '')}</td>
       <td class="py-2 pr-2 text-xs">${escapeHTML(subscription.protocol || '')}</td>
       <td class="py-2 pr-2 text-xs break-all">${escapeHTML(subscription.endpoint || '')}</td>
       <td class="py-2 pr-2 text-xs">${escapeHTML(subscription.status || '')}</td>
       <td class="py-2 text-right">
-        <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete subscription" aria-label="Delete subscription" onclick="deleteSubscription('${escapeHTML(subscription.subscription_arn || '')}')">
+        <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete subscription" aria-label="Delete subscription" onclick="deleteSubscription('${encodeURIComponent(subscription.subscription_arn || '')}')">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
           </svg>
@@ -382,12 +360,200 @@ function renderSubscriptionsTable(subscriptions) {
     </tr>
   `).join('');
 
-  body.innerHTML = rows;
+  return `
+    <div class="bg-slate-50 border rounded p-3">
+      <div class="grid md:grid-cols-4 gap-2 mb-3">
+        <select id="subscription-protocol-${topicKey}" class="border rounded px-2 py-1 text-sm" onchange="onTopicSubscriptionProtocolChange('${topicKey}')">
+          <option value="http">http</option>
+          <option value="ess-queue-ess">Ess-Queue-Ess</option>
+        </select>
+        <input id="subscription-endpoint-${topicKey}" class="border rounded px-2 py-1 text-sm" placeholder="HTTP endpoint" />
+        <select id="subscription-queue-target-${topicKey}" class="border rounded px-2 py-1 text-sm hidden"></select>
+        <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create subscription for this topic" aria-label="Create subscription for this topic" onclick="createSubscriptionForTopic('${encodeURIComponent(topicArn)}', '${topicKey}')">Add Subscription</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs text-slate-500 border-b">
+              <th class="text-left py-1 pr-2">Subscription ARN</th>
+              <th class="text-left py-1 pr-2">Protocol</th>
+              <th class="text-left py-1 pr-2">Endpoint</th>
+              <th class="text-left py-1 pr-2">Status</th>
+              <th class="text-right py-1">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="5" class="py-2 text-sm text-slate-500">No subscriptions for this topic.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
-function syncTopicSelectors(topics) {
-  syncTopicSelector('publish-topic-arn', topics);
-  syncTopicSelector('subscription-topic-arn', topics);
+function renderTopicsTable(topics, subscriptionsByTopic, subscriptionCounts) {
+  const body = document.getElementById('topics-body');
+  if (!body) return;
+
+  if (!topics.length) {
+    body.innerHTML = '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No topics found.</td></tr>';
+    return;
+  }
+
+  const rows = topics.map((topic) => {
+    const topicArn = topic.topic_arn || '';
+    const topicKey = getTopicDomKey(topicArn);
+    const isExpanded = expandedPubSubTopicARN === topicArn;
+    const topicSubscriptions = subscriptionsByTopic.get(topicArn) || [];
+    const subscriptionCount = subscriptionCounts.get(topicArn) ?? topicSubscriptions.length;
+    const typeLabel = topic.fifo_topic ? 'FIFO' : 'Standard';
+    const encodedTopicArn = encodeURIComponent(topicArn);
+    const displayName = (topic.display_name || '').replaceAll("'", '&#39;');
+    return `
+      <tr class="border-b">
+        <td class="py-2 pr-2 text-xs">
+          <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="${isExpanded ? 'Collapse subscriptions' : 'Expand subscriptions'}" aria-label="${isExpanded ? 'Collapse subscriptions' : 'Expand subscriptions'}" onclick="toggleTopicSubscriptions('${encodedTopicArn}')">${isExpanded ? '−' : '+'}</button>
+        </td>
+        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(topicArn)}</td>
+        <td class="py-2 pr-2 text-xs">${escapeHTML(topic.display_name || '')}</td>
+        <td class="py-2 pr-2 text-xs">${subscriptionCount}</td>
+        <td class="py-2 pr-2 text-xs">${typeLabel}</td>
+        <td class="py-2 text-right">
+          <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs mr-2" title="View activity details for this topic" aria-label="View topic activity" onclick="openTopicActivityModal('${encodedTopicArn}', '${displayName}')">Activity</button>
+          <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete topic" aria-label="Delete topic" onclick="deleteTopic('${encodedTopicArn}')">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
+            </svg>
+          </button>
+        </td>
+      </tr>
+      <tr class="${isExpanded ? '' : 'hidden'}" id="topic-subscriptions-${topicKey}">
+        <td colspan="6" class="py-2 px-1">
+          ${renderTopicSubscriptionPanel(topicArn, topicKey, topicSubscriptions)}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  body.innerHTML = rows;
+
+  if (expandedPubSubTopicARN) {
+    const expandedKey = getTopicDomKey(expandedPubSubTopicARN);
+    onTopicSubscriptionProtocolChange(expandedKey);
+  }
+}
+
+function toggleTopicSubscriptions(encodedTopicArn) {
+  const topicArn = decodeURIComponent(encodedTopicArn || '').trim();
+  if (!topicArn) return;
+
+  if (expandedPubSubTopicARN === topicArn) {
+    expandedPubSubTopicARN = '';
+  } else {
+    expandedPubSubTopicARN = topicArn;
+  }
+
+  if (latestPubSubState) {
+    renderPubSubState(latestPubSubState);
+  }
+}
+
+function renderTopicActivityTable(activities) {
+  if (!activities.length) {
+    return '<p class="text-sm text-slate-500">No activity found for this topic.</p>';
+  }
+
+  const rows = activities.map((entry) => {
+    const detailsText = entry.details ? escapeHTML(JSON.stringify(entry.details)) : '-';
+    return `
+      <tr class="border-b align-top">
+        <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+        <td class="py-2 pr-2 text-xs">${escapeHTML(entry.event_type || '')}</td>
+        <td class="py-2 pr-2 text-xs">${escapeHTML(entry.status || '')}</td>
+        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.message_id || '-')}</td>
+        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.subscription_arn || '-')}</td>
+        <td class="py-2 pr-2 text-xs break-all">${detailsText}</td>
+        <td class="py-2 text-xs break-all text-red-700">${escapeHTML(entry.error || '-')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Event</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1 pr-2">Message ID</th>
+            <th class="text-left py-1 pr-2">Subscription</th>
+            <th class="text-left py-1 pr-2">Details</th>
+            <th class="text-left py-1">Error</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function openTopicActivityModal(encodedTopicARN, displayName) {
+  const topicARN = decodeURIComponent(encodedTopicARN || '').trim();
+  if (!topicARN) return;
+
+  activeTopicActivityARN = topicARN;
+  activeTopicActivityName = displayName || topicARN;
+
+  const modal = document.getElementById('topic-activity-modal');
+  const subtitle = document.getElementById('topic-activity-subtitle');
+  const body = document.getElementById('topic-activity-body');
+  const status = document.getElementById('topic-activity-status');
+
+  if (subtitle) subtitle.textContent = activeTopicActivityName;
+  if (body) body.innerHTML = '<p class="text-sm text-slate-500">Loading activity...</p>';
+  if (status) {
+    status.className = 'mb-2 text-xs px-2 py-1 rounded bg-slate-100 text-slate-700';
+    status.textContent = 'Loading topic activity...';
+    status.classList.remove('hidden');
+  }
+  if (modal) modal.classList.remove('hidden');
+
+  await refreshTopicActivityModal();
+}
+
+async function refreshTopicActivityModal() {
+  if (!activeTopicActivityARN) return;
+
+  const body = document.getElementById('topic-activity-body');
+  const status = document.getElementById('topic-activity-status');
+
+  try {
+    const data = await apiGet(`/api/services/ess-enn-ess/topics/${encodeURIComponent(activeTopicActivityARN)}/activities`);
+    const activities = data.activities || [];
+    if (body) body.innerHTML = renderTopicActivityTable(activities);
+    if (status) {
+      status.className = 'mb-2 text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700';
+      status.textContent = `Loaded ${activities.length} activity entr${activities.length === 1 ? 'y' : 'ies'}.`;
+      status.classList.remove('hidden');
+    }
+  } catch (error) {
+    if (body) {
+      body.innerHTML = '<p class="text-sm text-red-600">Unable to load topic activity.</p>';
+    }
+    if (status) {
+      status.className = 'mb-2 text-xs px-2 py-1 rounded bg-red-100 text-red-700';
+      status.textContent = error.message;
+      status.classList.remove('hidden');
+    }
+  }
+}
+
+function closeTopicActivityModal() {
+  const modal = document.getElementById('topic-activity-modal');
+  if (modal) modal.classList.add('hidden');
+  activeTopicActivityARN = '';
+  activeTopicActivityName = '';
 }
 
 function syncTopicSelector(selectId, topics) {
@@ -426,26 +592,29 @@ async function createTopic() {
   }
 }
 
-async function deleteTopic(topicArn) {
+async function deleteTopic(encodedTopicArn) {
   try {
+    const topicArn = decodeURIComponent(encodedTopicArn || '').trim();
     if (!topicArn) return;
     if (!window.confirm(`Delete topic ${topicArn}?`)) return;
     await apiPost('/api/services/ess-enn-ess/actions/delete-topic', { topic_arn: topicArn });
     setAlert('Topic deleted.', 'info');
+    if (expandedPubSubTopicARN === topicArn) {
+      expandedPubSubTopicARN = '';
+    }
     await loadPubSubState();
   } catch (error) {
     setAlert(error.message);
   }
 }
 
-async function createSubscription() {
+async function createSubscriptionForTopic(encodedTopicArn, topicKey) {
   try {
-    const topicSelect = document.getElementById('subscription-topic-arn');
-    const protocolSelect = document.getElementById('subscription-protocol');
-    const endpointInput = document.getElementById('subscription-endpoint');
-    const queueTargetSelect = document.getElementById('subscription-queue-target');
+    const topicArn = decodeURIComponent(encodedTopicArn || '').trim();
+    const protocolSelect = document.getElementById(`subscription-protocol-${topicKey}`);
+    const endpointInput = document.getElementById(`subscription-endpoint-${topicKey}`);
+    const queueTargetSelect = document.getElementById(`subscription-queue-target-${topicKey}`);
 
-    const topicArn = topicSelect?.value?.trim() || '';
     const protocol = protocolSelect?.value?.trim() || 'http';
     const endpoint = protocol === 'ess-queue-ess'
       ? (queueTargetSelect?.value?.trim() || '')
@@ -468,6 +637,9 @@ async function createSubscription() {
     });
 
     if (endpointInput) endpointInput.value = '';
+    if (queueTargetSelect && protocol === 'ess-queue-ess') {
+      queueTargetSelect.selectedIndex = 0;
+    }
     setAlert('Subscription created.', 'info');
     await loadPubSubState();
   } catch (error) {
@@ -475,8 +647,9 @@ async function createSubscription() {
   }
 }
 
-async function deleteSubscription(subscriptionArn) {
+async function deleteSubscription(encodedSubscriptionArn) {
   try {
+    const subscriptionArn = decodeURIComponent(encodedSubscriptionArn || '').trim();
     if (!subscriptionArn) return;
     if (!window.confirm(`Delete subscription ${subscriptionArn}?`)) return;
     await apiPost('/api/services/ess-enn-ess/actions/delete-subscription', { subscription_arn: subscriptionArn });
@@ -522,6 +695,7 @@ async function publishTopicMessage() {
 }
 
 function queueRowTemplate(queue) {
+  const isExpanded = expandedQueues.has(queue.queue_id);
   const redriveButton = queue.is_dlq
     ? `<button class="px-3 py-1 rounded bg-purple-700 text-white text-sm" title="Move messages from this DLQ back to its source queue" aria-label="Start redrive" onclick="event.stopPropagation(); startRedrive('${queue.queue_url}', '${queue.queue_id}')">Start Redrive</button>`
     : '';
@@ -534,9 +708,12 @@ function queueRowTemplate(queue) {
   return `
     <div class="bg-white rounded border" data-queue-url="${queue.queue_url}" id="queue-${queue.queue_id}">
       <div class="px-4 py-3 flex items-start justify-between gap-3">
-        <button class="flex-1 text-left" title="Expand or collapse queue details" aria-label="Toggle queue details" onclick="toggleQueue('${queue.queue_id}')">
-          <div class="font-medium">${queue.queue_name}</div>
-          <div class="text-xs text-slate-500">${queue.queue_url}</div>
+        <button class="flex-1 text-left flex items-start gap-2" title="Expand or collapse queue details" aria-label="Toggle queue details" onclick="toggleQueue('${queue.queue_id}')">
+          <span id="queue-toggle-icon-${queue.queue_id}" data-role="queue-toggle-icon" class="h-7 w-7 shrink-0 rounded bg-slate-700 text-white text-sm inline-flex items-center justify-center">${isExpanded ? '−' : '+'}</span>
+          <span>
+            <div class="font-medium">${queue.queue_name}</div>
+            <div class="text-xs text-slate-500">${queue.queue_url}</div>
+          </span>
         </button>
         <div class="flex flex-col items-end gap-2">
           <div class="flex items-center gap-2">
@@ -736,13 +913,16 @@ function renderQueuesIncremental(queues) {
     }
 
     const panel = document.getElementById(`panel-${queue.queue_id}`);
+    const toggleIcon = document.getElementById(`queue-toggle-icon-${queue.queue_id}`);
     if (!panel) {
       return;
     }
     if (expandedQueues.has(queue.queue_id)) {
       panel.classList.remove('hidden');
+      if (toggleIcon) toggleIcon.textContent = '−';
     } else {
       panel.classList.add('hidden');
+      if (toggleIcon) toggleIcon.textContent = '+';
     }
   });
 
@@ -1090,14 +1270,17 @@ async function deleteQueue(queueUrl) {
 
 function toggleQueue(queueId) {
   const panel = document.getElementById(`panel-${queueId}`);
+  const toggleIcon = document.getElementById(`queue-toggle-icon-${queueId}`);
   if (!panel) return;
   const expanded = !panel.classList.contains('hidden');
   if (expanded) {
     panel.classList.add('hidden');
     expandedQueues.delete(queueId);
+    if (toggleIcon) toggleIcon.textContent = '+';
   } else {
     panel.classList.remove('hidden');
     expandedQueues.add(queueId);
+    if (toggleIcon) toggleIcon.textContent = '−';
     loadQueueAttributes(queueId);
     loadPeekMessages(queueId);
   }
