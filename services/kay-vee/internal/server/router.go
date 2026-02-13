@@ -58,6 +58,8 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handleGetParameter(w, body)
 	case "AmazonSSM.GetParameters":
 		s.handleGetParameters(w, body)
+	case "AmazonSSM.GetParametersByPath":
+		s.handleGetParametersByPath(w, body)
 	case "secretsmanager.CreateSecret":
 		s.handleCreateSecret(w, body)
 	case "secretsmanager.GetSecretValue":
@@ -66,6 +68,10 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handlePutSecretValue(w, body)
 	case "secretsmanager.UpdateSecret":
 		s.handleUpdateSecret(w, body)
+	case "secretsmanager.DescribeSecret":
+		s.handleDescribeSecret(w, body)
+	case "secretsmanager.ListSecrets":
+		s.handleListSecrets(w, body)
 	default:
 		writeAWSError(w, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
 	}
@@ -110,6 +116,21 @@ func (s *Server) handleGetParameters(w http.ResponseWriter, body []byte) {
 
 	params, invalid := s.store.GetParameters(req.Names, req.WithDecryption)
 	writeJSON(w, http.StatusOK, model.GetParametersResponse{Parameters: params, InvalidParameters: invalid})
+}
+
+func (s *Server) handleGetParametersByPath(w http.ResponseWriter, body []byte) {
+	var req model.GetParametersByPathRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	params, err := s.store.GetParametersByPath(req.Path, req.Recursive, req.WithDecryption)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, model.GetParametersByPathResponse{Parameters: params})
 }
 
 func (s *Server) handleCreateSecret(w http.ResponseWriter, body []byte) {
@@ -169,6 +190,32 @@ func (s *Server) handleUpdateSecret(w http.ResponseWriter, body []byte) {
 		writeFromError(w, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleDescribeSecret(w http.ResponseWriter, body []byte) {
+	var req model.DescribeSecretRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	res, err := s.store.DescribeSecret(req.SecretID)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleListSecrets(w http.ResponseWriter, body []byte) {
+	var req model.ListSecretsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	res := s.store.ListSecrets()
 	writeJSON(w, http.StatusOK, res)
 }
 

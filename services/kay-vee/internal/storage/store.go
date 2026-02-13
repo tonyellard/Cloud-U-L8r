@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -182,6 +183,56 @@ func (s *Store) GetParameters(names []string, withDecryption bool) ([]model.Para
 	return found, invalid
 }
 
+func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool) ([]model.Parameter, error) {
+	if path == "" {
+		return nil, fmt.Errorf("ValidationException: Path is required")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	normalized := strings.TrimSuffix(path, "/")
+	if normalized == "" {
+		normalized = "/"
+	}
+
+	names := make([]string, 0)
+	for name := range s.parameters {
+		if !matchesPath(name, normalized, recursive) {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	results := make([]model.Parameter, 0, len(names))
+	for _, name := range names {
+		record := s.parameters[name]
+		version := record.CurrentVersion
+		v := record.Versions[version]
+
+		value := v.Value
+		if record.Type == "SecureString" {
+			if withDecryption {
+				value = decryptValue(v.Value)
+			} else {
+				value = "ENCRYPTED"
+			}
+		}
+
+		results = append(results, model.Parameter{
+			Name:             record.Name,
+			Type:             record.Type,
+			Value:            value,
+			Version:          version,
+			ARN:              fmt.Sprintf("arn:aws:ssm:%s:%s:parameter%s", s.region, s.accountID, record.Name),
+			LastModifiedDate: record.LastModifiedAt,
+		})
+	}
+
+	return results, nil
+}
+
 func (s *Store) CreateSecret(req model.CreateSecretRequest) (model.CreateSecretResponse, error) {
 	if req.Name == "" {
 		return model.CreateSecretResponse{}, fmt.Errorf("ValidationException: Name is required")
@@ -354,6 +405,63 @@ func (s *Store) GetSecretValue(req model.GetSecretValueRequest) (model.SecretVal
 	}, nil
 }
 
+func (s *Store) DescribeSecret(secretID string) (model.DescribeSecretResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	record, err := s.resolveSecretReadLocked(secretID)
+	if err != nil {
+		return model.DescribeSecretResponse{}, err
+	}
+
+	versions := make([]model.SecretVersionStages, 0, len(record.VersionStages))
+	for versionID, stageSet := range record.VersionStages {
+		stages := make([]string, 0, len(stageSet))
+		for stage := range stageSet {
+			stages = append(stages, stage)
+		}
+		sort.Strings(stages)
+		versions = append(versions, model.SecretVersionStages{VersionID: versionID, Stages: stages})
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i].VersionID < versions[j].VersionID })
+
+	return model.DescribeSecretResponse{
+		ARN:                record.ARN,
+		Name:               record.Name,
+		Description:        record.Description,
+		CreatedDate:        record.CreatedAt,
+		LastChangedDate:    record.LastChangedAt,
+		DeletedDate:        record.DeletedAt,
+		VersionIDsToStages: versions,
+	}, nil
+}
+
+func (s *Store) ListSecrets() model.ListSecretsResponse {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	names := make([]string, 0, len(s.secrets))
+	for name := range s.secrets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	items := make([]model.SecretListEntry, 0, len(names))
+	for _, name := range names {
+		record := s.secrets[name]
+		items = append(items, model.SecretListEntry{
+			ARN:             record.ARN,
+			Name:            record.Name,
+			Description:     record.Description,
+			CreatedDate:     record.CreatedAt,
+			LastChangedDate: record.LastChangedAt,
+			DeletedDate:     record.DeletedAt,
+		})
+	}
+
+	return model.ListSecretsResponse{SecretList: items}
+}
+
 func (s *Store) resolveSecretLocked(secretID string) (*SecretRecord, error) {
 	if name, ok := s.secretByARN[secretID]; ok {
 		rec, exists := s.secrets[name]
@@ -405,6 +513,27 @@ func parseSelector(name string) (string, string) {
 		return name, ""
 	}
 	return name[:idx], name[idx+1:]
+}
+
+func matchesPath(name, path string, recursive bool) bool {
+	if path == "/" {
+		if !recursive {
+			trimmed := strings.TrimPrefix(name, "/")
+			return !strings.Contains(trimmed, "/")
+		}
+		return strings.HasPrefix(name, "/")
+	}
+
+	prefix := path + "/"
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	if recursive {
+		return true
+	}
+
+	remainder := strings.TrimPrefix(name, prefix)
+	return remainder != "" && !strings.Contains(remainder, "/")
 }
 
 func randomSuffix(length int) string {

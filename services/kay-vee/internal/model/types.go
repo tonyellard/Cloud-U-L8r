@@ -25,6 +25,14 @@ type GetParametersRequest struct {
 	WithDecryption bool     `json:"WithDecryption"`
 }
 
+type GetParametersByPathRequest struct {
+	Path           string `json:"Path"`
+	Recursive      bool   `json:"Recursive"`
+	WithDecryption bool   `json:"WithDecryption"`
+	MaxResults     int    `json:"MaxResults,omitempty"`
+	NextToken      string `json:"NextToken,omitempty"`
+}
+
 type Parameter struct {
 	Name             string    `json:"Name"`
 	Type             string    `json:"Type"`
@@ -41,6 +49,11 @@ type GetParameterResponse struct {
 type GetParametersResponse struct {
 	Parameters        []Parameter `json:"Parameters"`
 	InvalidParameters []string    `json:"InvalidParameters"`
+}
+
+type GetParametersByPathResponse struct {
+	Parameters []Parameter `json:"Parameters"`
+	NextToken  string      `json:"NextToken,omitempty"`
 }
 
 type CreateSecretRequest struct {
@@ -84,6 +97,44 @@ type SecretValueResponse struct {
 	SecretBinary string    `json:"SecretBinary,omitempty"`
 	VersionStage []string  `json:"VersionStages"`
 	CreatedDate  time.Time `json:"CreatedDate"`
+}
+
+type DescribeSecretRequest struct {
+	SecretID string `json:"SecretId"`
+}
+
+type SecretVersionStages struct {
+	VersionID string   `json:"VersionId"`
+	Stages    []string `json:"VersionStages"`
+}
+
+type DescribeSecretResponse struct {
+	ARN                string                `json:"ARN"`
+	Name               string                `json:"Name"`
+	Description        string                `json:"Description,omitempty"`
+	CreatedDate        time.Time             `json:"CreatedDate"`
+	LastChangedDate    time.Time             `json:"LastChangedDate"`
+	DeletedDate        *time.Time            `json:"DeletedDate,omitempty"`
+	VersionIDsToStages []SecretVersionStages `json:"VersionIdsToStages,omitempty"`
+}
+
+type ListSecretsRequest struct {
+	MaxResults int    `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
+
+type SecretListEntry struct {
+	ARN             string     `json:"ARN"`
+	Name            string     `json:"Name"`
+	Description     string     `json:"Description,omitempty"`
+	CreatedDate     time.Time  `json:"CreatedDate"`
+	LastChangedDate time.Time  `json:"LastChangedDate"`
+	DeletedDate     *time.Time `json:"DeletedDate,omitempty"`
+}
+
+type ListSecretsResponse struct {
+	SecretList []SecretListEntry `json:"SecretList"`
+	NextToken  string            `json:"NextToken,omitempty"`
 }
 
 type AWSJSONError struct {

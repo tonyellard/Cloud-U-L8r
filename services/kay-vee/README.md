@@ -1,0 +1,66 @@
+# kay-vee - Local SSM + Secrets Manager Emulator
+
+`kay-vee` is a local emulator for AWS Systems Manager Parameter Store and AWS Secrets Manager.
+
+## Features
+
+- AWS-style JSON RPC over `X-Amz-Target`
+- In-memory storage for fast local development
+- Parameter versioning with basic selector support (`name`, `name:version`, `name:label`)
+- Secret version stages (`AWSCURRENT`, `AWSPREVIOUS`)
+- Health endpoint for container orchestration checks
+
+## Supported Operations
+
+### Parameter Store (SSM)
+
+- `PutParameter`
+- `GetParameter`
+- `GetParameters`
+- `GetParametersByPath`
+
+### Secrets Manager
+
+- `CreateSecret`
+- `GetSecretValue`
+- `PutSecretValue`
+- `UpdateSecret`
+- `DescribeSecret`
+- `ListSecrets`
+
+## Quick Start
+
+### Local
+
+```bash
+go run ./cmd/kay-vee
+```
+
+Service default endpoint: `http://localhost:9350`
+
+Health check:
+
+```bash
+curl http://localhost:9350/health
+```
+
+### Docker
+
+```bash
+docker build -t kay-vee .
+docker run --rm -p 9350:9350 kay-vee
+```
+
+## Example Request
+
+```bash
+curl -s http://localhost:9350/ \
+  -H 'Content-Type: application/x-amz-json-1.1' \
+  -H 'X-Amz-Target: AmazonSSM.PutParameter' \
+  -d '{"Name":"/app/dev/url","Type":"String","Value":"http://localhost","Overwrite":true}'
+```
+
+## Notes
+
+- This emulator intentionally prioritizes local dev compatibility over strict AWS parity.
+- Rotation workflows are currently out of scope.
