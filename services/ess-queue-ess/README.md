@@ -82,8 +82,8 @@ docker network create shared-network
 Each service's `docker-compose.yml` references this external network, allowing them to communicate:
 
 - **Ess-Queue-Ess**: `http://ess-queue-ess:9320`
-- **ess-three**: `http://ess-three:9000`
-- **Cloudfauxnt**: `http://cloudfauxnt:9001`
+- **ess-three**: `http://essthree:9300`
+- **Cloudfauxnt**: `http://cloudfauxnt:9310`
 
 ### Running Multiple Services
 
@@ -107,10 +107,10 @@ Once running, containers can reach each other by container name:
 
 ```bash
 # From inside ess-queue-ess, reach ess-three
-curl http://ess-three:9000/health
+curl http://essthree:9300/health
 
 # From inside Cloudfauxnt, reach ess-three
-curl http://ess-three:9000/health
+curl http://essthree:9300/health
 ```
 
 ## Usage

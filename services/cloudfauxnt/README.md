@@ -36,7 +36,7 @@ Start each service in its own terminal. They will automatically connect to the s
 
 **Terminal 1: Start ess-three**
 ```bash
-cd /path/to/ess-three
+cd /path/to/essthree
 docker compose up -d
 ```
 
@@ -57,8 +57,8 @@ curl http://localhost:9310/health
 
 Services can now communicate using container names:
 
-- **ess-three**: `http://ess-three:9000`
-- **ess-queue-ess**: `http://ess-queue-ess:9324`
+- **ess-three**: `http://essthree:9300`
+- **ess-queue-ess**: `http://ess-queue-ess:9320`
 - **cloudfauxnt**: `http://cloudfauxnt:9310`
 
 ### 4. Generate RSA Keys (if using signing)
@@ -81,7 +81,7 @@ server:
 
 origins:
   - name: s3
-    url: http://ess-three:9000  # Service name for Docker
+    url: http://essthree:9300  # Service name for Docker
     path_patterns:
       - "/s3/*"
     strip_prefix: "/s3"
@@ -141,7 +141,7 @@ CloudFauxnt supports path rewriting to map incoming paths to different backend p
 ```yaml
 origins:
   - name: myfiles
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns:
       - "/s3/*"
     strip_prefix: "/s3"      # Remove this from the request path
@@ -153,7 +153,7 @@ origins:
 Client request:     http://localhost:9310/s3/document.pdf
 Strip /s3:         /document.pdf
 Add /test-bucket:  /test-bucket/document.pdf
-Proxies to:        http://ess-three:9000/test-bucket/document.pdf
+Proxies to:        http://essthree:9300/test-bucket/document.pdf
 ```
 
 ### Without Signature Validation
@@ -247,7 +247,7 @@ Define backend services to proxy to with optional path rewriting and per-origin 
 ```yaml
 origins:
   - name: s3              # Friendly name
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns:
       - "/s3/*"           # Match paths starting with /s3/
     strip_prefix: "/s3"  # Optional: remove this from request path
@@ -286,19 +286,19 @@ signing:
 origins:
   # Public bucket - override to allow unsigned access
   - name: public-bucket
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/public/*"]
     require_signature: false  # Override global: allow unsigned
   
   # Private bucket - explicitly require signatures
   - name: private-bucket
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/private/*"]
     require_signature: true   # Override global: require signed
   
   # Protected bucket - uses global setting (signing.enabled)
   - name: protected-bucket
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/protected/*"]
     # Omit require_signature to inherit global setting
 ```
@@ -376,11 +376,11 @@ Run both as separate Docker services on a shared network:
 ```yaml
 version: '3.8'
 services:
-  ess-three:
+  essthree:
     build: .
-    container_name: ess-three
+    container_name: essthree
     ports:
-      - "9000:9000"
+      - "9300:9300"
     volumes:
       - ./data:/data
     networks:
@@ -414,20 +414,20 @@ networks:
 **Start both services:**
 ```bash
 # Terminal 1
-cd /path/to/ess-three && docker compose up -d
+cd /path/to/essthree && docker compose up -d
 
 # Terminal 2
 cd /path/to/CloudFauxnt && docker compose up -d
 
 # Verify both are running
-docker ps | grep -E "cloudfauxnt|ess-three"
+docker ps | grep -E "cloudfauxnt|essthree"
 ```
 
 **CloudFauxnt config (config/cloudfauxnt.config.yaml):**
 ```yaml
 origins:
   - name: s3
-    url: http://ess-three:9000  # Service name for Docker network
+    url: http://essthree:9300  # Service name for Docker network
     path_patterns:
       - "/*"
 ```
@@ -442,7 +442,7 @@ CloudFauxnt runs as a separate Docker container that proxies requests to origin 
 │  Docker Bridge Network (shared-network)                         │
 │                                                                 │
 │  ┌──────────────────────┐         ┌──────────────────────┐     │
-│  │  CloudFauxnt (9310)  │         │  ess-three (9000)    │     │
+│  │  CloudFauxnt (9310)  │         │  essthree (9300)     │     │
 │  │                      │         │                      │     │
 │  │ • Validate Signature │         │ • S3 Emulator        │     │
 │  │ • Check CORS         │─────────│ • Stores objects     │     │
@@ -450,7 +450,7 @@ CloudFauxnt runs as a separate Docker container that proxies requests to origin 
 │  │ • Proxy requests     │         │                      │     │
 │  └──────────┬───────────┘         └──────────────────────┘     │
 │             │                                                   │
-│             │ http://ess-three:9000                             │
+│             │ http://essthree:9300                              │
 │             │ (Docker service name)                             │
 │             │                                                   │
 └─────────────┼───────────────────────────────────────────────────┘
@@ -459,19 +459,19 @@ CloudFauxnt runs as a separate Docker container that proxies requests to origin 
               │
               ▼
         localhost:9310  (host access)
-        localhost:9000
+        localhost:9300
 ```
 
 **Request Flow:**
 1. Client → CloudFauxnt: `/s3/bucket/key?Signature=...`
 2. CloudFauxnt validates signature and CORS
 3. CloudFauxnt rewrites path: `/s3/bucket/key` → `/bucket/key` (using strip_prefix/target_prefix)
-4. CloudFauxnt proxies to: `http://ess-three:9000/bucket/key`
+4. CloudFauxnt proxies to: `http://essthree:9300/bucket/key`
 5. ess-three returns object from local storage
 
 **Key Points:**
 - Both containers run on the same Docker bridge network (`shared-network`)
-- CloudFauxnt accesses ess-three via service name `ess-three`, not localhost
+- CloudFauxnt accesses ess-three via service name `essthree`, not localhost
 - Path rewriting allows flexible routing (e.g., `/s3/*` → `/test-bucket/*`)
 - Each service has its own docker-compose.yml file in separate directories
 
@@ -507,7 +507,7 @@ curl -X OPTIONS \
 
 # View logs
 docker logs cloudfauxnt -f
-docker logs ess-three -f
+docker logs essthree -f
 ```
 
 ### Testing Token Expiration and Clock Skew
@@ -544,12 +544,12 @@ signing:
 
 origins:
   - name: public
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/public/*"]
     require_signature: false      # Unsigned access allowed
   
   - name: private
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/private/*"]
     require_signature: true       # Signature required
 ```
@@ -611,7 +611,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t cloudfauxnt:latest .
 **Containers can't reach each other:**
 - Verify all containers are on the shared network: `docker ps --format "table {{.Names}}\t{{.Networks}}"`
 - If a container is not on the shared network, manually connect it: `docker network connect shared-network <container-name>`
-- Use service names (e.g., `http://ess-three:9000` from within CloudFauxnt) not `localhost` or `127.0.0.1`
+- Use service names (e.g., `http://essthree:9300` from within CloudFauxnt) not `localhost` or `127.0.0.1`
 - Check all services are running: `docker ps` should show cloudfauxnt, ess-three, and ess-queue-ess containers
 
 **Container not connecting to external network on docker compose up:**
@@ -620,17 +620,17 @@ docker buildx build --platform linux/amd64,linux/arm64 -t cloudfauxnt:latest .
 - Workaround 2: Restart the service: `docker compose down && docker compose up -d`
 - Ensure your docker-compose.yml has `external: true` for the shared-network definition
 
-**Error: "dial tcp [::1]:9000: connect: connection refused"**
+**Error: "dial tcp [::1]:9300: connect: connection refused"**
 - This means the client resolved "localhost" to IPv6, but the service only listens on IPv4
-- Fix: Use Docker service names (e.g., `http://ess-three:9000`) instead of `http://localhost:9000`
+- Fix: Use Docker service names (e.g., `http://essthree:9300`) instead of `http://localhost:9300`
 
 **Testing connectivity:**
 ```bash
 # From CloudFauxnt container
-docker exec cloudfauxnt curl -v http://ess-three:9000/health
+docker exec cloudfauxnt curl -v http://essthree:9300/health
 
 # From ess-three container
-docker exec ess-three curl -v http://cloudfauxnt:9310/health
+docker exec essthree curl -v http://cloudfauxnt:9310/health
 ```
 
 ### Path Rewriting Not Working
@@ -645,7 +645,7 @@ docker exec ess-three curl -v http://cloudfauxnt:9310/health
 ```yaml
 origins:
   - name: s3
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/s3/*"]
     strip_prefix: "/s3"
     target_prefix: "/test-bucket"
@@ -667,9 +667,9 @@ This transforms `/s3/file.txt` → `/test-bucket/file.txt`
 
 ### Origin Connection Fails (Non-Docker)
 
-- For local development: ensure origin runs on correct port (e.g., `:9000`)
+- For local development: ensure origin runs on correct port (e.g., `:9300`)
 - For Docker: use service hostname, not localhost (see "Docker Network Connection Issues" above)
-- Check origin service logs for errors: `docker logs ess-three -f`
+- Check origin service logs for errors: `docker logs essthree -f`
 
 ### Windows/WSL Build Issues
 

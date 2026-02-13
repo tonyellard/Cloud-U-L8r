@@ -11,6 +11,27 @@ let activeTopicActivityName = '';
 let expandedPubSubTopicARN = '';
 let latestPubSubState = null;
 
+function displayServiceName(name) {
+  if (name === 'essthree') return 'ess-three';
+  return name;
+}
+
+const repoBaseURL = 'https://github.com/tonyellard/Cloud-U-L8r';
+
+function getServiceReadmeURL(serviceName) {
+  const readmePaths = {
+    'essthree': 'services/essthree/README.md',
+    'cloudfauxnt': 'services/cloudfauxnt/README.md',
+    'ess-queue-ess': 'services/ess-queue-ess/README.md',
+    'ess-enn-ess': 'services/ess-enn-ess/README.md',
+    'admin-console': 'services/admin-console/README.md',
+  };
+
+  const readmePath = readmePaths[serviceName];
+  if (!readmePath) return '';
+  return `${repoBaseURL}/blob/main/${readmePath}`;
+}
+
 const editableQueueAttributeKeys = [
   'VisibilityTimeout',
   'MessageRetentionPeriod',
@@ -77,8 +98,8 @@ function switchView(view) {
     subtitle.textContent = 'Topic, subscription, and publish operations';
     loadPubSubState();
   } else if (view === 'essthree') {
-    title.textContent = 'essthree';
-    subtitle.textContent = 'Informational S3 surface summary (more admin actions coming soon)';
+    title.textContent = 'ess-three';
+    subtitle.textContent = 'Informational ess-three surface summary (more admin actions coming soon)';
     loadEssThreeSummary();
   } else {
     title.textContent = 'cloudfauxnt';
@@ -122,6 +143,7 @@ async function loadDashboard() {
 
 function renderDashboard(data) {
   const serviceRows = (data.services || []).map((service) => {
+    const serviceReadmeURL = getServiceReadmeURL(service.name);
     const badge = service.status === 'online'
       ? '<span class="px-2 py-1 rounded text-xs bg-emerald-100 text-emerald-800">online</span>'
       : '<span class="px-2 py-1 rounded text-xs bg-red-100 text-red-800">offline</span>';
@@ -133,7 +155,7 @@ function renderDashboard(data) {
     return `
       <div class="bg-white rounded border p-4 flex items-start gap-4">
         <div class="w-48 shrink-0">
-          <div class="font-medium">${service.name}</div>
+          <div class="font-medium">${displayServiceName(service.name)}</div>
           <div class="mt-1">${badge}</div>
         </div>
         <div class="flex-1">
@@ -142,13 +164,20 @@ function renderDashboard(data) {
           </ul>
         </div>
         <div class="shrink-0 ml-auto">
-          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Export service configuration" aria-label="Export service configuration" onclick="exportServiceConfig('${service.name}')">Export Config</button>
+          <div class="flex items-center gap-2">
+            ${serviceReadmeURL ? `<a class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 inline-flex items-center gap-1" title="Open service README on GitHub" aria-label="Open service README on GitHub" href="${serviceReadmeURL}" target="_blank" rel="noopener noreferrer">README <span aria-hidden="true">↗</span></a>` : ''}
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Export service configuration" aria-label="Export service configuration" onclick="exportServiceConfig('${service.name}')">Export Config</button>
+          </div>
         </div>
       </div>
     `;
   }).join('');
 
   document.getElementById('view-content').innerHTML = `
+    <div class="bg-white rounded border p-3 flex items-center justify-between">
+      <div class="text-sm text-slate-600">Repository documentation</div>
+      <a class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 inline-flex items-center gap-1" title="Open main repository README on GitHub" aria-label="Open main repository README on GitHub" href="${repoBaseURL}/blob/main/README.md" target="_blank" rel="noopener noreferrer">Main README <span aria-hidden="true">↗</span></a>
+    </div>
     <div class="space-y-3">
       ${serviceRows || '<div class="bg-white rounded border p-4 text-sm text-slate-500">No service data.</div>'}
     </div>
@@ -215,7 +244,7 @@ function renderEssThreeSummary(data) {
   `).join('');
 
   document.getElementById('view-content').innerHTML = `
-    ${renderFutureBanner('essthree admin is currently informational. Additional admin actions will be added in a future update.')}
+    ${renderFutureBanner('ess-three admin is currently informational. Additional admin actions will be added in a future update.')}
     <div class="grid grid-cols-2 gap-4">
       <div class="bg-white rounded border p-4">
         <div class="text-sm text-slate-500">Buckets</div>
