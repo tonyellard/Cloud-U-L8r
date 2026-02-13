@@ -265,6 +265,38 @@ func (s *Store) DeleteParameters(names []string) (deleted []string, invalid []st
 	return deleted, invalid
 }
 
+func (s *Store) LabelParameterVersion(req model.LabelParameterVersionRequest) (model.LabelParameterVersionResponse, error) {
+	if req.Name == "" {
+		return model.LabelParameterVersionResponse{}, fmt.Errorf("ValidationException: Name is required")
+	}
+	if req.ParameterVersion <= 0 {
+		return model.LabelParameterVersionResponse{}, fmt.Errorf("ValidationException: ParameterVersion must be > 0")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, exists := s.parameters[req.Name]
+	if !exists {
+		return model.LabelParameterVersionResponse{}, fmt.Errorf("ParameterNotFound: %s", req.Name)
+	}
+	if _, versionExists := record.Versions[req.ParameterVersion]; !versionExists {
+		return model.LabelParameterVersionResponse{}, fmt.Errorf("ParameterNotFound: %s:%d", req.Name, req.ParameterVersion)
+	}
+
+	invalid := make([]string, 0)
+	for _, label := range req.Labels {
+		if strings.TrimSpace(label) == "" {
+			invalid = append(invalid, label)
+			continue
+		}
+		record.Labels[label] = req.ParameterVersion
+	}
+	record.LastModifiedAt = time.Now().UTC()
+
+	return model.LabelParameterVersionResponse{InvalidLabels: invalid, ParameterVersion: req.ParameterVersion}, nil
+}
+
 func (s *Store) CreateSecret(req model.CreateSecretRequest) (model.CreateSecretResponse, error) {
 	if req.Name == "" {
 		return model.CreateSecretResponse{}, fmt.Errorf("ValidationException: Name is required")
@@ -536,6 +568,56 @@ func (s *Store) RestoreSecret(secretID string) (model.RestoreSecretResponse, err
 	record.DeletedAt = nil
 	record.LastChangedAt = time.Now().UTC()
 	return model.RestoreSecretResponse{ARN: record.ARN, Name: record.Name}, nil
+}
+
+func (s *Store) UpdateSecretVersionStage(req model.UpdateSecretVersionStageRequest) (model.UpdateSecretVersionStageResponse, error) {
+	if req.SecretID == "" {
+		return model.UpdateSecretVersionStageResponse{}, fmt.Errorf("ValidationException: SecretId is required")
+	}
+	if req.VersionStage == "" {
+		return model.UpdateSecretVersionStageResponse{}, fmt.Errorf("ValidationException: VersionStage is required")
+	}
+	if req.MoveToVersionID == "" {
+		return model.UpdateSecretVersionStageResponse{}, fmt.Errorf("ValidationException: MoveToVersionId is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, err := s.resolveSecretLocked(req.SecretID)
+	if err != nil {
+		return model.UpdateSecretVersionStageResponse{}, err
+	}
+	if _, exists := record.Versions[req.MoveToVersionID]; !exists {
+		return model.UpdateSecretVersionStageResponse{}, fmt.Errorf("ResourceNotFoundException: version not found")
+	}
+
+	currentHolder := record.StageToID[req.VersionStage]
+	if req.RemoveFromVersionID != "" && currentHolder != req.RemoveFromVersionID {
+		return model.UpdateSecretVersionStageResponse{}, fmt.Errorf("InvalidRequestException: RemoveFromVersionId does not match current stage holder")
+	}
+
+	if currentHolder != "" && currentHolder != req.MoveToVersionID {
+		delete(record.VersionStages[currentHolder], req.VersionStage)
+	}
+
+	if _, exists := record.VersionStages[req.MoveToVersionID]; !exists {
+		record.VersionStages[req.MoveToVersionID] = map[string]struct{}{}
+	}
+	record.VersionStages[req.MoveToVersionID][req.VersionStage] = struct{}{}
+	record.StageToID[req.VersionStage] = req.MoveToVersionID
+
+	if req.VersionStage == "AWSCURRENT" && currentHolder != "" && currentHolder != req.MoveToVersionID {
+		previousHolder := record.StageToID["AWSPREVIOUS"]
+		if previousHolder != "" {
+			delete(record.VersionStages[previousHolder], "AWSPREVIOUS")
+		}
+		record.VersionStages[currentHolder]["AWSPREVIOUS"] = struct{}{}
+		record.StageToID["AWSPREVIOUS"] = currentHolder
+	}
+
+	record.LastChangedAt = time.Now().UTC()
+	return model.UpdateSecretVersionStageResponse{ARN: record.ARN, Name: record.Name}, nil
 }
 
 func (s *Store) Summary() model.AdminSummaryResponse {

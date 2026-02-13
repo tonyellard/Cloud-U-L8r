@@ -15,9 +15,12 @@
 ### Parameter Store (SSM)
 
 - `PutParameter`
+- `LabelParameterVersion`
 - `GetParameter`
 - `GetParameters`
 - `GetParametersByPath`
+- `DeleteParameter`
+- `DeleteParameters`
 
 ### Secrets Manager
 
@@ -27,6 +30,9 @@
 - `UpdateSecret`
 - `DescribeSecret`
 - `ListSecrets`
+- `DeleteSecret`
+- `RestoreSecret`
+- `UpdateSecretVersionStage`
 
 ## Quick Start
 

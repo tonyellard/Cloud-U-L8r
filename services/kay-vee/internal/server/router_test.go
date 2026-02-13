@@ -230,3 +230,103 @@ func TestAdminSummaryEndpoint(t *testing.T) {
 		t.Fatalf("expected parameters count in summary payload")
 	}
 }
+
+func TestLabelParameterVersionViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	firstPut := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/label/p","Type":"String","Value":"v1","Overwrite":true}`))
+	firstPut.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	firstRR := httptest.NewRecorder()
+	router.ServeHTTP(firstRR, firstPut)
+	if firstRR.Code != http.StatusOK {
+		t.Fatalf("expected first put status 200, got %d", firstRR.Code)
+	}
+
+	secondPut := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/label/p","Type":"String","Value":"v2","Overwrite":true}`))
+	secondPut.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	secondRR := httptest.NewRecorder()
+	router.ServeHTTP(secondRR, secondPut)
+	if secondRR.Code != http.StatusOK {
+		t.Fatalf("expected second put status 200, got %d", secondRR.Code)
+	}
+
+	labelReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/label/p","Labels":["stable"],"ParameterVersion":1}`))
+	labelReq.Header.Set("X-Amz-Target", "AmazonSSM.LabelParameterVersion")
+	labelRR := httptest.NewRecorder()
+	router.ServeHTTP(labelRR, labelReq)
+	if labelRR.Code != http.StatusOK {
+		t.Fatalf("expected label status 200, got %d body=%s", labelRR.Code, labelRR.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/label/p:stable"}`))
+	getReq.Header.Set("X-Amz-Target", "AmazonSSM.GetParameter")
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected get-by-label status 200, got %d body=%s", getRR.Code, getRR.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(getRR.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse get-by-label payload: %v", err)
+	}
+	param := payload["Parameter"].(map[string]any)
+	if param["Value"] != "v1" {
+		t.Fatalf("expected labeled value v1, got %v", param["Value"])
+	}
+}
+
+func TestUpdateSecretVersionStageViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	createReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"svc/stage-route","SecretString":"one"}`))
+	createReq.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+	createRR := httptest.NewRecorder()
+	router.ServeHTTP(createRR, createReq)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create status 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+
+	putReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"SecretId":"svc/stage-route","SecretString":"two"}`))
+	putReq.Header.Set("X-Amz-Target", "secretsmanager.PutSecretValue")
+	putRR := httptest.NewRecorder()
+	router.ServeHTTP(putRR, putReq)
+	if putRR.Code != http.StatusOK {
+		t.Fatalf("expected put secret status 200, got %d body=%s", putRR.Code, putRR.Body.String())
+	}
+
+	var createPayload map[string]any
+	if err := json.Unmarshal(createRR.Body.Bytes(), &createPayload); err != nil {
+		t.Fatalf("failed to parse create payload: %v", err)
+	}
+	var putPayload map[string]any
+	if err := json.Unmarshal(putRR.Body.Bytes(), &putPayload); err != nil {
+		t.Fatalf("failed to parse put payload: %v", err)
+	}
+	createdVersion := createPayload["VersionId"].(string)
+	putVersion := putPayload["VersionId"].(string)
+
+	updateStageReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"SecretId":"svc/stage-route","VersionStage":"AWSCURRENT","MoveToVersionId":"`+createdVersion+`","RemoveFromVersionId":"`+putVersion+`"}`))
+	updateStageReq.Header.Set("X-Amz-Target", "secretsmanager.UpdateSecretVersionStage")
+	updateStageRR := httptest.NewRecorder()
+	router.ServeHTTP(updateStageRR, updateStageReq)
+	if updateStageRR.Code != http.StatusOK {
+		t.Fatalf("expected update stage status 200, got %d body=%s", updateStageRR.Code, updateStageRR.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"SecretId":"svc/stage-route"}`))
+	getReq.Header.Set("X-Amz-Target", "secretsmanager.GetSecretValue")
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected get secret status 200, got %d body=%s", getRR.Code, getRR.Body.String())
+	}
+
+	var getPayload map[string]any
+	if err := json.Unmarshal(getRR.Body.Bytes(), &getPayload); err != nil {
+		t.Fatalf("failed to parse get payload: %v", err)
+	}
+	if getPayload["SecretString"] != "one" {
+		t.Fatalf("expected AWSCURRENT to move back to one, got %v", getPayload["SecretString"])
+	}
+}

@@ -71,6 +71,17 @@ type DeleteParametersResponse struct {
 	InvalidParameters []string `json:"InvalidParameters"`
 }
 
+type LabelParameterVersionRequest struct {
+	Name             string   `json:"Name"`
+	Labels           []string `json:"Labels"`
+	ParameterVersion int64    `json:"ParameterVersion"`
+}
+
+type LabelParameterVersionResponse struct {
+	InvalidLabels    []string `json:"InvalidLabels"`
+	ParameterVersion int64    `json:"ParameterVersion"`
+}
+
 type CreateSecretRequest struct {
 	Name         string  `json:"Name"`
 	Description  string  `json:"Description,omitempty"`
@@ -169,6 +180,18 @@ type RestoreSecretRequest struct {
 }
 
 type RestoreSecretResponse struct {
+	ARN  string `json:"ARN"`
+	Name string `json:"Name"`
+}
+
+type UpdateSecretVersionStageRequest struct {
+	SecretID            string `json:"SecretId"`
+	VersionStage        string `json:"VersionStage"`
+	MoveToVersionID     string `json:"MoveToVersionId"`
+	RemoveFromVersionID string `json:"RemoveFromVersionId,omitempty"`
+}
+
+type UpdateSecretVersionStageResponse struct {
 	ARN  string `json:"ARN"`
 	Name string `json:"Name"`
 }

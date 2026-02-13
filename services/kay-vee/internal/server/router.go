@@ -55,6 +55,8 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 	switch target {
 	case "AmazonSSM.PutParameter":
 		s.handlePutParameter(w, body)
+	case "AmazonSSM.LabelParameterVersion":
+		s.handleLabelParameterVersion(w, body)
 	case "AmazonSSM.DeleteParameter":
 		s.handleDeleteParameter(w, body)
 	case "AmazonSSM.DeleteParameters":
@@ -81,6 +83,8 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handleDeleteSecret(w, body)
 	case "secretsmanager.RestoreSecret":
 		s.handleRestoreSecret(w, body)
+	case "secretsmanager.UpdateSecretVersionStage":
+		s.handleUpdateSecretVersionStage(w, body)
 	default:
 		writeAWSError(w, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
 	}
@@ -102,6 +106,21 @@ func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {
 	}
 
 	res, err := s.store.PutParameter(req)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleLabelParameterVersion(w http.ResponseWriter, body []byte) {
+	var req model.LabelParameterVersionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	res, err := s.store.LabelParameterVersion(req)
 	if err != nil {
 		writeFromError(w, err)
 		return
@@ -284,6 +303,21 @@ func (s *Server) handleRestoreSecret(w http.ResponseWriter, body []byte) {
 	}
 
 	res, err := s.store.RestoreSecret(req.SecretID)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleUpdateSecretVersionStage(w http.ResponseWriter, body []byte) {
+	var req model.UpdateSecretVersionStageRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	res, err := s.store.UpdateSecretVersionStage(req)
 	if err != nil {
 		writeFromError(w, err)
 		return

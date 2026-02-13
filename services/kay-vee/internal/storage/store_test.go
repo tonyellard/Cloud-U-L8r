@@ -222,3 +222,61 @@ func TestDeleteAndRestoreSecret(t *testing.T) {
 		t.Fatalf("expected 0 deleted secrets, got %d", summary.SecretsDeleted)
 	}
 }
+
+func TestLabelParameterVersion(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/svc/labeled", Type: "String", Value: "v1"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/svc/labeled", Type: "String", Value: "v2", Overwrite: true})
+
+	_, err := store.LabelParameterVersion(model.LabelParameterVersionRequest{
+		Name:             "/svc/labeled",
+		Labels:           []string{"stable"},
+		ParameterVersion: 1,
+	})
+	if err != nil {
+		t.Fatalf("label parameter version failed: %v", err)
+	}
+
+	param, err := store.GetParameter("/svc/labeled:stable", false)
+	if err != nil {
+		t.Fatalf("get by label failed: %v", err)
+	}
+	if param.Value != "v1" {
+		t.Fatalf("expected labeled value v1, got %q", param.Value)
+	}
+}
+
+func TestUpdateSecretVersionStage(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	v1 := "one"
+	created, err := store.CreateSecret(model.CreateSecretRequest{Name: "svc/stage", SecretString: &v1})
+	if err != nil {
+		t.Fatalf("create secret failed: %v", err)
+	}
+
+	v2 := "two"
+	updated, err := store.PutSecretValue(model.PutSecretValueRequest{SecretID: "svc/stage", SecretString: &v2})
+	if err != nil {
+		t.Fatalf("put secret value failed: %v", err)
+	}
+
+	_, err = store.UpdateSecretVersionStage(model.UpdateSecretVersionStageRequest{
+		SecretID:            "svc/stage",
+		VersionStage:        "AWSCURRENT",
+		MoveToVersionID:     created.VersionID,
+		RemoveFromVersionID: updated.VersionID,
+	})
+	if err != nil {
+		t.Fatalf("update secret version stage failed: %v", err)
+	}
+
+	current, err := store.GetSecretValue(model.GetSecretValueRequest{SecretID: "svc/stage"})
+	if err != nil {
+		t.Fatalf("get current secret failed: %v", err)
+	}
+	if current.SecretString == nil || *current.SecretString != "one" {
+		t.Fatalf("expected AWSCURRENT to point back to v1, got %#v", current.SecretString)
+	}
+}
