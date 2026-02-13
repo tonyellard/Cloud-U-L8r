@@ -22,6 +22,8 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.handleHealth)
 	mux.HandleFunc("/admin/api/summary", srv.handleAdminSummary)
+	mux.HandleFunc("/admin/api/export", srv.handleAdminExport)
+	mux.HandleFunc("/admin/api/import", srv.handleAdminImport)
 	mux.HandleFunc("/", srv.handleAWSJSON)
 	return mux
 }
@@ -100,6 +102,36 @@ func (s *Server) handleAdminSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.store.Summary())
+}
+
+func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.ExportState())
+}
+
+func (s *Server) handleAdminImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "failed to read request body")
+		return
+	}
+
+	var req model.AdminImportRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	res := s.store.ImportState(req)
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {

@@ -38,6 +38,11 @@
 
 Pagination support (`MaxResults`, `NextToken`) is available on list/describe/history-style operations.
 
+Admin endpoints:
+- `GET /admin/api/summary`
+- `GET /admin/api/export`
+- `POST /admin/api/import`
+
 ## Quick Start
 
 ### Local

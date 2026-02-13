@@ -233,6 +233,60 @@ type AdminSummaryResponse struct {
 	SecretsDeleted int `json:"secretsDeleted"`
 }
 
+type ExportParameterVersion struct {
+	Version   int64     `json:"version"`
+	Value     string    `json:"value"`
+	Tier      string    `json:"tier"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type ExportParameterRecord struct {
+	Name           string                   `json:"name"`
+	Type           string                   `json:"type"`
+	CurrentVersion int64                    `json:"currentVersion"`
+	LastModifiedAt time.Time                `json:"lastModifiedAt"`
+	Labels         map[string]int64         `json:"labels"`
+	Versions       []ExportParameterVersion `json:"versions"`
+}
+
+type ExportSecretVersion struct {
+	VersionID    string    `json:"versionId"`
+	SecretString *string   `json:"secretString,omitempty"`
+	SecretBinary string    `json:"secretBinary,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+type ExportSecretRecord struct {
+	Name          string                `json:"name"`
+	ARN           string                `json:"arn"`
+	Description   string                `json:"description,omitempty"`
+	DeletedAt     *time.Time            `json:"deletedAt,omitempty"`
+	CreatedAt     time.Time             `json:"createdAt"`
+	LastChangedAt time.Time             `json:"lastChangedAt"`
+	StageToID     map[string]string     `json:"stageToId"`
+	VersionStages map[string][]string   `json:"versionStages"`
+	Versions      []ExportSecretVersion `json:"versions"`
+}
+
+type AdminExportResponse struct {
+	Region     string                  `json:"region"`
+	AccountID  string                  `json:"accountId"`
+	Parameters []ExportParameterRecord `json:"parameters"`
+	Secrets    []ExportSecretRecord    `json:"secrets"`
+}
+
+type AdminImportRequest struct {
+	Region     string                  `json:"region"`
+	AccountID  string                  `json:"accountId"`
+	Parameters []ExportParameterRecord `json:"parameters"`
+	Secrets    []ExportSecretRecord    `json:"secrets"`
+}
+
+type AdminImportResponse struct {
+	ImportedParameters int `json:"importedParameters"`
+	ImportedSecrets    int `json:"importedSecrets"`
+}
+
 type AWSJSONError struct {
 	Type    string `json:"__type"`
 	Message string `json:"message"`

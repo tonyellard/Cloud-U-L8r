@@ -160,3 +160,73 @@ func TestIntegrationInvalidNextTokenReturnsValidationException(t *testing.T) {
 		t.Fatalf("expected ValidationException type, got %v", payload["__type"])
 	}
 }
+
+func TestIntegrationAdminExportImportRoundTrip(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	client := ts.Client()
+
+	status, _ := invokeAWSJSON(t, client, ts.URL, "AmazonSSM.PutParameter", `{"Name":"/admin/rt","Type":"String","Value":"v1","Overwrite":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("expected put status 200, got %d", status)
+	}
+
+	status, _ = invokeAWSJSON(t, client, ts.URL, "secretsmanager.CreateSecret", `{"Name":"admin/rt-secret","SecretString":"sv"}`)
+	if status != http.StatusOK {
+		t.Fatalf("expected create secret status 200, got %d", status)
+	}
+
+	exportReq, err := http.NewRequest(http.MethodGet, ts.URL+"/admin/api/export", nil)
+	if err != nil {
+		t.Fatalf("failed to create export request: %v", err)
+	}
+	exportResp, err := client.Do(exportReq)
+	if err != nil {
+		t.Fatalf("failed to call export: %v", err)
+	}
+	defer exportResp.Body.Close()
+	if exportResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected export status 200, got %d", exportResp.StatusCode)
+	}
+	exportBytes, err := io.ReadAll(exportResp.Body)
+	if err != nil {
+		t.Fatalf("failed to read export body: %v", err)
+	}
+
+	clearPayload := `{"Names":["/admin/rt"]}`
+	status, _ = invokeAWSJSON(t, client, ts.URL, "AmazonSSM.DeleteParameters", clearPayload)
+	if status != http.StatusOK {
+		t.Fatalf("expected delete parameters status 200, got %d", status)
+	}
+
+	status, _ = invokeAWSJSON(t, client, ts.URL, "secretsmanager.DeleteSecret", `{"SecretId":"admin/rt-secret"}`)
+	if status != http.StatusOK {
+		t.Fatalf("expected delete secret status 200, got %d", status)
+	}
+
+	importReq, err := http.NewRequest(http.MethodPost, ts.URL+"/admin/api/import", bytes.NewBuffer(exportBytes))
+	if err != nil {
+		t.Fatalf("failed to create import request: %v", err)
+	}
+	importReq.Header.Set("Content-Type", "application/json")
+	importResp, err := client.Do(importReq)
+	if err != nil {
+		t.Fatalf("failed to call import: %v", err)
+	}
+	defer importResp.Body.Close()
+	if importResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected import status 200, got %d", importResp.StatusCode)
+	}
+
+	status, payload := invokeAWSJSON(t, client, ts.URL, "AmazonSSM.GetParameter", `{"Name":"/admin/rt"}`)
+	if status != http.StatusOK {
+		t.Fatalf("expected get parameter after import status 200, got %d payload=%v", status, payload)
+	}
+
+	status, payload = invokeAWSJSON(t, client, ts.URL, "secretsmanager.GetSecretValue", `{"SecretId":"admin/rt-secret"}`)
+	if status != http.StatusOK {
+		t.Fatalf("expected get secret after import status 200, got %d payload=%v", status, payload)
+	}
+}

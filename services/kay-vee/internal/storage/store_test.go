@@ -367,3 +367,38 @@ func TestPaginationAcrossSSMAndSecrets(t *testing.T) {
 		t.Fatalf("expected one secret on second page, got %d", len(listed2.SecretList))
 	}
 }
+
+func TestExportImportRoundTrip(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/roundtrip/p", Type: "String", Value: "v1"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/roundtrip/p", Type: "String", Value: "v2", Overwrite: true})
+	_, _ = store.LabelParameterVersion(model.LabelParameterVersionRequest{Name: "/roundtrip/p", Labels: []string{"stable"}, ParameterVersion: 1})
+
+	secretValue := "s1"
+	_, _ = store.CreateSecret(model.CreateSecretRequest{Name: "roundtrip/secret", SecretString: &secretValue})
+
+	exported := store.ExportState()
+
+	newStore := NewStore("us-west-2", "111111111111")
+	res := newStore.ImportState(model.AdminImportRequest(exported))
+	if res.ImportedParameters != 1 || res.ImportedSecrets != 1 {
+		t.Fatalf("unexpected import counts: %#v", res)
+	}
+
+	param, err := newStore.GetParameter("/roundtrip/p:stable", false)
+	if err != nil {
+		t.Fatalf("expected labeled parameter after import: %v", err)
+	}
+	if param.Value != "v1" {
+		t.Fatalf("expected labeled value v1 after import, got %q", param.Value)
+	}
+
+	secret, err := newStore.GetSecretValue(model.GetSecretValueRequest{SecretID: "roundtrip/secret"})
+	if err != nil {
+		t.Fatalf("expected secret after import: %v", err)
+	}
+	if secret.SecretString == nil || *secret.SecretString != "s1" {
+		t.Fatalf("unexpected secret value after import: %#v", secret.SecretString)
+	}
+}

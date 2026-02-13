@@ -731,6 +731,199 @@ func (s *Store) Summary() model.AdminSummaryResponse {
 	}
 }
 
+func (s *Store) ExportState() model.AdminExportResponse {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	parameterNames := make([]string, 0, len(s.parameters))
+	for name := range s.parameters {
+		parameterNames = append(parameterNames, name)
+	}
+	sort.Strings(parameterNames)
+
+	parameters := make([]model.ExportParameterRecord, 0, len(parameterNames))
+	for _, name := range parameterNames {
+		record := s.parameters[name]
+		versions := make([]int64, 0, len(record.Versions))
+		for version := range record.Versions {
+			versions = append(versions, version)
+		}
+		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+
+		exportedVersions := make([]model.ExportParameterVersion, 0, len(versions))
+		for _, version := range versions {
+			v := record.Versions[version]
+			exportedVersions = append(exportedVersions, model.ExportParameterVersion{
+				Version:   v.Version,
+				Value:     v.Value,
+				Tier:      v.Tier,
+				CreatedAt: v.CreatedAt,
+			})
+		}
+
+		labels := make(map[string]int64, len(record.Labels))
+		for k, v := range record.Labels {
+			labels[k] = v
+		}
+
+		parameters = append(parameters, model.ExportParameterRecord{
+			Name:           record.Name,
+			Type:           record.Type,
+			CurrentVersion: record.CurrentVersion,
+			LastModifiedAt: record.LastModifiedAt,
+			Labels:         labels,
+			Versions:       exportedVersions,
+		})
+	}
+
+	secretNames := make([]string, 0, len(s.secrets))
+	for name := range s.secrets {
+		secretNames = append(secretNames, name)
+	}
+	sort.Strings(secretNames)
+
+	secrets := make([]model.ExportSecretRecord, 0, len(secretNames))
+	for _, name := range secretNames {
+		record := s.secrets[name]
+
+		versionIDs := make([]string, 0, len(record.Versions))
+		for versionID := range record.Versions {
+			versionIDs = append(versionIDs, versionID)
+		}
+		sort.Strings(versionIDs)
+
+		exportedVersions := make([]model.ExportSecretVersion, 0, len(versionIDs))
+		for _, versionID := range versionIDs {
+			v := record.Versions[versionID]
+			exportedVersions = append(exportedVersions, model.ExportSecretVersion{
+				VersionID:    v.VersionID,
+				SecretString: v.SecretString,
+				SecretBinary: v.SecretBinary,
+				CreatedAt:    v.CreatedAt,
+			})
+		}
+
+		stageToID := make(map[string]string, len(record.StageToID))
+		for k, v := range record.StageToID {
+			stageToID[k] = v
+		}
+
+		versionStages := make(map[string][]string, len(record.VersionStages))
+		for versionID, stages := range record.VersionStages {
+			stageNames := make([]string, 0, len(stages))
+			for stage := range stages {
+				stageNames = append(stageNames, stage)
+			}
+			sort.Strings(stageNames)
+			versionStages[versionID] = stageNames
+		}
+
+		secrets = append(secrets, model.ExportSecretRecord{
+			Name:          record.Name,
+			ARN:           record.ARN,
+			Description:   record.Description,
+			DeletedAt:     record.DeletedAt,
+			CreatedAt:     record.CreatedAt,
+			LastChangedAt: record.LastChangedAt,
+			StageToID:     stageToID,
+			VersionStages: versionStages,
+			Versions:      exportedVersions,
+		})
+	}
+
+	return model.AdminExportResponse{
+		Region:     s.region,
+		AccountID:  s.accountID,
+		Parameters: parameters,
+		Secrets:    secrets,
+	}
+}
+
+func (s *Store) ImportState(req model.AdminImportRequest) model.AdminImportResponse {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if req.Region != "" {
+		s.region = req.Region
+	}
+	if req.AccountID != "" {
+		s.accountID = req.AccountID
+	}
+
+	s.parameters = make(map[string]*ParameterRecord, len(req.Parameters))
+	for _, imported := range req.Parameters {
+		versions := make(map[int64]ParameterVersion, len(imported.Versions))
+		for _, version := range imported.Versions {
+			versions[version.Version] = ParameterVersion{
+				Version:   version.Version,
+				Value:     version.Value,
+				Tier:      version.Tier,
+				CreatedAt: version.CreatedAt,
+			}
+		}
+
+		labels := make(map[string]int64, len(imported.Labels))
+		for k, v := range imported.Labels {
+			labels[k] = v
+		}
+
+		s.parameters[imported.Name] = &ParameterRecord{
+			Name:           imported.Name,
+			Type:           imported.Type,
+			CurrentVersion: imported.CurrentVersion,
+			Versions:       versions,
+			Labels:         labels,
+			LastModifiedAt: imported.LastModifiedAt,
+		}
+	}
+
+	s.secrets = make(map[string]*SecretRecord, len(req.Secrets))
+	s.secretByARN = make(map[string]string, len(req.Secrets))
+	for _, imported := range req.Secrets {
+		versions := make(map[string]SecretVersion, len(imported.Versions))
+		for _, version := range imported.Versions {
+			versions[version.VersionID] = SecretVersion{
+				VersionID:    version.VersionID,
+				SecretString: version.SecretString,
+				SecretBinary: version.SecretBinary,
+				CreatedAt:    version.CreatedAt,
+			}
+		}
+
+		stageToID := make(map[string]string, len(imported.StageToID))
+		for k, v := range imported.StageToID {
+			stageToID[k] = v
+		}
+
+		versionStages := make(map[string]map[string]struct{}, len(imported.VersionStages))
+		for versionID, stages := range imported.VersionStages {
+			stageSet := make(map[string]struct{}, len(stages))
+			for _, stage := range stages {
+				stageSet[stage] = struct{}{}
+			}
+			versionStages[versionID] = stageSet
+		}
+
+		record := &SecretRecord{
+			Name:          imported.Name,
+			ARN:           imported.ARN,
+			Description:   imported.Description,
+			DeletedAt:     imported.DeletedAt,
+			Versions:      versions,
+			StageToID:     stageToID,
+			VersionStages: versionStages,
+			CreatedAt:     imported.CreatedAt,
+			LastChangedAt: imported.LastChangedAt,
+		}
+		s.secrets[imported.Name] = record
+		if imported.ARN != "" {
+			s.secretByARN[imported.ARN] = imported.Name
+		}
+	}
+
+	return model.AdminImportResponse{ImportedParameters: len(req.Parameters), ImportedSecrets: len(req.Secrets)}
+}
+
 func (s *Store) resolveSecretLocked(secretID string) (*SecretRecord, error) {
 	if name, ok := s.secretByARN[secretID]; ok {
 		rec, exists := s.secrets[name]
