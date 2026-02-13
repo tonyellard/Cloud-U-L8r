@@ -4,7 +4,7 @@ A unified development stack for local AWS service emulation, providing S3, SQS, 
 
 ## Services
 
-This monorepo contains four interconnected services:
+This monorepo contains five interconnected services:
 
 - **essthree** (Port 9300) - S3-compatible object storage emulator
 - **cloudfauxnt** (Port 9310) - CloudFront-like CDN emulator with signed URL support
@@ -86,7 +86,7 @@ make test
 
 ### Go Workspace
 
-This repository uses Go workspaces to manage all three services:
+This repository uses Go workspaces to manage all service modules:
 
 ```bash
 # Workspace is already initialized, just use Go commands normally
@@ -99,7 +99,7 @@ go work use ./services/admin-console ./services/essthree ./services/cloudfauxnt 
 - [cloudfauxnt Documentation](services/cloudfauxnt/README.md)
 - [ess-queue-ess Documentation](services/ess-queue-ess/README.md)
 - [ess-enn-ess Documentation](services/ess-enn-ess/README.md)
-- [admin-console Guideposts](planning/consolidated-admin-console/01-architecture.md)
+- [admin-console Documentation](services/admin-console/README.md)
 
 ## License
 
