@@ -72,10 +72,18 @@ function switchView(view) {
     title.textContent = 'ess-queue-ess';
     subtitle.textContent = 'Queue operations and non-mutating message inspection';
     loadQueues();
-  } else {
+  } else if (view === 'ess-enn-ess') {
     title.textContent = 'ess-enn-ess';
     subtitle.textContent = 'Topic, subscription, and publish operations';
     loadPubSubState();
+  } else if (view === 'essthree') {
+    title.textContent = 'essthree';
+    subtitle.textContent = 'Informational S3 surface summary (more admin actions coming soon)';
+    loadEssThreeSummary();
+  } else {
+    title.textContent = 'cloudfauxnt';
+    subtitle.textContent = 'Informational CDN/origin overview (more admin actions coming soon)';
+    loadCloudfauxntSummary();
   }
 
   connectSSE(view);
@@ -173,6 +181,125 @@ async function loadPubSubState() {
   } catch (error) {
     setAlert(error.message);
   }
+}
+
+async function loadEssThreeSummary() {
+  try {
+    const data = await apiGet('/api/services/essthree/summary');
+    renderEssThreeSummary(data);
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function loadCloudfauxntSummary() {
+  try {
+    const data = await apiGet('/api/services/cloudfauxnt/summary');
+    renderCloudfauxntSummary(data);
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function renderFutureBanner(text) {
+  return `<div class="border border-amber-200 bg-amber-50 text-amber-800 rounded px-3 py-2 text-sm">${text}</div>`;
+}
+
+function renderEssThreeSummary(data) {
+  const buckets = data.buckets || [];
+  const rows = buckets.map((bucket) => `
+    <tr class="border-b">
+      <td class="py-2 pr-2 text-sm">${escapeHTML(bucket.name || '')}</td>
+      <td class="py-2 text-sm text-right">${Number(bucket.object_count || 0)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('view-content').innerHTML = `
+    ${renderFutureBanner('essthree admin is currently informational. Additional admin actions will be added in a future update.')}
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Buckets</div>
+        <div class="text-2xl font-semibold">${Number(data.stats?.buckets || 0)}</div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Objects</div>
+        <div class="text-2xl font-semibold">${Number(data.stats?.objects || 0)}</div>
+      </div>
+    </div>
+    <div class="bg-white rounded border p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-semibold">Bucket Overview</h3>
+        <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh bucket summary" aria-label="Refresh bucket summary" onclick="loadEssThreeSummary()">↻</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs text-slate-500 border-b">
+              <th class="text-left py-1 pr-2">Bucket</th>
+              <th class="text-right py-1">Object Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="2" class="py-2 text-sm text-slate-500">No buckets found.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderCloudfauxntSummary(data) {
+  const origins = data.origins || [];
+  const rows = origins.map((origin) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-sm">${escapeHTML(origin.name || '')}</td>
+      <td class="py-2 pr-2 text-sm break-all">${escapeHTML(origin.url || '')}</td>
+      <td class="py-2 pr-2 text-sm">${(origin.path_patterns || []).map((pattern) => `<div>${escapeHTML(pattern)}</div>`).join('')}</td>
+      <td class="py-2 pr-2 text-sm">${origin.require_signature ? 'required' : 'not required'}</td>
+      <td class="py-2 text-sm">${escapeHTML(origin.default_root_object || data.server?.default_root_object || '-')}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('view-content').innerHTML = `
+    ${renderFutureBanner('cloudfauxnt admin is currently informational. Additional admin actions will be added in a future update.')}
+    <div class="grid grid-cols-3 gap-4">
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Origins</div>
+        <div class="text-2xl font-semibold">${Number(data.stats?.origins || 0)}</div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Behaviors</div>
+        <div class="text-2xl font-semibold">${Number(data.stats?.behaviors || 0)}</div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Signing</div>
+        <div class="text-2xl font-semibold">${data.signing?.enabled ? 'On' : 'Off'}</div>
+      </div>
+    </div>
+    <div class="bg-white rounded border p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-semibold">Origin & Behavior Overview</h3>
+        <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh cloudfauxnt overview" aria-label="Refresh cloudfauxnt overview" onclick="loadCloudfauxntSummary()">↻</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-2">Server: ${escapeHTML(data.server?.host || '')}:${Number(data.server?.port || 0)}</p>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs text-slate-500 border-b">
+              <th class="text-left py-1 pr-2">Origin</th>
+              <th class="text-left py-1 pr-2">URL</th>
+              <th class="text-left py-1 pr-2">Behaviors</th>
+              <th class="text-left py-1 pr-2">Signature</th>
+              <th class="text-left py-1">Default Root</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="5" class="py-2 text-sm text-slate-500">No origins configured.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function renderPubSubState(data) {
@@ -1370,8 +1497,12 @@ function connectSSE(view) {
         renderDashboard(payload);
       } else if (view === 'ess-queue-ess') {
         renderQueuesIncremental(payload.queues || []);
-      } else {
+      } else if (view === 'ess-enn-ess') {
         renderPubSubState(payload);
+      } else if (view === 'essthree') {
+        renderEssThreeSummary(payload);
+      } else {
+        renderCloudfauxntSummary(payload);
       }
     } catch (error) {
       setAlert(`Failed to parse stream data: ${error.message}`);
@@ -1386,5 +1517,7 @@ function connectSSE(view) {
 document.getElementById('menu-dashboard').addEventListener('click', () => switchView('dashboard'));
 document.getElementById('menu-ess-queue-ess').addEventListener('click', () => switchView('ess-queue-ess'));
 document.getElementById('menu-ess-enn-ess').addEventListener('click', () => switchView('ess-enn-ess'));
+document.getElementById('menu-essthree').addEventListener('click', () => switchView('essthree'));
+document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
 
 switchView('dashboard');

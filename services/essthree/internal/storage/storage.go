@@ -50,6 +50,12 @@ type ListResult struct {
 	NextContinuationToken string
 }
 
+// BucketSummary holds high-level bucket info for admin views
+type BucketSummary struct {
+	Name        string `json:"name"`
+	ObjectCount int    `json:"object_count"`
+}
+
 // Storage interface defines operations for object storage
 type Storage interface {
 	PutObject(bucket, key string, data io.Reader, metadata map[string]string, contentType string) (*ObjectMetadata, error)
@@ -60,6 +66,7 @@ type Storage interface {
 	DeleteObjects(bucket string, keys []string) ([]string, []error)
 	ListObjects(bucket, prefix, marker string, maxKeys int) (*ListResult, error)
 	ListObjectsV2(bucket, prefix, continuationToken string, maxKeys int) (*ListResult, error)
+	ListBuckets() ([]BucketSummary, error)
 
 	// Multipart upload operations
 	CreateMultipartUpload(bucket, key, contentType string, metadata map[string]string) (*MultipartUpload, error)
@@ -67,6 +74,54 @@ type Storage interface {
 	CompleteMultipartUpload(bucket, key, uploadID string, parts []Part) (*ObjectMetadata, error)
 	AbortMultipartUpload(bucket, key, uploadID string) error
 	ListParts(bucket, key, uploadID string) ([]Part, error)
+}
+
+// ListBuckets returns bucket names with object counts
+func (fs *FileSystemStorage) ListBuckets() ([]BucketSummary, error) {
+	entries, err := os.ReadDir(fs.baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read storage base directory: %w", err)
+	}
+
+	buckets := make([]BucketSummary, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		bucketName := entry.Name()
+		metadataDir := filepath.Join(fs.baseDir, bucketName, "metadata")
+		objectCount := 0
+
+		if stat, statErr := os.Stat(metadataDir); statErr == nil && stat.IsDir() {
+			walkErr := filepath.WalkDir(metadataDir, func(path string, d os.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if d.IsDir() {
+					return nil
+				}
+				if strings.HasSuffix(d.Name(), ".json") {
+					objectCount++
+				}
+				return nil
+			})
+			if walkErr != nil {
+				return nil, fmt.Errorf("failed to inspect bucket metadata for %s: %w", bucketName, walkErr)
+			}
+		}
+
+		buckets = append(buckets, BucketSummary{
+			Name:        bucketName,
+			ObjectCount: objectCount,
+		})
+	}
+
+	sort.Slice(buckets, func(i, j int) bool {
+		return buckets[i].Name < buckets[j].Name
+	})
+
+	return buckets, nil
 }
 
 // FileSystemStorage implements Storage using the local filesystem
