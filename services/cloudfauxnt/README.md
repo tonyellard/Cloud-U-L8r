@@ -24,7 +24,7 @@ cp config.example.yaml ../../config/cloudfauxnt.config.yaml
 
 ### 2. Create Shared Network
 
-All three services (CloudFauxnt, essthree, and ess-queue-ess) use a shared Docker bridge network for local development:
+All three services (CloudFauxnt, ess-three, and ess-queue-ess) use a shared Docker bridge network for local development:
 
 ```bash
 docker network create shared-network
@@ -34,7 +34,7 @@ docker network create shared-network
 
 Start each service in its own terminal. They will automatically connect to the shared network:
 
-**Terminal 1: Start essthree**
+**Terminal 1: Start ess-three**
 ```bash
 cd /path/to/essthree
 docker compose up -d
@@ -57,7 +57,7 @@ curl http://localhost:9310/health
 
 Services can now communicate using container names:
 
-- **essthree**: `http://essthree:9300`
+- **ess-three**: `http://essthree:9300`
 - **ess-queue-ess**: `http://ess-queue-ess:9320`
 - **cloudfauxnt**: `http://cloudfauxnt:9310`
 
@@ -364,15 +364,15 @@ signing:
 - **default_cookie_ttl_seconds**: Default time-to-live for generated signed cookies if not explicitly specified.
 - **allow_wildcard_patterns**: Security setting. Disabled by default since CloudFront doesn't natively support wildcard patterns in signed URLs.
 
-## Integration with essthree
+## Integration with ess-three
 
-CloudFauxnt is designed to work with [essthree](../essthree), a lightweight S3 emulator.
+CloudFauxnt is designed to work with [ess-three](../essthree), a lightweight S3 emulator.
 
 ### Separate Docker Containers (Recommended)
 
 Run both as separate Docker services on a shared network:
 
-**essthree docker-compose.yml:**
+**ess-three docker-compose.yml:**
 ```yaml
 version: '3.8'
 services:
@@ -434,7 +434,7 @@ origins:
 
 ## Architecture
 
-CloudFauxnt runs as a separate Docker container that proxies requests to origin services (like essthree).
+CloudFauxnt runs as a separate Docker container that proxies requests to origin services (like ess-three).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -467,11 +467,11 @@ CloudFauxnt runs as a separate Docker container that proxies requests to origin 
 2. CloudFauxnt validates signature and CORS
 3. CloudFauxnt rewrites path: `/s3/bucket/key` → `/bucket/key` (using strip_prefix/target_prefix)
 4. CloudFauxnt proxies to: `http://essthree:9300/bucket/key`
-5. essthree returns object from local storage
+5. ess-three returns object from local storage
 
 **Key Points:**
 - Both containers run on the same Docker bridge network (`shared-network`)
-- CloudFauxnt accesses essthree via service name `essthree`, not localhost
+- CloudFauxnt accesses ess-three via service name `essthree`, not localhost
 - Path rewriting allows flexible routing (e.g., `/s3/*` → `/test-bucket/*`)
 - Each service has its own docker-compose.yml file in separate directories
 
@@ -612,7 +612,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t cloudfauxnt:latest .
 - Verify all containers are on the shared network: `docker ps --format "table {{.Names}}\t{{.Networks}}"`
 - If a container is not on the shared network, manually connect it: `docker network connect shared-network <container-name>`
 - Use service names (e.g., `http://essthree:9300` from within CloudFauxnt) not `localhost` or `127.0.0.1`
-- Check all services are running: `docker ps` should show cloudfauxnt, essthree, and ess-queue-ess containers
+- Check all services are running: `docker ps` should show cloudfauxnt, ess-three, and ess-queue-ess containers
 
 **Container not connecting to external network on docker compose up:**
 - Docker Compose sometimes fails to connect containers to external networks on the first `up` call
@@ -629,7 +629,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t cloudfauxnt:latest .
 # From CloudFauxnt container
 docker exec cloudfauxnt curl -v http://essthree:9300/health
 
-# From essthree container
+# From ess-three container
 docker exec essthree curl -v http://cloudfauxnt:9310/health
 ```
 
@@ -717,7 +717,7 @@ Amazon S3 and Amazon CloudFront are trademarks of Amazon.com, Inc. or its affili
 
 ## Related Projects
 
-- [essthree](../essthree) - Lightweight S3 emulator for local development
+- [ess-three](../essthree) - Lightweight S3 emulator for local development
 
 ## Contributing
 

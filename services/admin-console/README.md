@@ -6,7 +6,7 @@ Consolidated operator console for the local Cloud-U-L8r stack.
 - Dashboard across all services
 - Full `ess-queue-ess` queue operations
 - Full `ess-enn-ess` topic/subscription/publish operations
-- Informational `essthree` summary (bucket/object overview)
+- Informational `ess-three` summary (bucket/object overview)
 - Informational `cloudfauxnt` summary (origin/behavior/signing overview)
 - Active-view-only SSE updates
 

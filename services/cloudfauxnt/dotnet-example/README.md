@@ -14,15 +14,15 @@ A complete .NET 10 console application demonstrating how to use CloudFauxnt to f
 
 - .NET 10.0 SDK or later
 - CloudFauxnt running on `http://localhost:9310`
-- essthree S3 emulator running on `http://essthree:9300` (Docker network) or `http://localhost:9300` (local)
+- ess-three S3 emulator running on `http://essthree:9300` (Docker network) or `http://localhost:9300` (local)
 - (Optional) RSA keys in `../keys/private.pem` and `../keys/public.pem` for signing examples
 
 ## Quick Start
 
-### 1. Run CloudFauxnt and essthree
+### 1. Run CloudFauxnt and ess-three
 
 ```bash
-# Terminal 1: Start essthree
+# Terminal 1: Start ess-three
 cd /path/to/essthree
 docker compose up -d
 
@@ -236,7 +236,7 @@ When you request `/s3/MyTestFile.txt`:
 2. Strips `/s3` → `/MyTestFile.txt`
 3. Adds `/test-bucket` → `/test-bucket/MyTestFile.txt`
 4. Proxies to `http://essthree:9300/test-bucket/MyTestFile.txt`
-5. essthree serves the file from its storage
+5. ess-three serves the file from its storage
 
 ## Building and Running
 
@@ -272,12 +272,12 @@ CLOUDFAUXNT_KEY_PAIR_ID="APKAIJRANDOMSTRING123" dotnet run
 
 ### "Connection refused" error
 
-**Symptom:** Cannot connect to CloudFauxnt or essthree
+**Symptom:** Cannot connect to CloudFauxnt or ess-three
 
 **Solutions:**
 - Ensure both services are running: `docker ps | grep -E "cloudfauxnt|essthree"`
 - Check CloudFauxnt is listening: `curl http://localhost:9310/health`
-- Check essthree is listening: `curl http://localhost:9300/health`
+- Check ess-three is listening: `curl http://localhost:9300/health`
 - Verify network setup: `docker network inspect shared-network`
 
 ### "Private key not found" warning

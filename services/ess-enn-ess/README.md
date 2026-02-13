@@ -391,7 +391,7 @@ curl -X POST http://localhost:9330/ \
 
 Messages published to the topic will be automatically delivered to the specified SQS queue via the ess-queue-ess service.
 
-### S3 Integration (essthree)
+### S3 Integration (ess-three)
 
 Currently, S3 event notifications are being implemented. Once complete, S3 bucket events can trigger SNS notifications.
 
@@ -585,7 +585,7 @@ Contributions welcome! Please ensure:
 
 ## Related Services
 
-- **essthree**: S3 emulator (port 9300)
+- **ess-three**: S3 emulator (port 9300)
 - **cloudfauxnt**: CloudFront emulator (port 9310)
 - **ess-queue-ess**: SQS emulator (port 9320)
 

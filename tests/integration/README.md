@@ -9,16 +9,16 @@ This directory contains integration tests for the Cloud-U-L8r monorepo.
 Comprehensive integration test that verifies:
 
 1. **Service Health Checks**
-   - essthree (S3 emulator) on port 9300
+   - ess-three (S3 emulator) on port 9300
    - cloudfauxnt (CloudFront emulator) on port 9310
    - ess-queue-ess (SQS emulator) on port 9320
 
 2. **Cross-Service Communication**
-   - CloudFauxnt → essthree: Verifies CloudFront can proxy requests to S3
+   - CloudFauxnt → ess-three: Verifies CloudFront can proxy requests to S3
    - Application → ess-queue-ess: Verifies SQS queue operations work
 
 3. **Data Flow Verification**
-   - Creates test files in essthree
+   - Creates test files in ess-three
    - Accesses them directly and through CloudFauxnt
    - Creates SQS queues and verifies operations
 
@@ -43,14 +43,14 @@ make up
 ```
 === Cloud-U-L8r Integration Test ===
 
-1. Testing essthree (S3) health endpoint...
-✓ essthree is healthy
+1. Testing ess-three (S3) health endpoint...
+✓ ess-three is healthy
 2. Testing cloudfauxnt (CloudFront) endpoint...
 ✓ cloudfauxnt is responding
 3. Testing ess-queue-ess (SQS) admin endpoint...
 ✓ ess-queue-ess is responding
-4. Testing cross-service communication (CloudFauxnt -> essthree)...
-✓ Direct access to essthree works
+4. Testing cross-service communication (CloudFauxnt -> ess-three)...
+✓ Direct access to ess-three works
 ✓ Access via CloudFauxnt works (cross-service communication confirmed)
 5. Testing ess-queue-ess queue operations...
 ✓ Queue operations working
@@ -62,7 +62,7 @@ make up
 
 Current integration tests verify:
 - ✅ All three services are running and healthy
-- ✅ CloudFauxnt can successfully proxy requests to essthree
+- ✅ CloudFauxnt can successfully proxy requests to ess-three
 - ✅ SQS queue creation and basic operations work
 - ✅ Cross-service networking is configured correctly
 
