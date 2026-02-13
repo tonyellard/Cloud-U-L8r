@@ -155,6 +155,48 @@ type TopicActivityEntry struct {
 	Error           string         `json:"error,omitempty"`
 }
 
+type EssThreeBucketSummary struct {
+	Name        string `json:"name"`
+	ObjectCount int    `json:"object_count"`
+}
+
+type EssThreeSummaryResponse struct {
+	Service string                  `json:"service"`
+	Buckets []EssThreeBucketSummary `json:"buckets"`
+	Stats   struct {
+		Buckets int `json:"buckets"`
+		Objects int `json:"objects"`
+	} `json:"stats"`
+}
+
+type CloudfauxntOriginOverview struct {
+	Name              string   `json:"name"`
+	URL               string   `json:"url"`
+	PathPatterns      []string `json:"path_patterns"`
+	StripPrefix       string   `json:"strip_prefix,omitempty"`
+	TargetPrefix      string   `json:"target_prefix,omitempty"`
+	RequireSignature  bool     `json:"require_signature"`
+	DefaultRootObject string   `json:"default_root_object,omitempty"`
+}
+
+type CloudfauxntSummaryResponse struct {
+	Service string `json:"service"`
+	Server  struct {
+		Host              string `json:"host"`
+		Port              int    `json:"port"`
+		DefaultRootObject string `json:"default_root_object"`
+	} `json:"server"`
+	Signing struct {
+		Enabled   bool   `json:"enabled"`
+		KeyPairID string `json:"key_pair_id,omitempty"`
+	} `json:"signing"`
+	Stats struct {
+		Origins   int `json:"origins"`
+		Behaviors int `json:"behaviors"`
+	} `json:"stats"`
+	Origins []CloudfauxntOriginOverview `json:"origins"`
+}
+
 type CreateTopicRequest struct {
 	Name string `json:"name"`
 }
@@ -210,6 +252,8 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/attributes", srv.handleQueueAttributes)
 	r.Get("/api/services/ess-enn-ess/state", srv.handlePubSubState)
 	r.Get("/api/services/ess-enn-ess/topics/{topicARN}/activities", srv.handleTopicActivities)
+	r.Get("/api/services/essthree/summary", srv.handleEssThreeSummary)
+	r.Get("/api/services/cloudfauxnt/summary", srv.handleCloudfauxntSummary)
 	r.Get("/api/services/{service}/config/export", srv.handleServiceConfigExport)
 	r.Post("/api/services/ess-queue-ess/actions/create-queue", srv.handleCreateQueue)
 	r.Post("/api/services/ess-queue-ess/actions/send-message", srv.handleSendMessage)
@@ -329,6 +373,26 @@ func (s *Server) handleTopicActivities(w http.ResponseWriter, r *http.Request) {
 		"topic_arn":  topicARN,
 		"activities": activities,
 	})
+}
+
+func (s *Server) handleEssThreeSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchEssThreeSummary()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchCloudfauxntSummary()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
@@ -847,7 +911,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "dashboard"
 	}
-	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" {
+	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
 		return
 	}
@@ -916,13 +980,27 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		}
 		return json.Marshal(state)
 	}
+	if view == "essthree" {
+		summary, err := s.fetchEssThreeSummary()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(summary)
+	}
+	if view == "cloudfauxnt" {
+		summary, err := s.fetchCloudfauxntSummary()
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(summary)
+	}
 
 	return json.Marshal(s.buildDashboardSummary())
 }
 
 func (s *Server) buildDashboardSummary() DashboardSummary {
 	summary := DashboardSummary{UpdatedAt: time.Now().UTC()}
-	services := make([]DashboardService, 0, 2)
+	services := make([]DashboardService, 0, 4)
 
 	queueService := DashboardService{
 		Name:   "ess-queue-ess",
@@ -965,6 +1043,46 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 		}
 	}
 	services = append(services, pubsubService)
+
+	storageService := DashboardService{
+		Name:   "essthree",
+		Status: s.checkService("http://essthree:9300/health"),
+		Stats: []DashboardStat{
+			{Label: "Buckets", Value: 0},
+			{Label: "Objects", Value: 0},
+		},
+	}
+	if storageService.Status == "online" {
+		if summary, err := s.fetchEssThreeSummary(); err == nil {
+			storageService.Stats[0].Value = summary.Stats.Buckets
+			storageService.Stats[1].Value = summary.Stats.Objects
+		} else {
+			s.logger.Warn("failed to fetch essthree dashboard stats", "error", err)
+		}
+	}
+	services = append(services, storageService)
+
+	cdnService := DashboardService{
+		Name:   "cloudfauxnt",
+		Status: s.checkService("http://cloudfauxnt:9310/health"),
+		Stats: []DashboardStat{
+			{Label: "Origins", Value: 0},
+			{Label: "Behaviors", Value: 0},
+			{Label: "Signing", Value: 0},
+		},
+	}
+	if cdnService.Status == "online" {
+		if summary, err := s.fetchCloudfauxntSummary(); err == nil {
+			cdnService.Stats[0].Value = summary.Stats.Origins
+			cdnService.Stats[1].Value = summary.Stats.Behaviors
+			if summary.Signing.Enabled {
+				cdnService.Stats[2].Value = 1
+			}
+		} else {
+			s.logger.Warn("failed to fetch cloudfauxnt dashboard stats", "error", err)
+		}
+	}
+	services = append(services, cdnService)
 
 	summary.Services = services
 	return summary
@@ -1031,6 +1149,59 @@ func (s *Server) fetchSubscriptions() ([]SubscriptionView, error) {
 		return nil, err
 	}
 	return subscriptions, nil
+}
+
+func (s *Server) fetchEssThreeSummary() (EssThreeSummaryResponse, error) {
+	resp, err := s.client.Get("http://essthree:9300/admin/api/buckets")
+	if err != nil {
+		return EssThreeSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return EssThreeSummaryResponse{}, fmt.Errorf("essthree admin status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var payload struct {
+		Buckets []EssThreeBucketSummary `json:"buckets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return EssThreeSummaryResponse{}, err
+	}
+
+	summary := EssThreeSummaryResponse{
+		Service: "essthree",
+		Buckets: payload.Buckets,
+	}
+	summary.Stats.Buckets = len(payload.Buckets)
+	for _, bucket := range payload.Buckets {
+		summary.Stats.Objects += bucket.ObjectCount
+	}
+
+	return summary, nil
+}
+
+func (s *Server) fetchCloudfauxntSummary() (CloudfauxntSummaryResponse, error) {
+	resp, err := s.client.Get("http://cloudfauxnt:9310/admin/api/overview")
+	if err != nil {
+		return CloudfauxntSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return CloudfauxntSummaryResponse{}, fmt.Errorf("cloudfauxnt admin status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var summary CloudfauxntSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return CloudfauxntSummaryResponse{}, err
+	}
+
+	if strings.TrimSpace(summary.Service) == "" {
+		summary.Service = "cloudfauxnt"
+	}
+
+	return summary, nil
 }
 
 func (s *Server) fetchQueues() ([]QueueView, error) {

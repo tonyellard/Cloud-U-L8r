@@ -3,6 +3,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -33,6 +34,7 @@ func (s *Server) Router() http.Handler {
 
 	// Health check
 	r.Get("/health", s.handleHealth)
+	r.Get("/admin/api/buckets", s.handleAdminBuckets)
 
 	// S3 API routes
 	// Bucket operations
@@ -96,4 +98,19 @@ func (s *Server) Router() http.Handler {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+func (s *Server) handleAdminBuckets(w http.ResponseWriter, r *http.Request) {
+	buckets, err := s.storage.ListBuckets()
+	if err != nil {
+		http.Error(w, "failed to list buckets", http.StatusInternalServerError)
+		return
+	}
+
+	type response struct {
+		Buckets []storage.BucketSummary `json:"buckets"`
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response{Buckets: buckets})
 }

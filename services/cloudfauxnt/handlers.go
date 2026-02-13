@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -175,6 +176,70 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 
 	// Health check endpoint
 	r.Get("/health", HealthHandler)
+	r.Get("/admin/api/overview", func(w http.ResponseWriter, r *http.Request) {
+		type originOverview struct {
+			Name              string   `json:"name"`
+			URL               string   `json:"url"`
+			PathPatterns      []string `json:"path_patterns"`
+			StripPrefix       string   `json:"strip_prefix,omitempty"`
+			TargetPrefix      string   `json:"target_prefix,omitempty"`
+			RequireSignature  bool     `json:"require_signature"`
+			DefaultRootObject string   `json:"default_root_object,omitempty"`
+		}
+
+		type response struct {
+			Service string `json:"service"`
+			Server  struct {
+				Host              string `json:"host"`
+				Port              int    `json:"port"`
+				DefaultRootObject string `json:"default_root_object"`
+			} `json:"server"`
+			Signing struct {
+				Enabled   bool   `json:"enabled"`
+				KeyPairID string `json:"key_pair_id,omitempty"`
+			} `json:"signing"`
+			Stats struct {
+				Origins   int `json:"origins"`
+				Behaviors int `json:"behaviors"`
+			} `json:"stats"`
+			Origins []originOverview `json:"origins"`
+		}
+
+		result := response{Service: "cloudfauxnt"}
+		result.Server.Host = config.Server.Host
+		result.Server.Port = config.Server.Port
+		result.Server.DefaultRootObject = config.Server.DefaultRootObject
+		result.Signing.Enabled = config.Signing.Enabled
+		result.Signing.KeyPairID = config.Signing.KeyPairID
+		result.Stats.Origins = len(config.Origins)
+
+		origins := make([]originOverview, 0, len(config.Origins))
+		for _, origin := range config.Origins {
+			requireSignature := config.Signing.Enabled
+			if origin.RequireSignature != nil {
+				requireSignature = *origin.RequireSignature
+			}
+			defaultRootObject := config.Server.DefaultRootObject
+			if origin.DefaultRootObject != nil {
+				defaultRootObject = *origin.DefaultRootObject
+			}
+
+			origins = append(origins, originOverview{
+				Name:              origin.Name,
+				URL:               origin.URL,
+				PathPatterns:      origin.PathPatterns,
+				StripPrefix:       origin.StripPrefix,
+				TargetPrefix:      origin.TargetPrefix,
+				RequireSignature:  requireSignature,
+				DefaultRootObject: defaultRootObject,
+			})
+			result.Stats.Behaviors += len(origin.PathPatterns)
+		}
+		result.Origins = origins
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	})
 
 	// Main proxy handler (catch-all)
 	proxyHandler := NewProxyHandler(config, validator)
