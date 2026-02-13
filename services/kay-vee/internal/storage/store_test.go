@@ -2,6 +2,7 @@ package storage
 
 import (
 	"testing"
+	"time"
 
 	"github.com/tonyellard/kay-vee/internal/model"
 )
@@ -400,5 +401,40 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 	if secret.SecretString == nil || *secret.SecretString != "s1" {
 		t.Fatalf("unexpected secret value after import: %#v", secret.SecretString)
+	}
+}
+
+func TestActivityLogPaginationAndOrdering(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	store.RecordActivity(model.AdminActivityEntry{Method: "POST", Path: "/", Target: "AmazonSSM.PutParameter", StatusCode: 200, Timestamp: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC)})
+	store.RecordActivity(model.AdminActivityEntry{Method: "POST", Path: "/", Target: "AmazonSSM.GetParameter", StatusCode: 404, ErrorType: "ParameterNotFound", Timestamp: time.Date(2026, 2, 13, 10, 1, 0, 0, time.UTC)})
+
+	firstPage, token, err := store.ListActivity(1, "")
+	if err != nil {
+		t.Fatalf("list activity first page failed: %v", err)
+	}
+	if len(firstPage) != 1 {
+		t.Fatalf("expected one activity entry on first page, got %d", len(firstPage))
+	}
+	if firstPage[0].Target != "AmazonSSM.GetParameter" {
+		t.Fatalf("expected newest event first, got target %q", firstPage[0].Target)
+	}
+	if token == "" {
+		t.Fatalf("expected next token on first page")
+	}
+
+	secondPage, token2, err := store.ListActivity(1, token)
+	if err != nil {
+		t.Fatalf("list activity second page failed: %v", err)
+	}
+	if len(secondPage) != 1 {
+		t.Fatalf("expected one activity entry on second page, got %d", len(secondPage))
+	}
+	if secondPage[0].Target != "AmazonSSM.PutParameter" {
+		t.Fatalf("expected older event on second page, got target %q", secondPage[0].Target)
+	}
+	if token2 != "" {
+		t.Fatalf("expected no next token on final page, got %q", token2)
 	}
 }

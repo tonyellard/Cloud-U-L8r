@@ -233,6 +233,20 @@ type AdminSummaryResponse struct {
 	SecretsDeleted int `json:"secretsDeleted"`
 }
 
+type AdminActivityEntry struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Target     string    `json:"target,omitempty"`
+	StatusCode int       `json:"statusCode"`
+	ErrorType  string    `json:"errorType,omitempty"`
+}
+
+type AdminActivityResponse struct {
+	Activity  []AdminActivityEntry `json:"activity"`
+	NextToken string               `json:"nextToken,omitempty"`
+}
+
 type ExportParameterVersion struct {
 	Version   int64     `json:"version"`
 	Value     string    `json:"value"`

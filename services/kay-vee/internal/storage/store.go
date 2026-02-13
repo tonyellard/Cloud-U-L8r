@@ -16,6 +16,8 @@ import (
 
 var secureKey = []byte("kay-vee-local-key")
 
+const maxActivityEntries = 1000
+
 type ParameterRecord struct {
 	Name           string
 	Type           string
@@ -56,6 +58,7 @@ type Store struct {
 	parameters  map[string]*ParameterRecord
 	secrets     map[string]*SecretRecord
 	secretByARN map[string]string
+	activity    []model.AdminActivityEntry
 	accountID   string
 	region      string
 }
@@ -71,6 +74,7 @@ func NewStore(region, accountID string) *Store {
 		parameters:  make(map[string]*ParameterRecord),
 		secrets:     make(map[string]*SecretRecord),
 		secretByARN: make(map[string]string),
+		activity:    make([]model.AdminActivityEntry, 0, 64),
 		accountID:   accountID,
 		region:      region,
 	}
@@ -922,6 +926,38 @@ func (s *Store) ImportState(req model.AdminImportRequest) model.AdminImportRespo
 	}
 
 	return model.AdminImportResponse{ImportedParameters: len(req.Parameters), ImportedSecrets: len(req.Secrets)}
+}
+
+func (s *Store) RecordActivity(entry model.AdminActivityEntry) {
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now().UTC()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.activity = append(s.activity, entry)
+	if len(s.activity) > maxActivityEntries {
+		excess := len(s.activity) - maxActivityEntries
+		s.activity = append([]model.AdminActivityEntry(nil), s.activity[excess:]...)
+	}
+}
+
+func (s *Store) ListActivity(maxResults int, nextToken string) ([]model.AdminActivityEntry, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entries := make([]model.AdminActivityEntry, len(s.activity))
+	for i := range s.activity {
+		entries[len(s.activity)-1-i] = s.activity[i]
+	}
+
+	start, end, token, err := paginateBounds(len(entries), maxResults, nextToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return entries[start:end], token, nil
 }
 
 func (s *Store) resolveSecretLocked(secretID string) (*SecretRecord, error) {

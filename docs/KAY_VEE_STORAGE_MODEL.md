@@ -24,6 +24,12 @@ This document defines the internal data model for `kay-vee`, focused on determin
 - Use `sync.RWMutex` around top-level stores.
 - Keep write operations atomic per logical resource.
 
+### Admin Activity Log (MVP)
+- Keep an in-memory append-only activity list for API calls and admin endpoints.
+- Store entries with: timestamp, HTTP method, path, target, status code, and optional AWS error type.
+- Maintain bounded history (fixed max size) by evicting oldest records when full.
+- Expose retrieval in reverse-chronological order with `maxResults` + `nextToken` pagination.
+
 ---
 
 ## Parameter Store Model

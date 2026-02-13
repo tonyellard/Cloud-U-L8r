@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/tonyellard/kay-vee/internal/model"
@@ -22,6 +24,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.handleHealth)
 	mux.HandleFunc("/admin/api/summary", srv.handleAdminSummary)
+	mux.HandleFunc("/admin/api/activity", srv.handleAdminActivity)
 	mux.HandleFunc("/admin/api/export", srv.handleAdminExport)
 	mux.HandleFunc("/admin/api/import", srv.handleAdminImport)
 	mux.HandleFunc("/", srv.handleAWSJSON)
@@ -37,101 +40,171 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
+	target := r.Header.Get("X-Amz-Target")
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	defer func() {
+		s.store.RecordActivity(model.AdminActivityEntry{
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			Target:     target,
+			StatusCode: recorder.status,
+			ErrorType:  parseErrorType(recorder.body.Bytes()),
+		})
+	}()
+
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		recorder.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	target := r.Header.Get("X-Amz-Target")
 	if target == "" {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "X-Amz-Target header is required")
+		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "X-Amz-Target header is required")
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "failed to read request body")
+		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "failed to read request body")
 		return
 	}
 
 	switch target {
 	case "AmazonSSM.PutParameter":
-		s.handlePutParameter(w, body)
+		s.handlePutParameter(recorder, body)
 	case "AmazonSSM.LabelParameterVersion":
-		s.handleLabelParameterVersion(w, body)
+		s.handleLabelParameterVersion(recorder, body)
 	case "AmazonSSM.DescribeParameters":
-		s.handleDescribeParameters(w, body)
+		s.handleDescribeParameters(recorder, body)
 	case "AmazonSSM.DeleteParameter":
-		s.handleDeleteParameter(w, body)
+		s.handleDeleteParameter(recorder, body)
 	case "AmazonSSM.DeleteParameters":
-		s.handleDeleteParameters(w, body)
+		s.handleDeleteParameters(recorder, body)
 	case "AmazonSSM.GetParameter":
-		s.handleGetParameter(w, body)
+		s.handleGetParameter(recorder, body)
 	case "AmazonSSM.GetParameterHistory":
-		s.handleGetParameterHistory(w, body)
+		s.handleGetParameterHistory(recorder, body)
 	case "AmazonSSM.GetParameters":
-		s.handleGetParameters(w, body)
+		s.handleGetParameters(recorder, body)
 	case "AmazonSSM.GetParametersByPath":
-		s.handleGetParametersByPath(w, body)
+		s.handleGetParametersByPath(recorder, body)
 	case "secretsmanager.CreateSecret":
-		s.handleCreateSecret(w, body)
+		s.handleCreateSecret(recorder, body)
 	case "secretsmanager.GetSecretValue":
-		s.handleGetSecretValue(w, body)
+		s.handleGetSecretValue(recorder, body)
 	case "secretsmanager.PutSecretValue":
-		s.handlePutSecretValue(w, body)
+		s.handlePutSecretValue(recorder, body)
 	case "secretsmanager.UpdateSecret":
-		s.handleUpdateSecret(w, body)
+		s.handleUpdateSecret(recorder, body)
 	case "secretsmanager.DescribeSecret":
-		s.handleDescribeSecret(w, body)
+		s.handleDescribeSecret(recorder, body)
 	case "secretsmanager.ListSecrets":
-		s.handleListSecrets(w, body)
+		s.handleListSecrets(recorder, body)
 	case "secretsmanager.DeleteSecret":
-		s.handleDeleteSecret(w, body)
+		s.handleDeleteSecret(recorder, body)
 	case "secretsmanager.RestoreSecret":
-		s.handleRestoreSecret(w, body)
+		s.handleRestoreSecret(recorder, body)
 	case "secretsmanager.UpdateSecretVersionStage":
-		s.handleUpdateSecretVersionStage(w, body)
+		s.handleUpdateSecretVersionStage(recorder, body)
 	default:
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
+		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
 	}
 }
 
 func (s *Server) handleAdminSummary(w http.ResponseWriter, r *http.Request) {
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	defer func() {
+		s.store.RecordActivity(model.AdminActivityEntry{
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			Target:     "admin.summary",
+			StatusCode: recorder.status,
+			ErrorType:  parseErrorType(recorder.body.Bytes()),
+		})
+	}()
+
 	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		recorder.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.Summary())
+	writeJSON(recorder, http.StatusOK, s.store.Summary())
+}
+
+func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
+	if r.Method != http.MethodGet {
+		recorder.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	maxResults := 0
+	if maxStr := r.URL.Query().Get("maxResults"); maxStr != "" {
+		parsed, err := strconv.Atoi(maxStr)
+		if err != nil {
+			writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid maxResults query parameter")
+			return
+		}
+		maxResults = parsed
+	}
+
+	entries, token, err := s.store.ListActivity(maxResults, r.URL.Query().Get("nextToken"))
+	if err != nil {
+		writeFromError(recorder, err)
+		return
+	}
+	writeJSON(recorder, http.StatusOK, model.AdminActivityResponse{Activity: entries, NextToken: token})
 }
 
 func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	defer func() {
+		s.store.RecordActivity(model.AdminActivityEntry{
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			Target:     "admin.export",
+			StatusCode: recorder.status,
+			ErrorType:  parseErrorType(recorder.body.Bytes()),
+		})
+	}()
+
 	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		recorder.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.ExportState())
+	writeJSON(recorder, http.StatusOK, s.store.ExportState())
 }
 
 func (s *Server) handleAdminImport(w http.ResponseWriter, r *http.Request) {
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	defer func() {
+		s.store.RecordActivity(model.AdminActivityEntry{
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			Target:     "admin.import",
+			StatusCode: recorder.status,
+			ErrorType:  parseErrorType(recorder.body.Bytes()),
+		})
+	}()
+
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		recorder.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "failed to read request body")
+		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "failed to read request body")
 		return
 	}
 
 	var req model.AdminImportRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res := s.store.ImportState(req)
-	writeJSON(w, http.StatusOK, res)
+	writeJSON(recorder, http.StatusOK, res)
 }
 
 func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {
@@ -432,4 +505,34 @@ func writeFromError(w http.ResponseWriter, err error) {
 
 func IsValidation(err error) bool {
 	return errors.Is(err, errors.New("validation"))
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	body   bytes.Buffer
+}
+
+func (s *statusRecorder) WriteHeader(status int) {
+	s.status = status
+	s.ResponseWriter.WriteHeader(status)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	_, _ = s.body.Write(b)
+	return s.ResponseWriter.Write(b)
+}
+
+func parseErrorType(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+
+	errorType, _ := payload["__type"].(string)
+	return errorType
 }

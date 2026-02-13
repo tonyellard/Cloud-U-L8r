@@ -40,6 +40,7 @@ Pagination support (`MaxResults`, `NextToken`) is available on list/describe/his
 
 Admin endpoints:
 - `GET /admin/api/summary`
+- `GET /admin/api/activity` (supports `maxResults` and `nextToken` query params)
 - `GET /admin/api/export`
 - `POST /admin/api/import`
 
