@@ -56,6 +56,21 @@ type GetParametersByPathResponse struct {
 	NextToken  string      `json:"NextToken,omitempty"`
 }
 
+type DeleteParameterRequest struct {
+	Name string `json:"Name"`
+}
+
+type DeleteParametersRequest struct {
+	Names []string `json:"Names"`
+}
+
+type DeleteParameterResponse struct{}
+
+type DeleteParametersResponse struct {
+	DeletedParameters []string `json:"DeletedParameters"`
+	InvalidParameters []string `json:"InvalidParameters"`
+}
+
 type CreateSecretRequest struct {
 	Name         string  `json:"Name"`
 	Description  string  `json:"Description,omitempty"`
@@ -135,6 +150,34 @@ type SecretListEntry struct {
 type ListSecretsResponse struct {
 	SecretList []SecretListEntry `json:"SecretList"`
 	NextToken  string            `json:"NextToken,omitempty"`
+}
+
+type DeleteSecretRequest struct {
+	SecretID                   string `json:"SecretId"`
+	RecoveryWindowInDays       int64  `json:"RecoveryWindowInDays,omitempty"`
+	ForceDeleteWithoutRecovery bool   `json:"ForceDeleteWithoutRecovery,omitempty"`
+}
+
+type DeleteSecretResponse struct {
+	ARN          string    `json:"ARN"`
+	Name         string    `json:"Name"`
+	DeletionDate time.Time `json:"DeletionDate"`
+}
+
+type RestoreSecretRequest struct {
+	SecretID string `json:"SecretId"`
+}
+
+type RestoreSecretResponse struct {
+	ARN  string `json:"ARN"`
+	Name string `json:"Name"`
+}
+
+type AdminSummaryResponse struct {
+	Parameters     int `json:"parameters"`
+	SecretsTotal   int `json:"secretsTotal"`
+	SecretsActive  int `json:"secretsActive"`
+	SecretsDeleted int `json:"secretsDeleted"`
 }
 
 type AWSJSONError struct {

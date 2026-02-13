@@ -233,6 +233,38 @@ func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool)
 	return results, nil
 }
 
+func (s *Store) DeleteParameter(name string) error {
+	if name == "" {
+		return fmt.Errorf("ValidationException: Name is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.parameters[name]; !exists {
+		return fmt.Errorf("ParameterNotFound: %s", name)
+	}
+	delete(s.parameters, name)
+	return nil
+}
+
+func (s *Store) DeleteParameters(names []string) (deleted []string, invalid []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	deleted = make([]string, 0, len(names))
+	invalid = make([]string, 0)
+	for _, name := range names {
+		if _, exists := s.parameters[name]; !exists {
+			invalid = append(invalid, name)
+			continue
+		}
+		delete(s.parameters, name)
+		deleted = append(deleted, name)
+	}
+	return deleted, invalid
+}
+
 func (s *Store) CreateSecret(req model.CreateSecretRequest) (model.CreateSecretResponse, error) {
 	if req.Name == "" {
 		return model.CreateSecretResponse{}, fmt.Errorf("ValidationException: Name is required")
@@ -462,6 +494,72 @@ func (s *Store) ListSecrets() model.ListSecretsResponse {
 	return model.ListSecretsResponse{SecretList: items}
 }
 
+func (s *Store) DeleteSecret(req model.DeleteSecretRequest) (model.DeleteSecretResponse, error) {
+	if req.SecretID == "" {
+		return model.DeleteSecretResponse{}, fmt.Errorf("ValidationException: SecretId is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, err := s.resolveSecretAnyLocked(req.SecretID)
+	if err != nil {
+		return model.DeleteSecretResponse{}, err
+	}
+	if record.DeletedAt != nil {
+		return model.DeleteSecretResponse{}, fmt.Errorf("InvalidRequestException: secret is already scheduled for deletion")
+	}
+
+	deletionDate := time.Now().UTC()
+	record.DeletedAt = &deletionDate
+	record.LastChangedAt = deletionDate
+
+	return model.DeleteSecretResponse{ARN: record.ARN, Name: record.Name, DeletionDate: deletionDate}, nil
+}
+
+func (s *Store) RestoreSecret(secretID string) (model.RestoreSecretResponse, error) {
+	if secretID == "" {
+		return model.RestoreSecretResponse{}, fmt.Errorf("ValidationException: SecretId is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, err := s.resolveSecretAnyLocked(secretID)
+	if err != nil {
+		return model.RestoreSecretResponse{}, err
+	}
+	if record.DeletedAt == nil {
+		return model.RestoreSecretResponse{}, fmt.Errorf("InvalidRequestException: secret is not deleted")
+	}
+
+	record.DeletedAt = nil
+	record.LastChangedAt = time.Now().UTC()
+	return model.RestoreSecretResponse{ARN: record.ARN, Name: record.Name}, nil
+}
+
+func (s *Store) Summary() model.AdminSummaryResponse {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	active := 0
+	deleted := 0
+	for _, secret := range s.secrets {
+		if secret.DeletedAt == nil {
+			active++
+		} else {
+			deleted++
+		}
+	}
+
+	return model.AdminSummaryResponse{
+		Parameters:     len(s.parameters),
+		SecretsTotal:   len(s.secrets),
+		SecretsActive:  active,
+		SecretsDeleted: deleted,
+	}
+}
+
 func (s *Store) resolveSecretLocked(secretID string) (*SecretRecord, error) {
 	if name, ok := s.secretByARN[secretID]; ok {
 		rec, exists := s.secrets[name]
@@ -479,6 +577,21 @@ func (s *Store) resolveSecretLocked(secretID string) (*SecretRecord, error) {
 	}
 	if rec.DeletedAt != nil {
 		return nil, fmt.Errorf("InvalidRequestException: secret is scheduled for deletion")
+	}
+	return rec, nil
+}
+
+func (s *Store) resolveSecretAnyLocked(secretID string) (*SecretRecord, error) {
+	if name, ok := s.secretByARN[secretID]; ok {
+		rec, exists := s.secrets[name]
+		if !exists {
+			return nil, fmt.Errorf("ResourceNotFoundException: %s", secretID)
+		}
+		return rec, nil
+	}
+	rec, exists := s.secrets[secretID]
+	if !exists {
+		return nil, fmt.Errorf("ResourceNotFoundException: %s", secretID)
 	}
 	return rec, nil
 }

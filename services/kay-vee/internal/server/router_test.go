@@ -147,3 +147,86 @@ func TestDescribeSecretNotFoundMapsTo404(t *testing.T) {
 		t.Fatalf("expected ResourceNotFoundException, got %v", awsErr["__type"])
 	}
 }
+
+func TestDeleteParameterViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	putReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/tmp/delete","Type":"String","Value":"1","Overwrite":true}`))
+	putReq.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putRR := httptest.NewRecorder()
+	router.ServeHTTP(putRR, putReq)
+	if putRR.Code != http.StatusOK {
+		t.Fatalf("expected put status 200, got %d", putRR.Code)
+	}
+
+	delReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/tmp/delete"}`))
+	delReq.Header.Set("X-Amz-Target", "AmazonSSM.DeleteParameter")
+	delRR := httptest.NewRecorder()
+	router.ServeHTTP(delRR, delReq)
+	if delRR.Code != http.StatusOK {
+		t.Fatalf("expected delete status 200, got %d body=%s", delRR.Code, delRR.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/tmp/delete"}`))
+	getReq.Header.Set("X-Amz-Target", "AmazonSSM.GetParameter")
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	if getRR.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404 after delete, got %d", getRR.Code)
+	}
+}
+
+func TestDeleteAndRestoreSecretViaTargets(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	createReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"svc/route-delete","SecretString":"v1"}`))
+	createReq.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+	createRR := httptest.NewRecorder()
+	router.ServeHTTP(createRR, createReq)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("expected create status 200, got %d body=%s", createRR.Code, createRR.Body.String())
+	}
+
+	delReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"SecretId":"svc/route-delete"}`))
+	delReq.Header.Set("X-Amz-Target", "secretsmanager.DeleteSecret")
+	delRR := httptest.NewRecorder()
+	router.ServeHTTP(delRR, delReq)
+	if delRR.Code != http.StatusOK {
+		t.Fatalf("expected delete secret status 200, got %d body=%s", delRR.Code, delRR.Body.String())
+	}
+
+	restoreReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"SecretId":"svc/route-delete"}`))
+	restoreReq.Header.Set("X-Amz-Target", "secretsmanager.RestoreSecret")
+	restoreRR := httptest.NewRecorder()
+	router.ServeHTTP(restoreRR, restoreReq)
+	if restoreRR.Code != http.StatusOK {
+		t.Fatalf("expected restore secret status 200, got %d body=%s", restoreRR.Code, restoreRR.Body.String())
+	}
+}
+
+func TestAdminSummaryEndpoint(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	putReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/sum/item","Type":"String","Value":"1","Overwrite":true}`))
+	putReq.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putRR := httptest.NewRecorder()
+	router.ServeHTTP(putRR, putReq)
+	if putRR.Code != http.StatusOK {
+		t.Fatalf("expected put status 200, got %d", putRR.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/summary", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected admin summary status 200, got %d", rr.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse summary payload: %v", err)
+	}
+	if payload["parameters"] == nil {
+		t.Fatalf("expected parameters count in summary payload")
+	}
+}

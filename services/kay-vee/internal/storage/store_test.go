@@ -161,3 +161,64 @@ func TestDescribeAndListSecrets(t *testing.T) {
 		t.Fatalf("expected sorted list with svc/one first, got %s", listed.SecretList[0].Name)
 	}
 }
+
+func TestDeleteParameters(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/app/one", Type: "String", Value: "1"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/app/two", Type: "String", Value: "2"})
+
+	if err := store.DeleteParameter("/app/one"); err != nil {
+		t.Fatalf("delete parameter failed: %v", err)
+	}
+	if _, err := store.GetParameter("/app/one", false); err == nil {
+		t.Fatalf("expected deleted parameter to be missing")
+	}
+
+	deleted, invalid := store.DeleteParameters([]string{"/app/two", "/app/missing"})
+	if len(deleted) != 1 || deleted[0] != "/app/two" {
+		t.Fatalf("unexpected deleted list: %#v", deleted)
+	}
+	if len(invalid) != 1 || invalid[0] != "/app/missing" {
+		t.Fatalf("unexpected invalid list: %#v", invalid)
+	}
+}
+
+func TestDeleteAndRestoreSecret(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	secretValue := "secret"
+	created, err := store.CreateSecret(model.CreateSecretRequest{Name: "svc/delete-me", SecretString: &secretValue})
+	if err != nil {
+		t.Fatalf("create secret failed: %v", err)
+	}
+
+	deleted, err := store.DeleteSecret(model.DeleteSecretRequest{SecretID: created.ARN})
+	if err != nil {
+		t.Fatalf("delete secret failed: %v", err)
+	}
+	if deleted.Name != "svc/delete-me" {
+		t.Fatalf("unexpected deleted secret name: %s", deleted.Name)
+	}
+
+	if _, err := store.GetSecretValue(model.GetSecretValueRequest{SecretID: created.ARN}); err == nil {
+		t.Fatalf("expected get secret value to fail for deleted secret")
+	}
+
+	restored, err := store.RestoreSecret("svc/delete-me")
+	if err != nil {
+		t.Fatalf("restore secret failed: %v", err)
+	}
+	if restored.ARN == "" {
+		t.Fatalf("expected restored ARN")
+	}
+
+	if _, err := store.GetSecretValue(model.GetSecretValueRequest{SecretID: created.ARN}); err != nil {
+		t.Fatalf("expected get secret value to succeed after restore: %v", err)
+	}
+
+	summary := store.Summary()
+	if summary.SecretsDeleted != 0 {
+		t.Fatalf("expected 0 deleted secrets, got %d", summary.SecretsDeleted)
+	}
+}

@@ -21,6 +21,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	srv := &Server{logger: logger, store: storage.NewStore("us-east-1", "000000000000")}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.handleHealth)
+	mux.HandleFunc("/admin/api/summary", srv.handleAdminSummary)
 	mux.HandleFunc("/", srv.handleAWSJSON)
 	return mux
 }
@@ -54,6 +55,10 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 	switch target {
 	case "AmazonSSM.PutParameter":
 		s.handlePutParameter(w, body)
+	case "AmazonSSM.DeleteParameter":
+		s.handleDeleteParameter(w, body)
+	case "AmazonSSM.DeleteParameters":
+		s.handleDeleteParameters(w, body)
 	case "AmazonSSM.GetParameter":
 		s.handleGetParameter(w, body)
 	case "AmazonSSM.GetParameters":
@@ -72,9 +77,21 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handleDescribeSecret(w, body)
 	case "secretsmanager.ListSecrets":
 		s.handleListSecrets(w, body)
+	case "secretsmanager.DeleteSecret":
+		s.handleDeleteSecret(w, body)
+	case "secretsmanager.RestoreSecret":
+		s.handleRestoreSecret(w, body)
 	default:
 		writeAWSError(w, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
 	}
+}
+
+func (s *Server) handleAdminSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.Summary())
 }
 
 func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {
@@ -90,6 +107,31 @@ func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleDeleteParameter(w http.ResponseWriter, body []byte) {
+	var req model.DeleteParameterRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	if err := s.store.DeleteParameter(req.Name); err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, model.DeleteParameterResponse{})
+}
+
+func (s *Server) handleDeleteParameters(w http.ResponseWriter, body []byte) {
+	var req model.DeleteParametersRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	deleted, invalid := s.store.DeleteParameters(req.Names)
+	writeJSON(w, http.StatusOK, model.DeleteParametersResponse{DeletedParameters: deleted, InvalidParameters: invalid})
 }
 
 func (s *Server) handleGetParameter(w http.ResponseWriter, body []byte) {
@@ -216,6 +258,36 @@ func (s *Server) handleListSecrets(w http.ResponseWriter, body []byte) {
 	}
 
 	res := s.store.ListSecrets()
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleDeleteSecret(w http.ResponseWriter, body []byte) {
+	var req model.DeleteSecretRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	res, err := s.store.DeleteSecret(req)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleRestoreSecret(w http.ResponseWriter, body []byte) {
+	var req model.RestoreSecretRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	res, err := s.store.RestoreSecret(req.SecretID)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 
