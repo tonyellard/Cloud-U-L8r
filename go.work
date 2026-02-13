@@ -6,4 +6,5 @@ use (
 	./services/ess-queue-ess
 	./services/ess-enn-ess
 	./services/essthree
+	./services/kay-vee
 )
