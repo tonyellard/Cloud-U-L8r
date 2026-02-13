@@ -14,16 +14,16 @@ A complete .NET 10 console application demonstrating how to use CloudFauxnt to f
 
 - .NET 10.0 SDK or later
 - CloudFauxnt running on `http://localhost:9310`
-- ess-three S3 emulator running on `http://ess-three:9000` (Docker network) or `http://localhost:9000` (local)
+- essthree S3 emulator running on `http://essthree:9300` (Docker network) or `http://localhost:9300` (local)
 - (Optional) RSA keys in `../keys/private.pem` and `../keys/public.pem` for signing examples
 
 ## Quick Start
 
-### 1. Run CloudFauxnt and ess-three
+### 1. Run CloudFauxnt and essthree
 
 ```bash
-# Terminal 1: Start ess-three
-cd /path/to/ess-three
+# Terminal 1: Start essthree
+cd /path/to/essthree
 docker compose up -d
 
 # Terminal 2: Start CloudFauxnt
@@ -224,7 +224,7 @@ CloudFauxnt uses the configuration to rewrite paths before proxying to the backe
 ```yaml
 origins:
   - name: s3
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/s3/*"]
     strip_prefix: "/s3"
     target_prefix: "/test-bucket"
@@ -235,8 +235,8 @@ When you request `/s3/MyTestFile.txt`:
 1. CloudFauxnt matches `/s3/*` pattern
 2. Strips `/s3` → `/MyTestFile.txt`
 3. Adds `/test-bucket` → `/test-bucket/MyTestFile.txt`
-4. Proxies to `http://ess-three:9000/test-bucket/MyTestFile.txt`
-5. ess-three serves the file from its storage
+4. Proxies to `http://essthree:9300/test-bucket/MyTestFile.txt`
+5. essthree serves the file from its storage
 
 ## Building and Running
 
@@ -272,12 +272,12 @@ CLOUDFAUXNT_KEY_PAIR_ID="APKAIJRANDOMSTRING123" dotnet run
 
 ### "Connection refused" error
 
-**Symptom:** Cannot connect to CloudFauxnt or ess-three
+**Symptom:** Cannot connect to CloudFauxnt or essthree
 
 **Solutions:**
-- Ensure both services are running: `docker ps | grep -E "cloudfauxnt|ess-three"`
+- Ensure both services are running: `docker ps | grep -E "cloudfauxnt|essthree"`
 - Check CloudFauxnt is listening: `curl http://localhost:9310/health`
-- Check ess-three is listening: `curl http://localhost:9000/health`
+- Check essthree is listening: `curl http://localhost:9300/health`
 - Verify network setup: `docker network inspect shared-network`
 
 ### "Private key not found" warning
@@ -345,7 +345,7 @@ server:
 
 origins:
   - name: s3
-    url: http://ess-three:9000
+    url: http://essthree:9300
     path_patterns: ["/s3/*"]
     strip_prefix: "/s3"
     target_prefix: "/test-bucket"

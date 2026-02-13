@@ -148,7 +148,7 @@ signing:
 
 Then restart CloudFauxnt: `docker compose restart cloudfauxnt`
 
-## Testing with ess-three
+## Testing with essthree
 
 To test the full stack with the S3 emulator:
 
@@ -157,10 +157,10 @@ To test the full stack with the S3 emulator:
 cd ..
 docker compose up -d
 
-# Create a test bucket and upload file to ess-three
-aws --endpoint-url=http://localhost:9000 s3 mb s3://test-bucket
+# Create a test bucket and upload file to essthree
+aws --endpoint-url=http://localhost:9300 s3 mb s3://test-bucket
 echo "Hello CloudFauxnt!" > test-file.txt
-aws --endpoint-url=http://localhost:9000 s3 cp test-file.txt s3://test-bucket/
+aws --endpoint-url=http://localhost:9300 s3 cp test-file.txt s3://test-bucket/
 
 # Test via CloudFauxnt (unsigned, if signing disabled)
 curl http://localhost:9310/test-bucket/test-file.txt
