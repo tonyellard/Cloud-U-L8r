@@ -165,7 +165,7 @@ function renderDashboard(data) {
         </div>
         <div class="shrink-0 ml-auto">
           <div class="flex items-center gap-2">
-            ${serviceReadmeURL ? `<a class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50" title="Open service README on GitHub" aria-label="Open service README on GitHub" href="${serviceReadmeURL}" target="_blank" rel="noopener noreferrer">README</a>` : ''}
+            ${serviceReadmeURL ? `<a class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 inline-flex items-center gap-1" title="Open service README on GitHub" aria-label="Open service README on GitHub" href="${serviceReadmeURL}" target="_blank" rel="noopener noreferrer">README <span aria-hidden="true">↗</span></a>` : ''}
             <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Export service configuration" aria-label="Export service configuration" onclick="exportServiceConfig('${service.name}')">Export Config</button>
           </div>
         </div>
@@ -176,7 +176,7 @@ function renderDashboard(data) {
   document.getElementById('view-content').innerHTML = `
     <div class="bg-white rounded border p-3 flex items-center justify-between">
       <div class="text-sm text-slate-600">Repository documentation</div>
-      <a class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50" title="Open main repository README on GitHub" aria-label="Open main repository README on GitHub" href="${repoBaseURL}/blob/main/README.md" target="_blank" rel="noopener noreferrer">Main README</a>
+      <a class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 inline-flex items-center gap-1" title="Open main repository README on GitHub" aria-label="Open main repository README on GitHub" href="${repoBaseURL}/blob/main/README.md" target="_blank" rel="noopener noreferrer">Main README <span aria-hidden="true">↗</span></a>
     </div>
     <div class="space-y-3">
       ${serviceRows || '<div class="bg-white rounded border p-4 text-sm text-slate-500">No service data.</div>'}
