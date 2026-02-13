@@ -1,4 +1,16 @@
-.PHONY: all build rebuild up down logs test clean clean-ports status help
+.PHONY: all build rebuild up down logs test clean clean-ports stop-service start-service restart-service status help
+
+SERVICE ?=
+SERVICE_GOAL := $(word 2,$(MAKECMDGOALS))
+SERVICE_COMMANDS := stop-service start-service restart-service
+
+ifneq (,$(filter $(firstword $(MAKECMDGOALS)),$(SERVICE_COMMANDS)))
+ifneq ($(SERVICE_GOAL),)
+SERVICE := $(SERVICE_GOAL)
+$(SERVICE_GOAL):
+	@:
+endif
+endif
 
 # ============================================================
 # Cloud-U-L8r Stack Management
@@ -83,6 +95,36 @@ clean-ports:
 	@sudo fuser -k 9300/tcp 9310/tcp 9320/tcp 9330/tcp 9340/tcp 2>/dev/null || true
 	@echo "✅ Service ports cleaned"
 
+# Stop a single service by name
+stop-service:
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "Usage: make stop-service SERVICE=<service> or make stop-service <service>"; \
+		exit 1; \
+	fi
+	@echo "Stopping service: $(SERVICE)"
+	@docker compose stop "$(SERVICE)"
+	@echo "✅ Service stopped: $(SERVICE)"
+
+# Start a single service by name
+start-service:
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "Usage: make start-service SERVICE=<service> or make start-service <service>"; \
+		exit 1; \
+	fi
+	@echo "Starting service: $(SERVICE)"
+	@docker compose start "$(SERVICE)"
+	@echo "✅ Service started: $(SERVICE)"
+
+# Restart a single service by name
+restart-service:
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "Usage: make restart-service SERVICE=<service> or make restart-service <service>"; \
+		exit 1; \
+	fi
+	@echo "Restarting service: $(SERVICE)"
+	@docker compose restart "$(SERVICE)"
+	@echo "✅ Service restarted: $(SERVICE)"
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -95,6 +137,9 @@ help:
 	@echo "  test         - Run Go tests in all services"
 	@echo "  clean        - Remove containers, volumes, networks, and images (full reset)"
 	@echo "  clean-ports  - Kill processes using service ports (9300, 9310, 9320, 9330, 9340)"
+	@echo "  stop-service - Stop one service (use SERVICE=<name> or positional name)"
+	@echo "  start-service - Start one service (use SERVICE=<name> or positional name)"
+	@echo "  restart-service - Restart one service (use SERVICE=<name> or positional name)"
 	@echo ""
 	@echo "Common workflows:"
 	@echo "  make up              - Start fresh with latest code"
