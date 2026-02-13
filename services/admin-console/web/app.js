@@ -99,7 +99,7 @@ function switchView(view) {
     loadPubSubState();
   } else if (view === 'essthree') {
     title.textContent = 'ess-three';
-    subtitle.textContent = 'Informational S3 surface summary (more admin actions coming soon)';
+    subtitle.textContent = 'Informational ess-three surface summary (more admin actions coming soon)';
     loadEssThreeSummary();
   } else {
     title.textContent = 'cloudfauxnt';
