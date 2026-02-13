@@ -280,3 +280,39 @@ func TestUpdateSecretVersionStage(t *testing.T) {
 		t.Fatalf("expected AWSCURRENT to point back to v1, got %#v", current.SecretString)
 	}
 }
+
+func TestDescribeParameters(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/b/param", Type: "String", Value: "b"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/a/param", Type: "String", Value: "a"})
+
+	params := store.DescribeParameters()
+	if len(params) != 2 {
+		t.Fatalf("expected 2 described params, got %d", len(params))
+	}
+	if params[0].Name != "/a/param" {
+		t.Fatalf("expected sorted params with /a/param first, got %s", params[0].Name)
+	}
+}
+
+func TestGetParameterHistory(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/hist/p", Type: "String", Value: "v1"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/hist/p", Type: "String", Value: "v2", Overwrite: true})
+
+	history, err := store.GetParameterHistory("/hist/p", false)
+	if err != nil {
+		t.Fatalf("get parameter history failed: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 history records, got %d", len(history))
+	}
+	if history[0].Version != 1 || history[0].Value != "v1" {
+		t.Fatalf("unexpected first history item: %#v", history[0])
+	}
+	if history[1].Version != 2 || history[1].Value != "v2" {
+		t.Fatalf("unexpected second history item: %#v", history[1])
+	}
+}

@@ -56,6 +56,34 @@ type GetParametersByPathResponse struct {
 	NextToken  string      `json:"NextToken,omitempty"`
 }
 
+type DescribeParametersRequest struct {
+	MaxResults int    `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
+
+type ParameterMetadata struct {
+	Name             string    `json:"Name"`
+	Type             string    `json:"Type"`
+	Version          int64     `json:"Version"`
+	ARN              string    `json:"ARN,omitempty"`
+	LastModifiedDate time.Time `json:"LastModifiedDate,omitempty"`
+}
+
+type DescribeParametersResponse struct {
+	Parameters []ParameterMetadata `json:"Parameters"`
+	NextToken  string              `json:"NextToken,omitempty"`
+}
+
+type GetParameterHistoryRequest struct {
+	Name           string `json:"Name"`
+	WithDecryption bool   `json:"WithDecryption"`
+}
+
+type GetParameterHistoryResponse struct {
+	Parameters []Parameter `json:"Parameters"`
+	NextToken  string      `json:"NextToken,omitempty"`
+}
+
 type DeleteParameterRequest struct {
 	Name string `json:"Name"`
 }

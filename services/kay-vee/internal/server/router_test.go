@@ -330,3 +330,73 @@ func TestUpdateSecretVersionStageViaTarget(t *testing.T) {
 		t.Fatalf("expected AWSCURRENT to move back to one, got %v", getPayload["SecretString"])
 	}
 }
+
+func TestDescribeParametersViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	putReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/describe/p","Type":"String","Value":"v","Overwrite":true}`))
+	putReq.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putRR := httptest.NewRecorder()
+	router.ServeHTTP(putRR, putReq)
+	if putRR.Code != http.StatusOK {
+		t.Fatalf("expected put status 200, got %d", putRR.Code)
+	}
+
+	describeReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{}`))
+	describeReq.Header.Set("X-Amz-Target", "AmazonSSM.DescribeParameters")
+	describeRR := httptest.NewRecorder()
+	router.ServeHTTP(describeRR, describeReq)
+	if describeRR.Code != http.StatusOK {
+		t.Fatalf("expected describe status 200, got %d body=%s", describeRR.Code, describeRR.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(describeRR.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse describe payload: %v", err)
+	}
+	params, ok := payload["Parameters"].([]any)
+	if !ok || len(params) == 0 {
+		t.Fatalf("expected parameters in describe payload: %v", payload)
+	}
+}
+
+func TestGetParameterHistoryViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	firstPut := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/history/p","Type":"String","Value":"v1","Overwrite":true}`))
+	firstPut.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	firstRR := httptest.NewRecorder()
+	router.ServeHTTP(firstRR, firstPut)
+	if firstRR.Code != http.StatusOK {
+		t.Fatalf("expected first put status 200, got %d", firstRR.Code)
+	}
+
+	secondPut := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/history/p","Type":"String","Value":"v2","Overwrite":true}`))
+	secondPut.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	secondRR := httptest.NewRecorder()
+	router.ServeHTTP(secondRR, secondPut)
+	if secondRR.Code != http.StatusOK {
+		t.Fatalf("expected second put status 200, got %d", secondRR.Code)
+	}
+
+	historyReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/history/p"}`))
+	historyReq.Header.Set("X-Amz-Target", "AmazonSSM.GetParameterHistory")
+	historyRR := httptest.NewRecorder()
+	router.ServeHTTP(historyRR, historyReq)
+	if historyRR.Code != http.StatusOK {
+		t.Fatalf("expected history status 200, got %d body=%s", historyRR.Code, historyRR.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(historyRR.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse history payload: %v", err)
+	}
+	history, ok := payload["Parameters"].([]any)
+	if !ok || len(history) != 2 {
+		t.Fatalf("expected 2 history entries, got %v", payload["Parameters"])
+	}
+	first := history[0].(map[string]any)
+	if first["Value"] != "v1" {
+		t.Fatalf("expected first history value v1, got %v", first["Value"])
+	}
+}

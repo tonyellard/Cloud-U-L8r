@@ -233,6 +233,75 @@ func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool)
 	return results, nil
 }
 
+func (s *Store) DescribeParameters() []model.ParameterMetadata {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	names := make([]string, 0, len(s.parameters))
+	for name := range s.parameters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	items := make([]model.ParameterMetadata, 0, len(names))
+	for _, name := range names {
+		record := s.parameters[name]
+		items = append(items, model.ParameterMetadata{
+			Name:             record.Name,
+			Type:             record.Type,
+			Version:          record.CurrentVersion,
+			ARN:              fmt.Sprintf("arn:aws:ssm:%s:%s:parameter%s", s.region, s.accountID, record.Name),
+			LastModifiedDate: record.LastModifiedAt,
+		})
+	}
+
+	return items
+}
+
+func (s *Store) GetParameterHistory(name string, withDecryption bool) ([]model.Parameter, error) {
+	if name == "" {
+		return nil, fmt.Errorf("ValidationException: Name is required")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	record, ok := s.parameters[name]
+	if !ok {
+		return nil, fmt.Errorf("ParameterNotFound: %s", name)
+	}
+
+	versions := make([]int64, 0, len(record.Versions))
+	for version := range record.Versions {
+		versions = append(versions, version)
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+
+	history := make([]model.Parameter, 0, len(versions))
+	for _, version := range versions {
+		v := record.Versions[version]
+		value := v.Value
+		if record.Type == "SecureString" {
+			if withDecryption {
+				value = decryptValue(v.Value)
+			} else {
+				value = "ENCRYPTED"
+			}
+		}
+
+		history = append(history, model.Parameter{
+			Name:             record.Name,
+			Type:             record.Type,
+			Value:            value,
+			Version:          version,
+			ARN:              fmt.Sprintf("arn:aws:ssm:%s:%s:parameter%s", s.region, s.accountID, record.Name),
+			LastModifiedDate: v.CreatedAt,
+		})
+	}
+
+	return history, nil
+}
+
 func (s *Store) DeleteParameter(name string) error {
 	if name == "" {
 		return fmt.Errorf("ValidationException: Name is required")

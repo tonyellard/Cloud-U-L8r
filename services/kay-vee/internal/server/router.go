@@ -57,12 +57,16 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handlePutParameter(w, body)
 	case "AmazonSSM.LabelParameterVersion":
 		s.handleLabelParameterVersion(w, body)
+	case "AmazonSSM.DescribeParameters":
+		s.handleDescribeParameters(w, body)
 	case "AmazonSSM.DeleteParameter":
 		s.handleDeleteParameter(w, body)
 	case "AmazonSSM.DeleteParameters":
 		s.handleDeleteParameters(w, body)
 	case "AmazonSSM.GetParameter":
 		s.handleGetParameter(w, body)
+	case "AmazonSSM.GetParameterHistory":
+		s.handleGetParameterHistory(w, body)
 	case "AmazonSSM.GetParameters":
 		s.handleGetParameters(w, body)
 	case "AmazonSSM.GetParametersByPath":
@@ -128,6 +132,17 @@ func (s *Server) handleLabelParameterVersion(w http.ResponseWriter, body []byte)
 	writeJSON(w, http.StatusOK, res)
 }
 
+func (s *Server) handleDescribeParameters(w http.ResponseWriter, body []byte) {
+	var req model.DescribeParametersRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	params := s.store.DescribeParameters()
+	writeJSON(w, http.StatusOK, model.DescribeParametersResponse{Parameters: params})
+}
+
 func (s *Server) handleDeleteParameter(w http.ResponseWriter, body []byte) {
 	var req model.DeleteParameterRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -166,6 +181,21 @@ func (s *Server) handleGetParameter(w http.ResponseWriter, body []byte) {
 		return
 	}
 	writeJSON(w, http.StatusOK, model.GetParameterResponse{Parameter: param})
+}
+
+func (s *Server) handleGetParameterHistory(w http.ResponseWriter, body []byte) {
+	var req model.GetParameterHistoryRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		return
+	}
+
+	history, err := s.store.GetParameterHistory(req.Name, req.WithDecryption)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, model.GetParameterHistoryResponse{Parameters: history})
 }
 
 func (s *Server) handleGetParameters(w http.ResponseWriter, body []byte) {

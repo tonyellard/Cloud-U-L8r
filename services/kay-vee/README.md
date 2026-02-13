@@ -19,6 +19,8 @@
 - `GetParameter`
 - `GetParameters`
 - `GetParametersByPath`
+- `DescribeParameters`
+- `GetParameterHistory`
 - `DeleteParameter`
 - `DeleteParameters`
 
