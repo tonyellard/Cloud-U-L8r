@@ -53,9 +53,9 @@ docker network create shared-network
 
 Then start services from their respective directories. Each will automatically connect to the shared network. From inside a container, you can reach:
 
-- **ess-three**: `http://ess-three:9300`
-- **ess-queue-ess**: `http://ess-queue-ess:9324`
-- **cloudfauxnt**: `http://cloudfauxnt:9001`
+- **essthree**: `http://essthree:9300`
+- **ess-queue-ess**: `http://ess-queue-ess:9320`
+- **cloudfauxnt**: `http://cloudfauxnt:9310`
 
 ### Using Docker
 
