@@ -93,3 +93,7 @@ Preference for implementation: AWS JSON protocol compatibility where feasible, w
 - Default persistence mode (memory vs file)
 - Exact compatibility strategy (strict AWS wire format vs pragmatic compatibility)
 - How to represent `SecureString`/secret encryption semantics in local mode
+
+## Companion Docs
+- [KAY_VEE_API_COMPAT_MATRIX.md](KAY_VEE_API_COMPAT_MATRIX.md)
+- [KAY_VEE_REQUEST_RESPONSE_SHAPES.md](KAY_VEE_REQUEST_RESPONSE_SHAPES.md)
