@@ -5,8 +5,11 @@ package main
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,6 +133,36 @@ func (qm *QueueManager) CreateQueue(name string, attributes map[string]string) (
 	// Parse FIFO attributes
 	if contentBased, ok := attributes["ContentBasedDeduplication"]; ok && contentBased == "true" {
 		queue.ContentBasedDeduplication = true
+	}
+
+	if visibilityStr, ok := attributes["VisibilityTimeout"]; ok {
+		if visibility, err := strconv.Atoi(visibilityStr); err == nil && visibility >= 0 {
+			queue.VisibilityTimeout = visibility
+		}
+	}
+
+	if retentionStr, ok := attributes["MessageRetentionPeriod"]; ok {
+		if retention, err := strconv.Atoi(retentionStr); err == nil && retention >= 0 {
+			queue.MessageRetentionPeriod = retention
+		}
+	}
+
+	if maxSizeStr, ok := attributes["MaximumMessageSize"]; ok {
+		if maxSize, err := strconv.Atoi(maxSizeStr); err == nil && maxSize > 0 {
+			queue.MaximumMessageSize = maxSize
+		}
+	}
+
+	if delayStr, ok := attributes["DelaySeconds"]; ok {
+		if delay, err := strconv.Atoi(delayStr); err == nil && delay >= 0 {
+			queue.DelaySeconds = delay
+		}
+	}
+
+	if waitStr, ok := attributes["ReceiveMessageWaitTimeSeconds"]; ok {
+		if wait, err := strconv.Atoi(waitStr); err == nil && wait >= 0 {
+			queue.ReceiveMessageWaitTime = wait
+		}
 	}
 
 	// Parse MaxReceiveCount
@@ -398,8 +431,103 @@ func (q *Queue) GetAttributes() map[string]string {
 	attrs["ApproximateNumberOfMessagesNotVisible"] = strconv.Itoa(notVisibleCount)
 	attrs["ApproximateNumberOfMessagesDelayed"] = strconv.Itoa(delayedCount)
 	attrs["QueueArn"] = "arn:aws:sqs:us-east-1:000000000000:" + q.Name
+	attrs["VisibilityTimeout"] = strconv.Itoa(q.VisibilityTimeout)
+	attrs["MessageRetentionPeriod"] = strconv.Itoa(q.MessageRetentionPeriod)
+	attrs["MaximumMessageSize"] = strconv.Itoa(q.MaximumMessageSize)
+	attrs["DelaySeconds"] = strconv.Itoa(q.DelaySeconds)
+	attrs["ReceiveMessageWaitTimeSeconds"] = strconv.Itoa(q.ReceiveMessageWaitTime)
+	attrs["FifoQueue"] = strconv.FormatBool(q.FifoQueue)
+	attrs["ContentBasedDeduplication"] = strconv.FormatBool(q.ContentBasedDeduplication)
+	attrs["MaxReceiveCount"] = strconv.Itoa(q.MaxReceiveCount)
+
+	if q.RedrivePolicy != nil {
+		if redrive, err := json.Marshal(q.RedrivePolicy); err == nil {
+			attrs["RedrivePolicy"] = string(redrive)
+		}
+	}
+
+	if q.RedriveAllowPolicy != nil {
+		if redriveAllow, err := json.Marshal(q.RedriveAllowPolicy); err == nil {
+			attrs["RedriveAllowPolicy"] = string(redriveAllow)
+		}
+	}
+
+	for key, value := range q.Attributes {
+		if _, exists := attrs[key]; !exists {
+			attrs[key] = value
+		}
+	}
 
 	return attrs
+}
+
+func (q *Queue) SetAttributes(attributes map[string]string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for key, value := range attributes {
+		switch key {
+		case "VisibilityTimeout":
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 0 {
+				return fmt.Errorf("invalid VisibilityTimeout")
+			}
+			q.VisibilityTimeout = parsed
+		case "MessageRetentionPeriod":
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 0 {
+				return fmt.Errorf("invalid MessageRetentionPeriod")
+			}
+			q.MessageRetentionPeriod = parsed
+		case "MaximumMessageSize":
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed <= 0 {
+				return fmt.Errorf("invalid MaximumMessageSize")
+			}
+			q.MaximumMessageSize = parsed
+		case "DelaySeconds":
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 0 {
+				return fmt.Errorf("invalid DelaySeconds")
+			}
+			q.DelaySeconds = parsed
+		case "ReceiveMessageWaitTimeSeconds":
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed < 0 {
+				return fmt.Errorf("invalid ReceiveMessageWaitTimeSeconds")
+			}
+			q.ReceiveMessageWaitTime = parsed
+		case "FifoQueue":
+			q.FifoQueue = value == "true"
+		case "ContentBasedDeduplication":
+			q.ContentBasedDeduplication = value == "true"
+		case "MaxReceiveCount":
+			parsed, err := strconv.Atoi(value)
+			if err != nil || parsed <= 0 {
+				return fmt.Errorf("invalid MaxReceiveCount")
+			}
+			q.MaxReceiveCount = parsed
+		case "RedrivePolicy":
+			if strings.TrimSpace(value) == "" {
+				q.RedrivePolicy = nil
+			} else {
+				q.RedrivePolicy = parseRedrivePolicy(value)
+			}
+		case "RedriveAllowPolicy":
+			if strings.TrimSpace(value) == "" {
+				q.RedriveAllowPolicy = nil
+			} else {
+				q.RedriveAllowPolicy = parseRedriveAllowPolicy(value)
+			}
+		}
+
+		if q.Attributes == nil {
+			q.Attributes = make(map[string]string)
+		}
+		q.Attributes[key] = value
+	}
+
+	return nil
 }
 
 // moveToDLQ moves a message to the dead letter queue

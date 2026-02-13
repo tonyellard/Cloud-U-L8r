@@ -62,6 +62,20 @@ services:
     depends_on:
       - ess-queue-ess
 
+  admin-console:
+    build:
+      context: ./services/admin-console
+    container_name: admin-console
+    ports:
+      - "9999:9999"
+    environment:
+      - PORT=9999
+    depends_on:
+      - ess-queue-ess
+      - ess-enn-ess
+    networks:
+      - shared-network
+
 networks:
   shared-network:
     driver: bridge

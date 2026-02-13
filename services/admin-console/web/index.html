@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Consolidated Admin Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-900 min-h-screen">
+  <div class="min-h-screen flex">
+    <aside class="w-64 bg-slate-900 text-slate-100 p-4 flex flex-col gap-4">
+      <div>
+        <h1 class="text-lg font-semibold">Admin Console</h1>
+        <p class="text-xs text-slate-400">Consolidated v1</p>
+      </div>
+      <nav class="flex flex-col gap-2">
+        <button id="menu-dashboard" class="menu-btn bg-slate-700 px-3 py-2 rounded text-left" title="Open dashboard view" aria-label="Open dashboard view">Dashboard</button>
+        <button id="menu-ess-queue-ess" class="menu-btn hover:bg-slate-800 px-3 py-2 rounded text-left" title="Open ess-queue-ess queue management view" aria-label="Open ess-queue-ess queue management view">ess-queue-ess</button>
+        <button id="menu-ess-enn-ess" class="menu-btn hover:bg-slate-800 px-3 py-2 rounded text-left" title="Open ess-enn-ess topic and subscription management view" aria-label="Open ess-enn-ess topic and subscription management view">ess-enn-ess</button>
+      </nav>
+      <div class="mt-auto text-xs text-slate-400" id="stream-status">Stream: disconnected</div>
+    </aside>
+    <main class="flex-1 p-6">
+      <header class="mb-4">
+        <h2 id="view-title" class="text-2xl font-semibold">Dashboard</h2>
+        <p id="view-subtitle" class="text-sm text-slate-500">Live status of active emulator surface</p>
+      </header>
+      <section id="alerts" class="mb-4"></section>
+      <section id="view-content" class="space-y-4"></section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
