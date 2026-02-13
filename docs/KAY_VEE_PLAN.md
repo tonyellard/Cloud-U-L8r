@@ -88,13 +88,18 @@ Preference for implementation: AWS JSON protocol compatibility where feasible, w
 5. Admin summary endpoints + dashboard integration
 6. Tests (unit + integration for create/modify/retrieve paths)
 
-## Open Decisions
-- Single port vs split virtual endpoints behind one server
-- Default persistence mode (memory vs file)
-- Exact compatibility strategy (strict AWS wire format vs pragmatic compatibility)
-- How to represent `SecureString`/secret encryption semantics in local mode
+## MVP Decisions (Locked)
+- **Single service endpoint**: One port (`9350`) with protocol routing by target header.
+- **Persistence default**: In-memory by default; optional snapshot persistence via config flag.
+- **Compatibility strategy**: Pragmatic AWS JSON compatibility for MVP operations, with documented emulator-only admin endpoints.
+- **Secure semantics**: `SecureString` and secret values use emulator-local reversible encryption abstraction (no KMS parity).
 
 ## Companion Docs
 - [KAY_VEE_API_COMPAT_MATRIX.md](KAY_VEE_API_COMPAT_MATRIX.md)
 - [KAY_VEE_REQUEST_RESPONSE_SHAPES.md](KAY_VEE_REQUEST_RESPONSE_SHAPES.md)
 - [KAY_VEE_STORAGE_MODEL.md](KAY_VEE_STORAGE_MODEL.md)
+- [KAY_VEE_IMPLEMENTATION_SPRINT_1.md](KAY_VEE_IMPLEMENTATION_SPRINT_1.md)
+- [KAY_VEE_TEST_PLAN.md](KAY_VEE_TEST_PLAN.md)
+
+## Planning Status
+Planning baseline for MVP is complete. Next step is implementation Sprint 1.
