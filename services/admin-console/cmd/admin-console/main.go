@@ -13,7 +13,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	handler := server.NewRouter(logger)
-	port := envOrDefault("PORT", "9340")
+	port := envOrDefault("PORT", "9999")
 
 	srv := &http.Server{
 		Addr:              ":" + port,

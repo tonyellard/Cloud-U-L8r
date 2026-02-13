@@ -10,7 +10,7 @@ This monorepo contains four interconnected services:
 - **cloudfauxnt** (Port 9310) - CloudFront-like CDN emulator with signed URL support
 - **ess-queue-ess** (Port 9320) - SQS-compatible message queue emulator with FIFO and DLQ support
 - **ess-enn-ess** (Port 9330) - SNS-compatible notification service emulator
-- **admin-console** (Port 9340) - Consolidated operator console for dashboard + per-service administration
+- **admin-console** (Port 9999) - Consolidated operator console for dashboard + per-service administration
 
 ## Quick Start
 
@@ -39,14 +39,14 @@ Once running, services are available at:
 - **CloudFront (cloudfauxnt)**: `http://localhost:9310`
 - **SQS (ess-queue-ess)**: `http://localhost:9320`
 - **SNS (ess-enn-ess)**: `http://localhost:9330` (Admin UI: `http://localhost:9331`)
-- **Admin Console**: `http://localhost:9340`
+- **Admin Console**: `http://localhost:9999`
 
 For inter-container communication, services use the internal `shared-network`:
 - `http://essthree:9300`
 - `http://cloudfauxnt:9310`
 - `http://ess-queue-ess:9320`
 - `http://ess-enn-ess:9330` (Admin UI: `http://ess-enn-ess:9331`)
-- `http://admin-console:9340`
+- `http://admin-console:9999`
 
 ## Port Scheme
 
@@ -55,7 +55,7 @@ All services use the 93xx port range with 10-port increments:
 - **9310**: CloudFront CDN
 - **9320**: SQS Queue
 - **9330**: SNS Notifications (9331 for Admin UI)
-- **9340**: Consolidated Admin Console
+- **9999**: Consolidated Admin Console
 
 ## Configuration
 

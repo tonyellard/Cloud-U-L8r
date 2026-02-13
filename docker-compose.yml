@@ -67,9 +67,9 @@ services:
       context: ./services/admin-console
     container_name: admin-console
     ports:
-      - "9340:9340"
+      - "9999:9999"
     environment:
-      - PORT=9340
+      - PORT=9999
     depends_on:
       - ess-queue-ess
       - ess-enn-ess

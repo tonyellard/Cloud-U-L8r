@@ -92,7 +92,7 @@ clean:
 # Kill processes bound to service ports
 clean-ports:
 	@echo "Cleaning service ports with fuser..."
-	@sudo fuser -k 9300/tcp 9310/tcp 9320/tcp 9330/tcp 9340/tcp 2>/dev/null || true
+	@sudo fuser -k 9300/tcp 9310/tcp 9320/tcp 9330/tcp 9999/tcp 2>/dev/null || true
 	@echo "✅ Service ports cleaned"
 
 # Stop a single service by name
@@ -136,7 +136,7 @@ help:
 	@echo "  status       - Show status of all Docker containers"
 	@echo "  test         - Run Go tests in all services"
 	@echo "  clean        - Remove containers, volumes, networks, and images (full reset)"
-	@echo "  clean-ports  - Kill processes using service ports (9300, 9310, 9320, 9330, 9340)"
+	@echo "  clean-ports  - Kill processes using service ports (9300, 9310, 9320, 9330, 9999)"
 	@echo "  stop-service - Stop one service (use SERVICE=<name> or positional name)"
 	@echo "  start-service - Start one service (use SERVICE=<name> or positional name)"
 	@echo "  restart-service - Restart one service (use SERVICE=<name> or positional name)"

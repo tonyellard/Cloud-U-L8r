@@ -19,5 +19,5 @@ WORKDIR /app
 COPY --from=builder /build/admin-console ./admin-console
 COPY --from=builder /build/web ./web
 
-EXPOSE 9340
+EXPOSE 9999
 CMD ["./admin-console"]
