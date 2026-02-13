@@ -183,9 +183,9 @@ func (s *Store) GetParameters(names []string, withDecryption bool) ([]model.Para
 	return found, invalid
 }
 
-func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool) ([]model.Parameter, error) {
+func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool, maxResults int, nextToken string) ([]model.Parameter, string, error) {
 	if path == "" {
-		return nil, fmt.Errorf("ValidationException: Path is required")
+		return nil, "", fmt.Errorf("ValidationException: Path is required")
 	}
 
 	s.mu.RLock()
@@ -230,10 +230,15 @@ func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool)
 		})
 	}
 
-	return results, nil
+	start, end, token, err := paginateBounds(len(results), maxResults, nextToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return results[start:end], token, nil
 }
 
-func (s *Store) DescribeParameters() []model.ParameterMetadata {
+func (s *Store) DescribeParameters(maxResults int, nextToken string) ([]model.ParameterMetadata, string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -255,12 +260,17 @@ func (s *Store) DescribeParameters() []model.ParameterMetadata {
 		})
 	}
 
-	return items
+	start, end, token, err := paginateBounds(len(items), maxResults, nextToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return items[start:end], token, nil
 }
 
-func (s *Store) GetParameterHistory(name string, withDecryption bool) ([]model.Parameter, error) {
+func (s *Store) GetParameterHistory(name string, withDecryption bool, maxResults int, nextToken string) ([]model.Parameter, string, error) {
 	if name == "" {
-		return nil, fmt.Errorf("ValidationException: Name is required")
+		return nil, "", fmt.Errorf("ValidationException: Name is required")
 	}
 
 	s.mu.RLock()
@@ -268,7 +278,7 @@ func (s *Store) GetParameterHistory(name string, withDecryption bool) ([]model.P
 
 	record, ok := s.parameters[name]
 	if !ok {
-		return nil, fmt.Errorf("ParameterNotFound: %s", name)
+		return nil, "", fmt.Errorf("ParameterNotFound: %s", name)
 	}
 
 	versions := make([]int64, 0, len(record.Versions))
@@ -299,7 +309,12 @@ func (s *Store) GetParameterHistory(name string, withDecryption bool) ([]model.P
 		})
 	}
 
-	return history, nil
+	start, end, token, err := paginateBounds(len(history), maxResults, nextToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return history[start:end], token, nil
 }
 
 func (s *Store) DeleteParameter(name string) error {
@@ -569,7 +584,7 @@ func (s *Store) DescribeSecret(secretID string) (model.DescribeSecretResponse, e
 	}, nil
 }
 
-func (s *Store) ListSecrets() model.ListSecretsResponse {
+func (s *Store) ListSecrets(maxResults int, nextToken string) (model.ListSecretsResponse, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -592,7 +607,12 @@ func (s *Store) ListSecrets() model.ListSecretsResponse {
 		})
 	}
 
-	return model.ListSecretsResponse{SecretList: items}
+	start, end, token, err := paginateBounds(len(items), maxResults, nextToken)
+	if err != nil {
+		return model.ListSecretsResponse{}, err
+	}
+
+	return model.ListSecretsResponse{SecretList: items[start:end], NextToken: token}, nil
 }
 
 func (s *Store) DeleteSecret(req model.DeleteSecretRequest) (model.DeleteSecretResponse, error) {
@@ -835,4 +855,35 @@ func decryptValue(cipher string) string {
 		out[i] = decoded[i] ^ secureKey[i%len(secureKey)]
 	}
 	return string(out)
+}
+
+func paginateBounds(total, maxResults int, nextToken string) (int, int, string, error) {
+	if maxResults < 0 {
+		return 0, 0, "", fmt.Errorf("ValidationException: MaxResults must be >= 0")
+	}
+
+	start := 0
+	if nextToken != "" {
+		parsed, err := strconv.Atoi(nextToken)
+		if err != nil || parsed < 0 || parsed > total {
+			return 0, 0, "", fmt.Errorf("ValidationException: Invalid NextToken")
+		}
+		start = parsed
+	}
+
+	end := total
+	newToken := ""
+	if maxResults > 0 {
+		candidate := start + maxResults
+		if candidate < total {
+			end = candidate
+			newToken = strconv.Itoa(candidate)
+		}
+	}
+
+	if start > end {
+		start = end
+	}
+
+	return start, end, newToken, nil
 }

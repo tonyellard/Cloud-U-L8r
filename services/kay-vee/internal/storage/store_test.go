@@ -94,7 +94,7 @@ func TestGetParametersByPath(t *testing.T) {
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/app/db/password", Type: "SecureString", Value: "p1"})
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/other/name", Type: "String", Value: "o1"})
 
-	nonRecursive, err := store.GetParametersByPath("/app", false, false)
+	nonRecursive, _, err := store.GetParametersByPath("/app", false, false, 0, "")
 	if err != nil {
 		t.Fatalf("unexpected non-recursive error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestGetParametersByPath(t *testing.T) {
 		t.Fatalf("expected /app/url, got %s", nonRecursive[0].Name)
 	}
 
-	recursive, err := store.GetParametersByPath("/app", true, true)
+	recursive, _, err := store.GetParametersByPath("/app", true, true, 0, "")
 	if err != nil {
 		t.Fatalf("unexpected recursive error: %v", err)
 	}
@@ -153,7 +153,10 @@ func TestDescribeAndListSecrets(t *testing.T) {
 		t.Fatalf("expected version stage mappings in describe response")
 	}
 
-	listed := store.ListSecrets()
+	listed, err := store.ListSecrets(0, "")
+	if err != nil {
+		t.Fatalf("list secrets failed: %v", err)
+	}
 	if len(listed.SecretList) != 2 {
 		t.Fatalf("expected 2 secrets in list, got %d", len(listed.SecretList))
 	}
@@ -287,7 +290,10 @@ func TestDescribeParameters(t *testing.T) {
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/b/param", Type: "String", Value: "b"})
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/a/param", Type: "String", Value: "a"})
 
-	params := store.DescribeParameters()
+	params, _, err := store.DescribeParameters(0, "")
+	if err != nil {
+		t.Fatalf("describe parameters failed: %v", err)
+	}
 	if len(params) != 2 {
 		t.Fatalf("expected 2 described params, got %d", len(params))
 	}
@@ -302,7 +308,7 @@ func TestGetParameterHistory(t *testing.T) {
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/hist/p", Type: "String", Value: "v1"})
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/hist/p", Type: "String", Value: "v2", Overwrite: true})
 
-	history, err := store.GetParameterHistory("/hist/p", false)
+	history, _, err := store.GetParameterHistory("/hist/p", false, 0, "")
 	if err != nil {
 		t.Fatalf("get parameter history failed: %v", err)
 	}
@@ -314,5 +320,50 @@ func TestGetParameterHistory(t *testing.T) {
 	}
 	if history[1].Version != 2 || history[1].Value != "v2" {
 		t.Fatalf("unexpected second history item: %#v", history[1])
+	}
+}
+
+func TestPaginationAcrossSSMAndSecrets(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/page/a", Type: "String", Value: "a"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/page/b", Type: "String", Value: "b"})
+
+	described, token, err := store.DescribeParameters(1, "")
+	if err != nil {
+		t.Fatalf("describe with pagination failed: %v", err)
+	}
+	if len(described) != 1 || token == "" {
+		t.Fatalf("expected one describe item and next token, got len=%d token=%q", len(described), token)
+	}
+
+	history, historyToken, err := store.GetParameterHistory("/page/b", false, 1, "")
+	if err != nil {
+		t.Fatalf("history with pagination failed: %v", err)
+	}
+	if len(history) != 1 || historyToken != "" {
+		t.Fatalf("expected one history record and no token, got len=%d token=%q", len(history), historyToken)
+	}
+
+	v1 := "one"
+	_, _ = store.CreateSecret(model.CreateSecretRequest{Name: "page/one", SecretString: &v1})
+	v2 := "two"
+	_, _ = store.CreateSecret(model.CreateSecretRequest{Name: "page/two", SecretString: &v2})
+
+	listed, err := store.ListSecrets(1, "")
+	if err != nil {
+		t.Fatalf("list secrets with pagination failed: %v", err)
+	}
+	listToken := listed.NextToken
+	if len(listed.SecretList) != 1 || listToken == "" {
+		t.Fatalf("expected one secret and token, got len=%d token=%q", len(listed.SecretList), listToken)
+	}
+
+	listed2, err := store.ListSecrets(1, listToken)
+	if err != nil {
+		t.Fatalf("list secrets page 2 failed: %v", err)
+	}
+	if len(listed2.SecretList) != 1 {
+		t.Fatalf("expected one secret on second page, got %d", len(listed2.SecretList))
 	}
 }

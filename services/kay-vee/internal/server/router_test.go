@@ -400,3 +400,59 @@ func TestGetParameterHistoryViaTarget(t *testing.T) {
 		t.Fatalf("expected first history value v1, got %v", first["Value"])
 	}
 }
+
+func TestPaginationViaTargets(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	putA := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/page/a","Type":"String","Value":"a","Overwrite":true}`))
+	putA.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putARR := httptest.NewRecorder()
+	router.ServeHTTP(putARR, putA)
+
+	putB := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/page/b","Type":"String","Value":"b","Overwrite":true}`))
+	putB.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putBRR := httptest.NewRecorder()
+	router.ServeHTTP(putBRR, putB)
+
+	describeReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"MaxResults":1}`))
+	describeReq.Header.Set("X-Amz-Target", "AmazonSSM.DescribeParameters")
+	describeRR := httptest.NewRecorder()
+	router.ServeHTTP(describeRR, describeReq)
+	if describeRR.Code != http.StatusOK {
+		t.Fatalf("expected describe status 200, got %d body=%s", describeRR.Code, describeRR.Body.String())
+	}
+
+	var describePayload map[string]any
+	if err := json.Unmarshal(describeRR.Body.Bytes(), &describePayload); err != nil {
+		t.Fatalf("failed to parse describe payload: %v", err)
+	}
+	if describePayload["NextToken"] == nil {
+		t.Fatalf("expected NextToken in describe response")
+	}
+
+	listCreateOne := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"svc/page1","SecretString":"one"}`))
+	listCreateOne.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+	listCreateOneRR := httptest.NewRecorder()
+	router.ServeHTTP(listCreateOneRR, listCreateOne)
+
+	listCreateTwo := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"svc/page2","SecretString":"two"}`))
+	listCreateTwo.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+	listCreateTwoRR := httptest.NewRecorder()
+	router.ServeHTTP(listCreateTwoRR, listCreateTwo)
+
+	listReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"MaxResults":1}`))
+	listReq.Header.Set("X-Amz-Target", "secretsmanager.ListSecrets")
+	listRR := httptest.NewRecorder()
+	router.ServeHTTP(listRR, listReq)
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("expected list secrets status 200, got %d body=%s", listRR.Code, listRR.Body.String())
+	}
+
+	var listPayload map[string]any
+	if err := json.Unmarshal(listRR.Body.Bytes(), &listPayload); err != nil {
+		t.Fatalf("failed to parse list payload: %v", err)
+	}
+	if listPayload["NextToken"] == nil {
+		t.Fatalf("expected NextToken in list response")
+	}
+}

@@ -139,8 +139,12 @@ func (s *Server) handleDescribeParameters(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	params := s.store.DescribeParameters()
-	writeJSON(w, http.StatusOK, model.DescribeParametersResponse{Parameters: params})
+	params, token, err := s.store.DescribeParameters(req.MaxResults, req.NextToken)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, model.DescribeParametersResponse{Parameters: params, NextToken: token})
 }
 
 func (s *Server) handleDeleteParameter(w http.ResponseWriter, body []byte) {
@@ -190,12 +194,12 @@ func (s *Server) handleGetParameterHistory(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	history, err := s.store.GetParameterHistory(req.Name, req.WithDecryption)
+	history, token, err := s.store.GetParameterHistory(req.Name, req.WithDecryption, req.MaxResults, req.NextToken)
 	if err != nil {
 		writeFromError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, model.GetParameterHistoryResponse{Parameters: history})
+	writeJSON(w, http.StatusOK, model.GetParameterHistoryResponse{Parameters: history, NextToken: token})
 }
 
 func (s *Server) handleGetParameters(w http.ResponseWriter, body []byte) {
@@ -216,12 +220,12 @@ func (s *Server) handleGetParametersByPath(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	params, err := s.store.GetParametersByPath(req.Path, req.Recursive, req.WithDecryption)
+	params, token, err := s.store.GetParametersByPath(req.Path, req.Recursive, req.WithDecryption, req.MaxResults, req.NextToken)
 	if err != nil {
 		writeFromError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, model.GetParametersByPathResponse{Parameters: params})
+	writeJSON(w, http.StatusOK, model.GetParametersByPathResponse{Parameters: params, NextToken: token})
 }
 
 func (s *Server) handleCreateSecret(w http.ResponseWriter, body []byte) {
@@ -306,7 +310,11 @@ func (s *Server) handleListSecrets(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	res := s.store.ListSecrets()
+	res, err := s.store.ListSecrets(req.MaxResults, req.NextToken)
+	if err != nil {
+		writeFromError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 

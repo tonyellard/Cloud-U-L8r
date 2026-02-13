@@ -77,6 +77,8 @@ type DescribeParametersResponse struct {
 type GetParameterHistoryRequest struct {
 	Name           string `json:"Name"`
 	WithDecryption bool   `json:"WithDecryption"`
+	MaxResults     int    `json:"MaxResults,omitempty"`
+	NextToken      string `json:"NextToken,omitempty"`
 }
 
 type GetParameterHistoryResponse struct {

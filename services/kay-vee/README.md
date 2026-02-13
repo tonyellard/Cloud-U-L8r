@@ -36,6 +36,8 @@
 - `RestoreSecret`
 - `UpdateSecretVersionStage`
 
+Pagination support (`MaxResults`, `NextToken`) is available on list/describe/history-style operations.
+
 ## Quick Start
 
 ### Local
