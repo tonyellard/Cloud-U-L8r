@@ -4,6 +4,8 @@ This matrix defines the first implementation target for `kay-vee`.
 
 Concrete request/response examples are documented in [KAY_VEE_REQUEST_RESPONSE_SHAPES.md](KAY_VEE_REQUEST_RESPONSE_SHAPES.md).
 
+Internal data/indexing and version semantics are documented in [KAY_VEE_STORAGE_MODEL.md](KAY_VEE_STORAGE_MODEL.md).
+
 ## Scope Priority
 Primary focus:
 - create values

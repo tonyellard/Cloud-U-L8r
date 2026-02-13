@@ -97,3 +97,4 @@ Preference for implementation: AWS JSON protocol compatibility where feasible, w
 ## Companion Docs
 - [KAY_VEE_API_COMPAT_MATRIX.md](KAY_VEE_API_COMPAT_MATRIX.md)
 - [KAY_VEE_REQUEST_RESPONSE_SHAPES.md](KAY_VEE_REQUEST_RESPONSE_SHAPES.md)
+- [KAY_VEE_STORAGE_MODEL.md](KAY_VEE_STORAGE_MODEL.md)

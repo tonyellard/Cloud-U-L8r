@@ -2,6 +2,8 @@
 
 This document provides concrete JSON shapes for the MVP operations marked **Must Have** in [KAY_VEE_API_COMPAT_MATRIX.md](KAY_VEE_API_COMPAT_MATRIX.md).
 
+For internal persistence/indexing/version rules behind these shapes, see [KAY_VEE_STORAGE_MODEL.md](KAY_VEE_STORAGE_MODEL.md).
+
 ## Protocol Approach (MVP)
 
 `kay-vee` will support AWS-style JSON APIs behind one service endpoint, with protocol routing by target header.
