@@ -11,6 +11,11 @@ let activeTopicActivityName = '';
 let expandedPubSubTopicARN = '';
 let latestPubSubState = null;
 
+function displayServiceName(name) {
+  if (name === 'essthree') return 'ess-three';
+  return name;
+}
+
 const editableQueueAttributeKeys = [
   'VisibilityTimeout',
   'MessageRetentionPeriod',
@@ -77,7 +82,7 @@ function switchView(view) {
     subtitle.textContent = 'Topic, subscription, and publish operations';
     loadPubSubState();
   } else if (view === 'essthree') {
-    title.textContent = 'essthree';
+    title.textContent = 'ess-three';
     subtitle.textContent = 'Informational S3 surface summary (more admin actions coming soon)';
     loadEssThreeSummary();
   } else {
@@ -133,7 +138,7 @@ function renderDashboard(data) {
     return `
       <div class="bg-white rounded border p-4 flex items-start gap-4">
         <div class="w-48 shrink-0">
-          <div class="font-medium">${service.name}</div>
+          <div class="font-medium">${displayServiceName(service.name)}</div>
           <div class="mt-1">${badge}</div>
         </div>
         <div class="flex-1">
@@ -215,7 +220,7 @@ function renderEssThreeSummary(data) {
   `).join('');
 
   document.getElementById('view-content').innerHTML = `
-    ${renderFutureBanner('essthree admin is currently informational. Additional admin actions will be added in a future update.')}
+    ${renderFutureBanner('ess-three admin is currently informational. Additional admin actions will be added in a future update.')}
     <div class="grid grid-cols-2 gap-4">
       <div class="bg-white rounded border p-4">
         <div class="text-sm text-slate-500">Buckets</div>
