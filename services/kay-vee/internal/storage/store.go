@@ -187,22 +187,21 @@ func (s *Store) GetParameters(names []string, withDecryption bool) ([]model.Para
 	return found, invalid
 }
 
-func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool, maxResults int, nextToken string) ([]model.Parameter, string, error) {
-	if path == "" {
-		return nil, "", fmt.Errorf("ValidationException: Path is required")
+func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool, maxResults int, nextToken string, filters []model.ParameterStringFilter) ([]model.Parameter, string, error) {
+	normalizedPath, err := normalizeParameterPath(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if maxResults > 10 {
+		return nil, "", fmt.Errorf("ValidationException: MaxResults must be <= 10")
 	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	normalized := strings.TrimSuffix(path, "/")
-	if normalized == "" {
-		normalized = "/"
-	}
-
 	names := make([]string, 0)
 	for name := range s.parameters {
-		if !matchesPath(name, normalized, recursive) {
+		if !matchesPath(name, normalizedPath, recursive) {
 			continue
 		}
 		names = append(names, name)
@@ -212,6 +211,14 @@ func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool,
 	results := make([]model.Parameter, 0, len(names))
 	for _, name := range names {
 		record := s.parameters[name]
+		matches, err := matchesByPathFilters(record, filters)
+		if err != nil {
+			return nil, "", err
+		}
+		if !matches {
+			continue
+		}
+
 		version := record.CurrentVersion
 		v := record.Versions[version]
 
@@ -1042,6 +1049,73 @@ func parseSelector(name string) (string, string) {
 		return name, ""
 	}
 	return name[:idx], name[idx+1:]
+}
+
+func normalizeParameterPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("ValidationException: Path is required")
+	}
+	if !strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("ValidationException: Path must start with '/'")
+	}
+	if strings.Contains(path, "//") {
+		return "", fmt.Errorf("ValidationException: Path must not contain empty hierarchy segments")
+	}
+
+	normalized := strings.TrimSuffix(path, "/")
+	if normalized == "" {
+		normalized = "/"
+	}
+	return normalized, nil
+}
+
+func matchesByPathFilters(record *ParameterRecord, filters []model.ParameterStringFilter) (bool, error) {
+	if len(filters) == 0 {
+		return true, nil
+	}
+
+	for _, filter := range filters {
+		key := strings.TrimSpace(strings.ToLower(filter.Key))
+		option := strings.TrimSpace(strings.ToLower(filter.Option))
+		if option == "" {
+			option = "equals"
+		}
+		if len(filter.Values) == 0 {
+			return false, fmt.Errorf("ValidationException: ParameterFilters Values must not be empty")
+		}
+
+		matched := false
+		switch key {
+		case "type":
+			if option != "equals" {
+				return false, fmt.Errorf("ValidationException: unsupported ParameterFilters Option for Type: %s", filter.Option)
+			}
+			for _, value := range filter.Values {
+				if record.Type == value {
+					matched = true
+					break
+				}
+			}
+		case "label":
+			if option != "equals" {
+				return false, fmt.Errorf("ValidationException: unsupported ParameterFilters Option for Label: %s", filter.Option)
+			}
+			for _, value := range filter.Values {
+				if labeledVersion, ok := record.Labels[value]; ok && labeledVersion == record.CurrentVersion {
+					matched = true
+					break
+				}
+			}
+		default:
+			return false, fmt.Errorf("ValidationException: unsupported ParameterFilters Key for GetParametersByPath: %s", filter.Key)
+		}
+
+		if !matched {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 func matchesParameterFilters(record *ParameterRecord, filters []model.ParameterStringFilter) (bool, error) {

@@ -325,7 +325,7 @@ func (s *Server) handleGetParametersByPath(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	params, token, err := s.store.GetParametersByPath(req.Path, req.Recursive, req.WithDecryption, req.MaxResults, req.NextToken)
+	params, token, err := s.store.GetParametersByPath(req.Path, req.Recursive, req.WithDecryption, req.MaxResults, req.NextToken, req.ParameterFilters)
 	if err != nil {
 		writeFromError(w, err)
 		return

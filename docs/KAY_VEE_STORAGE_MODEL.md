@@ -64,6 +64,14 @@ type ParameterVersion struct {
 - No secondary index required for MVP lookups.
 - Path queries (`GetParametersByPath`) are prefix scans over `Name`.
 
+### GetParametersByPath Semantics (Current)
+- Path must be absolute (begin with `/`); malformed hierarchy paths are rejected.
+- `Recursive=false` returns only direct children under the path.
+- `Recursive=true` returns all descendants.
+- Returned list is sorted by parameter name before pagination.
+- `MaxResults` is bounded to `<= 10`; `NextToken` is offset-based.
+- Supported `ParameterFilters` keys: `Type`, `Label` (`Equals` option).
+
 ### Version/Label Rules
 - `PutParameter` increments `CurrentVersion` on successful write.
 - `Overwrite=false` fails if record exists.
@@ -162,6 +170,7 @@ type SecretVersion struct {
 - Missing name -> `ParameterNotFound`
 - Duplicate create without overwrite -> `ParameterAlreadyExists`
 - Invalid selector -> `ValidationException`
+- Invalid/malformed path and unsupported `GetParametersByPath` filter keys/options -> `ValidationException`
 
 ### Secrets Manager
 - Missing secret -> `ResourceNotFoundException`

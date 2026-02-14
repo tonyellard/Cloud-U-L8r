@@ -31,6 +31,7 @@ type GetParametersByPathRequest struct {
 	WithDecryption bool   `json:"WithDecryption"`
 	MaxResults     int    `json:"MaxResults,omitempty"`
 	NextToken      string `json:"NextToken,omitempty"`
+	ParameterFilters []ParameterStringFilter `json:"ParameterFilters,omitempty"`
 }
 
 type Parameter struct {
@@ -182,8 +183,8 @@ type DescribeSecretResponse struct {
 }
 
 type ListSecretsRequest struct {
-	MaxResults int    `json:"MaxResults,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int            `json:"MaxResults,omitempty"`
+	NextToken  string         `json:"NextToken,omitempty"`
 	Filters    []SecretFilter `json:"Filters,omitempty"`
 }
 

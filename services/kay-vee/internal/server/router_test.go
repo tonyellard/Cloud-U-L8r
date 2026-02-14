@@ -526,3 +526,59 @@ func TestListSecretsFilterViaTarget(t *testing.T) {
 		t.Fatalf("expected svc/filter/one, got %v", secret["Name"])
 	}
 }
+
+func TestGetParametersByPathFilterViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	putPlain := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/pathf/plain","Type":"String","Value":"one","Overwrite":true}`))
+	putPlain.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putPlainRR := httptest.NewRecorder()
+	router.ServeHTTP(putPlainRR, putPlain)
+
+	putSecret := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/pathf/secret","Type":"SecureString","Value":"two","Overwrite":true}`))
+	putSecret.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putSecretRR := httptest.NewRecorder()
+	router.ServeHTTP(putSecretRR, putSecret)
+
+	byPathReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Path":"/pathf","Recursive":true,"ParameterFilters":[{"Key":"Type","Option":"Equals","Values":["SecureString"]}]}`))
+	byPathReq.Header.Set("X-Amz-Target", "AmazonSSM.GetParametersByPath")
+	byPathRR := httptest.NewRecorder()
+	router.ServeHTTP(byPathRR, byPathReq)
+	if byPathRR.Code != http.StatusOK {
+		t.Fatalf("expected GetParametersByPath status 200, got %d body=%s", byPathRR.Code, byPathRR.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(byPathRR.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse GetParametersByPath payload: %v", err)
+	}
+	params, ok := payload["Parameters"].([]any)
+	if !ok || len(params) != 1 {
+		t.Fatalf("expected one filtered parameter, got %v", payload["Parameters"])
+	}
+	param := params[0].(map[string]any)
+	if param["Name"] != "/pathf/secret" {
+		t.Fatalf("expected /pathf/secret, got %v", param["Name"])
+	}
+}
+
+func TestGetParametersByPathValidationViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Path":"not/absolute","Recursive":true}`))
+	req.Header.Set("X-Amz-Target", "AmazonSSM.GetParametersByPath")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse error payload: %v", err)
+	}
+	if payload["__type"] != "ValidationException" {
+		t.Fatalf("expected ValidationException, got %v", payload["__type"])
+	}
+}

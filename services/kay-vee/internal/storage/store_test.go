@@ -95,7 +95,7 @@ func TestGetParametersByPath(t *testing.T) {
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/app/db/password", Type: "SecureString", Value: "p1"})
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/other/name", Type: "String", Value: "o1"})
 
-	nonRecursive, _, err := store.GetParametersByPath("/app", false, false, 0, "")
+	nonRecursive, _, err := store.GetParametersByPath("/app", false, false, 0, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected non-recursive error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestGetParametersByPath(t *testing.T) {
 		t.Fatalf("expected /app/url, got %s", nonRecursive[0].Name)
 	}
 
-	recursive, _, err := store.GetParametersByPath("/app", true, true, 0, "")
+	recursive, _, err := store.GetParametersByPath("/app", true, true, 0, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected recursive error: %v", err)
 	}
@@ -125,6 +125,38 @@ func TestGetParametersByPath(t *testing.T) {
 	}
 	if !foundSecret {
 		t.Fatalf("expected /app/db/password in recursive results")
+	}
+}
+
+func TestGetParametersByPathFiltersAndValidation(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/bypath/plain", Type: "String", Value: "p"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/bypath/secret", Type: "SecureString", Value: "s"})
+	_, _ = store.LabelParameterVersion(model.LabelParameterVersionRequest{Name: "/bypath/plain", Labels: []string{"stable"}, ParameterVersion: 1})
+
+	secretOnly, _, err := store.GetParametersByPath("/bypath", true, false, 0, "", []model.ParameterStringFilter{{Key: "Type", Option: "Equals", Values: []string{"SecureString"}}})
+	if err != nil {
+		t.Fatalf("unexpected type-filter error: %v", err)
+	}
+	if len(secretOnly) != 1 || secretOnly[0].Name != "/bypath/secret" {
+		t.Fatalf("expected one secure parameter, got %#v", secretOnly)
+	}
+
+	labelOnly, _, err := store.GetParametersByPath("/bypath", true, false, 0, "", []model.ParameterStringFilter{{Key: "Label", Option: "Equals", Values: []string{"stable"}}})
+	if err != nil {
+		t.Fatalf("unexpected label-filter error: %v", err)
+	}
+	if len(labelOnly) != 1 || labelOnly[0].Name != "/bypath/plain" {
+		t.Fatalf("expected one label-matched parameter, got %#v", labelOnly)
+	}
+
+	if _, _, err := store.GetParametersByPath("bypath", true, false, 0, "", nil); err == nil {
+		t.Fatalf("expected validation error for non-absolute path")
+	}
+
+	if _, _, err := store.GetParametersByPath("/bypath", true, false, 11, "", nil); err == nil {
+		t.Fatalf("expected validation error for MaxResults > 10")
 	}
 }
 

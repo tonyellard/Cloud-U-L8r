@@ -41,6 +41,12 @@ Basic filtering support is available for:
 - `DescribeParameters` via `ParameterFilters` (`Name`/`Type` with `Equals`/`Contains`/`BeginsWith`)
 - `ListSecrets` via `Filters` (`name` contains matching)
 
+`GetParametersByPath` compatibility notes:
+- Supports `Path`, `Recursive`, `WithDecryption`, `MaxResults`, and `NextToken`.
+- `ParameterFilters` supports `Type` and `Label` keys with `Equals` option.
+- Path must be absolute (start with `/`) and `MaxResults` is capped at 10.
+- Results are deterministic and sorted by parameter name before pagination.
+
 Admin endpoints:
 - `GET /admin/api/summary`
 - `GET /admin/api/activity` (supports `maxResults` and `nextToken` query params)
@@ -83,3 +89,4 @@ curl -s http://localhost:9350/ \
 
 - This emulator intentionally prioritizes local dev compatibility over strict AWS parity.
 - Rotation workflows are currently out of scope.
+- Some AWS edge-case validation and less-common filter keys/options are intentionally not implemented yet.
