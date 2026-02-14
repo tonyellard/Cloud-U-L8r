@@ -24,6 +24,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", srv.handleHealth)
 	mux.HandleFunc("/admin/api/summary", srv.handleAdminSummary)
+	mux.HandleFunc("/admin/api/resources", srv.handleAdminResources)
 	mux.HandleFunc("/admin/api/activity", srv.handleAdminActivity)
 	mux.HandleFunc("/admin/api/export", srv.handleAdminExport)
 	mux.HandleFunc("/admin/api/import", srv.handleAdminImport)
@@ -153,6 +154,119 @@ func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(recorder, http.StatusOK, model.AdminActivityResponse{Activity: entries, NextToken: token})
+}
+
+func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
+	if r.Method != http.MethodGet {
+		recorder.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	includeParameters := true
+	if raw := strings.TrimSpace(r.URL.Query().Get("includeParameters")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid includeParameters query parameter")
+			return
+		}
+		includeParameters = parsed
+	}
+
+	includeSecrets := true
+	if raw := strings.TrimSpace(r.URL.Query().Get("includeSecrets")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid includeSecrets query parameter")
+			return
+		}
+		includeSecrets = parsed
+	}
+
+	res := model.AdminResourcesResponse{}
+
+	if includeParameters {
+		parameterPath := strings.TrimSpace(r.URL.Query().Get("parameterPath"))
+		if parameterPath == "" {
+			parameterPath = "/"
+		}
+
+		recursive := true
+		if raw := strings.TrimSpace(r.URL.Query().Get("recursive")); raw != "" {
+			parsed, err := strconv.ParseBool(raw)
+			if err != nil {
+				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid recursive query parameter")
+				return
+			}
+			recursive = parsed
+		}
+
+		withDecryption := false
+		if raw := strings.TrimSpace(r.URL.Query().Get("withDecryption")); raw != "" {
+			parsed, err := strconv.ParseBool(raw)
+			if err != nil {
+				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid withDecryption query parameter")
+				return
+			}
+			withDecryption = parsed
+		}
+
+		parameterMaxResults := 10
+		if raw := strings.TrimSpace(r.URL.Query().Get("parameterMaxResults")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid parameterMaxResults query parameter")
+				return
+			}
+			parameterMaxResults = parsed
+		}
+
+		parameterFilters := make([]model.ParameterStringFilter, 0, 2)
+		if value := strings.TrimSpace(r.URL.Query().Get("parameterType")); value != "" {
+			parameterFilters = append(parameterFilters, model.ParameterStringFilter{Key: "Type", Option: "Equals", Values: []string{value}})
+		}
+		if value := strings.TrimSpace(r.URL.Query().Get("parameterLabel")); value != "" {
+			parameterFilters = append(parameterFilters, model.ParameterStringFilter{Key: "Label", Option: "Equals", Values: []string{value}})
+		}
+
+		params, nextToken, err := s.store.GetParametersByPath(parameterPath, recursive, withDecryption, parameterMaxResults, strings.TrimSpace(r.URL.Query().Get("parametersNextToken")), parameterFilters)
+		if err != nil {
+			writeFromError(recorder, err)
+			return
+		}
+
+		res.Parameters = params
+		res.ParametersNextToken = nextToken
+	}
+
+	if includeSecrets {
+		secretMaxResults := 25
+		if raw := strings.TrimSpace(r.URL.Query().Get("secretMaxResults")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid secretMaxResults query parameter")
+				return
+			}
+			secretMaxResults = parsed
+		}
+
+		secretFilters := make([]model.SecretFilter, 0, 1)
+		if nameFilter := strings.TrimSpace(r.URL.Query().Get("secretName")); nameFilter != "" {
+			secretFilters = append(secretFilters, model.SecretFilter{Key: "name", Values: []string{nameFilter}})
+		}
+
+		secrets, err := s.store.ListSecrets(secretMaxResults, strings.TrimSpace(r.URL.Query().Get("secretsNextToken")), secretFilters)
+		if err != nil {
+			writeFromError(recorder, err)
+			return
+		}
+
+		res.Secrets = secrets.SecretList
+		res.SecretsNextToken = secrets.NextToken
+	}
+
+	writeJSON(recorder, http.StatusOK, res)
 }
 
 func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {

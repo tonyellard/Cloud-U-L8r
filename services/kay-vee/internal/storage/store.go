@@ -995,7 +995,13 @@ func shouldExcludeActivity(entry model.AdminActivityEntry) bool {
 	if entry.Target == "admin.summary" {
 		return true
 	}
+	if entry.Target == "admin.resources" {
+		return true
+	}
 	if entry.Path == "/admin/api/summary" {
+		return true
+	}
+	if entry.Path == "/admin/api/resources" {
 		return true
 	}
 	return false

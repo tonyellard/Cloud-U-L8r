@@ -49,6 +49,7 @@ Basic filtering support is available for:
 
 Admin endpoints:
 - `GET /admin/api/summary`
+- `GET /admin/api/resources` (lists parameters and secrets for admin UI refresh flows)
 - `GET /admin/api/activity` (supports `maxResults` and `nextToken` query params)
 - `GET /admin/api/export`
 - `POST /admin/api/import`

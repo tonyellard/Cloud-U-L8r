@@ -318,3 +318,85 @@ func TestIntegrationAdminActivityEndpoint(t *testing.T) {
 		t.Fatalf("expected older target AmazonSSM.PutParameter, got %v", secondEntry["target"])
 	}
 }
+
+func TestIntegrationAdminResourcesDoesNotAffectActivity(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	client := ts.Client()
+
+	status, _ := invokeAWSJSON(t, client, ts.URL, "AmazonSSM.PutParameter", `{"Name":"/admin/resources/key","Type":"String","Value":"v","Overwrite":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("expected put status 200, got %d", status)
+	}
+
+	status, _ = invokeAWSJSON(t, client, ts.URL, "secretsmanager.CreateSecret", `{"Name":"admin/resources/secret","SecretString":"sv"}`)
+	if status != http.StatusOK {
+		t.Fatalf("expected create secret status 200, got %d", status)
+	}
+
+	activityBeforeReq, err := http.NewRequest(http.MethodGet, ts.URL+"/admin/api/activity?maxResults=100", nil)
+	if err != nil {
+		t.Fatalf("failed to create activity request: %v", err)
+	}
+	activityBeforeResp, err := client.Do(activityBeforeReq)
+	if err != nil {
+		t.Fatalf("failed to call activity endpoint: %v", err)
+	}
+	defer activityBeforeResp.Body.Close()
+	if activityBeforeResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected activity status 200, got %d", activityBeforeResp.StatusCode)
+	}
+
+	beforeBytes, err := io.ReadAll(activityBeforeResp.Body)
+	if err != nil {
+		t.Fatalf("failed to read activity response: %v", err)
+	}
+	beforePayload := map[string]any{}
+	if err := json.Unmarshal(beforeBytes, &beforePayload); err != nil {
+		t.Fatalf("failed to parse activity response: %v body=%s", err, string(beforeBytes))
+	}
+	beforeEntries, _ := beforePayload["activity"].([]any)
+
+	resourcesReq, err := http.NewRequest(http.MethodGet, ts.URL+"/admin/api/resources?parameterPath=%2F&recursive=true&parameterMaxResults=10&secretMaxResults=10", nil)
+	if err != nil {
+		t.Fatalf("failed to create resources request: %v", err)
+	}
+	resourcesResp, err := client.Do(resourcesReq)
+	if err != nil {
+		t.Fatalf("failed to call resources endpoint: %v", err)
+	}
+	defer resourcesResp.Body.Close()
+	if resourcesResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resourcesResp.Body)
+		t.Fatalf("expected resources status 200, got %d body=%s", resourcesResp.StatusCode, string(body))
+	}
+
+	activityAfterReq, err := http.NewRequest(http.MethodGet, ts.URL+"/admin/api/activity?maxResults=100", nil)
+	if err != nil {
+		t.Fatalf("failed to create second activity request: %v", err)
+	}
+	activityAfterResp, err := client.Do(activityAfterReq)
+	if err != nil {
+		t.Fatalf("failed to call activity endpoint: %v", err)
+	}
+	defer activityAfterResp.Body.Close()
+	if activityAfterResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected activity status 200, got %d", activityAfterResp.StatusCode)
+	}
+
+	afterBytes, err := io.ReadAll(activityAfterResp.Body)
+	if err != nil {
+		t.Fatalf("failed to read second activity response: %v", err)
+	}
+	afterPayload := map[string]any{}
+	if err := json.Unmarshal(afterBytes, &afterPayload); err != nil {
+		t.Fatalf("failed to parse second activity response: %v body=%s", err, string(afterBytes))
+	}
+	afterEntries, _ := afterPayload["activity"].([]any)
+
+	if len(beforeEntries) != len(afterEntries) {
+		t.Fatalf("expected activity count unchanged after /admin/api/resources call, before=%d after=%d", len(beforeEntries), len(afterEntries))
+	}
+}

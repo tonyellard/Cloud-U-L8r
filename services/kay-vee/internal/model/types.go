@@ -247,6 +247,13 @@ type AdminSummaryResponse struct {
 	SecretsDeleted int `json:"secretsDeleted"`
 }
 
+type AdminResourcesResponse struct {
+	Parameters          []Parameter       `json:"parameters"`
+	ParametersNextToken string            `json:"parametersNextToken,omitempty"`
+	Secrets             []SecretListEntry `json:"secrets"`
+	SecretsNextToken    string            `json:"secretsNextToken,omitempty"`
+}
+
 type AdminActivityEntry struct {
 	Timestamp  time.Time `json:"timestamp"`
 	Method     string    `json:"method"`

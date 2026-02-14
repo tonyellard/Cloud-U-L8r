@@ -684,7 +684,7 @@ function renderKayVeeOverview(payload) {
         <label class="text-sm flex items-center gap-2"><input id="kv-param-recursive" type="checkbox" checked /> Recursive</label>
         <label class="text-sm flex items-center gap-2"><input id="kv-param-decrypt" type="checkbox" /> Decrypt</label>
       </div>
-      <div class="overflow-x-auto">
+      <div class="h-[100px] overflow-y-auto overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="text-xs text-slate-500 border-b">

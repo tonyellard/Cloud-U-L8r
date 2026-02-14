@@ -274,6 +274,13 @@ type KayVeeParametersResponse struct {
 	NextToken  string            `json:"nextToken,omitempty"`
 }
 
+type KayVeeAdminResourcesResponse struct {
+	Parameters          []KayVeeParameter   `json:"parameters"`
+	ParametersNextToken string              `json:"parametersNextToken,omitempty"`
+	Secrets             []KayVeeSecretEntry `json:"secrets"`
+	SecretsNextToken    string              `json:"secretsNextToken,omitempty"`
+}
+
 type KayVeePutParameterRequest struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
@@ -588,38 +595,21 @@ func (s *Server) handleKayVeeParametersByPath(w http.ResponseWriter, r *http.Req
 		maxResults = parsed
 	}
 
-	payload := map[string]any{
-		"Path":           path,
-		"Recursive":      recursive,
-		"WithDecryption": withDecryption,
-		"MaxResults":     maxResults,
-	}
-
-	if nextToken := strings.TrimSpace(r.URL.Query().Get("nextToken")); nextToken != "" {
-		payload["NextToken"] = nextToken
-	}
-
-	parameterFilters := make([]map[string]any, 0, 2)
-	if filterType := strings.TrimSpace(r.URL.Query().Get("type")); filterType != "" {
-		parameterFilters = append(parameterFilters, map[string]any{"Key": "Type", "Option": "Equals", "Values": []string{filterType}})
-	}
-	if filterLabel := strings.TrimSpace(r.URL.Query().Get("label")); filterLabel != "" {
-		parameterFilters = append(parameterFilters, map[string]any{"Key": "Label", "Option": "Equals", "Values": []string{filterLabel}})
-	}
-	if len(parameterFilters) > 0 {
-		payload["ParameterFilters"] = parameterFilters
-	}
-
-	var upstream struct {
-		Parameters []KayVeeParameter `json:"Parameters"`
-		NextToken  string            `json:"NextToken,omitempty"`
-	}
-	if err := s.callKayVeeTarget("AmazonSSM.GetParametersByPath", payload, &upstream); err != nil {
+	parameters, err := s.fetchKayVeeParametersByPath(
+		path,
+		recursive,
+		withDecryption,
+		maxResults,
+		strings.TrimSpace(r.URL.Query().Get("nextToken")),
+		strings.TrimSpace(r.URL.Query().Get("type")),
+		strings.TrimSpace(r.URL.Query().Get("label")),
+	)
+	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, KayVeeParametersResponse{Parameters: upstream.Parameters, NextToken: upstream.NextToken})
+	writeJSON(w, http.StatusOK, parameters)
 }
 
 func (s *Server) handleKayVeePutParameter(w http.ResponseWriter, r *http.Request) {
@@ -1737,56 +1727,117 @@ func (s *Server) fetchKayVeeActivity(maxResults, nextToken string) (KayVeeActivi
 }
 
 func (s *Server) fetchKayVeeParametersByPath(path string, recursive, withDecryption bool, maxResults int, nextToken, typeFilter, labelFilter string) (KayVeeParametersResponse, error) {
-	payload := map[string]any{
-		"Path":           path,
-		"Recursive":      recursive,
-		"WithDecryption": withDecryption,
-		"MaxResults":     maxResults,
-	}
-	if strings.TrimSpace(nextToken) != "" {
-		payload["NextToken"] = strings.TrimSpace(nextToken)
-	}
-
-	parameterFilters := make([]map[string]any, 0, 2)
-	if strings.TrimSpace(typeFilter) != "" {
-		parameterFilters = append(parameterFilters, map[string]any{"Key": "Type", "Option": "Equals", "Values": []string{strings.TrimSpace(typeFilter)}})
-	}
-	if strings.TrimSpace(labelFilter) != "" {
-		parameterFilters = append(parameterFilters, map[string]any{"Key": "Label", "Option": "Equals", "Values": []string{strings.TrimSpace(labelFilter)}})
-	}
-	if len(parameterFilters) > 0 {
-		payload["ParameterFilters"] = parameterFilters
-	}
-
-	var upstream struct {
-		Parameters []KayVeeParameter `json:"Parameters"`
-		NextToken  string            `json:"NextToken,omitempty"`
-	}
-	if err := s.callKayVeeTarget("AmazonSSM.GetParametersByPath", payload, &upstream); err != nil {
+	resources, err := s.fetchKayVeeAdminResources(
+		path,
+		recursive,
+		withDecryption,
+		maxResults,
+		nextToken,
+		typeFilter,
+		labelFilter,
+		0,
+		"",
+		"",
+		true,
+		false,
+	)
+	if err != nil {
 		return KayVeeParametersResponse{}, err
 	}
 
-	return KayVeeParametersResponse{Parameters: upstream.Parameters, NextToken: upstream.NextToken}, nil
+	return KayVeeParametersResponse{Parameters: resources.Parameters, NextToken: resources.ParametersNextToken}, nil
 }
 
 func (s *Server) fetchKayVeeSecrets(maxResults int, nextToken, nameFilter string) (KayVeeSecretsResponse, error) {
-	payload := map[string]any{"MaxResults": maxResults}
-	if strings.TrimSpace(nextToken) != "" {
-		payload["NextToken"] = strings.TrimSpace(nextToken)
-	}
-	if strings.TrimSpace(nameFilter) != "" {
-		payload["Filters"] = []map[string]any{{"Key": "name", "Values": []string{strings.TrimSpace(nameFilter)}}}
-	}
-
-	var upstream struct {
-		SecretList []KayVeeSecretEntry `json:"SecretList"`
-		NextToken  string              `json:"NextToken,omitempty"`
-	}
-	if err := s.callKayVeeTarget("secretsmanager.ListSecrets", payload, &upstream); err != nil {
+	resources, err := s.fetchKayVeeAdminResources(
+		"/",
+		true,
+		false,
+		0,
+		"",
+		"",
+		"",
+		maxResults,
+		nextToken,
+		nameFilter,
+		false,
+		true,
+	)
+	if err != nil {
 		return KayVeeSecretsResponse{}, err
 	}
 
-	return KayVeeSecretsResponse{Secrets: upstream.SecretList, NextToken: upstream.NextToken}, nil
+	return KayVeeSecretsResponse{Secrets: resources.Secrets, NextToken: resources.SecretsNextToken}, nil
+}
+
+func (s *Server) fetchKayVeeAdminResources(
+	parameterPath string,
+	recursive bool,
+	withDecryption bool,
+	parameterMaxResults int,
+	parametersNextToken string,
+	parameterType string,
+	parameterLabel string,
+	secretMaxResults int,
+	secretsNextToken string,
+	secretName string,
+	includeParameters bool,
+	includeSecrets bool,
+) (KayVeeAdminResourcesResponse, error) {
+	query := url.Values{}
+	query.Set("includeParameters", strconv.FormatBool(includeParameters))
+	query.Set("includeSecrets", strconv.FormatBool(includeSecrets))
+
+	if strings.TrimSpace(parameterPath) != "" {
+		query.Set("parameterPath", strings.TrimSpace(parameterPath))
+	}
+	query.Set("recursive", strconv.FormatBool(recursive))
+	query.Set("withDecryption", strconv.FormatBool(withDecryption))
+
+	if parameterMaxResults > 0 {
+		query.Set("parameterMaxResults", strconv.Itoa(parameterMaxResults))
+	}
+	if strings.TrimSpace(parametersNextToken) != "" {
+		query.Set("parametersNextToken", strings.TrimSpace(parametersNextToken))
+	}
+	if strings.TrimSpace(parameterType) != "" {
+		query.Set("parameterType", strings.TrimSpace(parameterType))
+	}
+	if strings.TrimSpace(parameterLabel) != "" {
+		query.Set("parameterLabel", strings.TrimSpace(parameterLabel))
+	}
+
+	if secretMaxResults > 0 {
+		query.Set("secretMaxResults", strconv.Itoa(secretMaxResults))
+	}
+	if strings.TrimSpace(secretsNextToken) != "" {
+		query.Set("secretsNextToken", strings.TrimSpace(secretsNextToken))
+	}
+	if strings.TrimSpace(secretName) != "" {
+		query.Set("secretName", strings.TrimSpace(secretName))
+	}
+
+	requestURL := "http://kay-vee:9350/admin/api/resources"
+	if encoded := query.Encode(); encoded != "" {
+		requestURL += "?" + encoded
+	}
+
+	resp, err := s.client.Get(requestURL)
+	if err != nil {
+		return KayVeeAdminResourcesResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return KayVeeAdminResourcesResponse{}, fmt.Errorf("kay-vee admin resources status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var resources KayVeeAdminResourcesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return KayVeeAdminResourcesResponse{}, err
+	}
+
+	return resources, nil
 }
 
 func (s *Server) callKayVeeTarget(targetName string, payload any, target any) error {
