@@ -154,7 +154,7 @@ func TestDescribeAndListSecrets(t *testing.T) {
 		t.Fatalf("expected version stage mappings in describe response")
 	}
 
-	listed, err := store.ListSecrets(0, "")
+	listed, err := store.ListSecrets(0, "", nil)
 	if err != nil {
 		t.Fatalf("list secrets failed: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestDescribeParameters(t *testing.T) {
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/b/param", Type: "String", Value: "b"})
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/a/param", Type: "String", Value: "a"})
 
-	params, _, err := store.DescribeParameters(0, "")
+	params, _, err := store.DescribeParameters(0, "", nil)
 	if err != nil {
 		t.Fatalf("describe parameters failed: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestPaginationAcrossSSMAndSecrets(t *testing.T) {
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/page/a", Type: "String", Value: "a"})
 	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/page/b", Type: "String", Value: "b"})
 
-	described, token, err := store.DescribeParameters(1, "")
+	described, token, err := store.DescribeParameters(1, "", nil)
 	if err != nil {
 		t.Fatalf("describe with pagination failed: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestPaginationAcrossSSMAndSecrets(t *testing.T) {
 	v2 := "two"
 	_, _ = store.CreateSecret(model.CreateSecretRequest{Name: "page/two", SecretString: &v2})
 
-	listed, err := store.ListSecrets(1, "")
+	listed, err := store.ListSecrets(1, "", nil)
 	if err != nil {
 		t.Fatalf("list secrets with pagination failed: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestPaginationAcrossSSMAndSecrets(t *testing.T) {
 		t.Fatalf("expected one secret and token, got len=%d token=%q", len(listed.SecretList), listToken)
 	}
 
-	listed2, err := store.ListSecrets(1, listToken)
+	listed2, err := store.ListSecrets(1, listToken, nil)
 	if err != nil {
 		t.Fatalf("list secrets page 2 failed: %v", err)
 	}
@@ -436,5 +436,45 @@ func TestActivityLogPaginationAndOrdering(t *testing.T) {
 	}
 	if token2 != "" {
 		t.Fatalf("expected no next token on final page, got %q", token2)
+	}
+}
+
+func TestDescribeParametersFilters(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/app/name/a", Type: "String", Value: "1"})
+	_, _ = store.PutParameter(model.PutParameterRequest{Name: "/app/name/b", Type: "SecureString", Value: "2"})
+
+	params, _, err := store.DescribeParameters(0, "", []model.ParameterStringFilter{{Key: "Name", Option: "BeginsWith", Values: []string{"/app/name/a"}}})
+	if err != nil {
+		t.Fatalf("describe parameters with name filter failed: %v", err)
+	}
+	if len(params) != 1 || params[0].Name != "/app/name/a" {
+		t.Fatalf("expected one filtered parameter /app/name/a, got %#v", params)
+	}
+
+	params, _, err = store.DescribeParameters(0, "", []model.ParameterStringFilter{{Key: "Type", Option: "Equals", Values: []string{"SecureString"}}})
+	if err != nil {
+		t.Fatalf("describe parameters with type filter failed: %v", err)
+	}
+	if len(params) != 1 || params[0].Type != "SecureString" {
+		t.Fatalf("expected one SecureString parameter, got %#v", params)
+	}
+}
+
+func TestListSecretsFilters(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	v1 := "one"
+	_, _ = store.CreateSecret(model.CreateSecretRequest{Name: "svc/filter/one", SecretString: &v1})
+	v2 := "two"
+	_, _ = store.CreateSecret(model.CreateSecretRequest{Name: "svc/other/two", SecretString: &v2})
+
+	listed, err := store.ListSecrets(0, "", []model.SecretFilter{{Key: "name", Values: []string{"filter"}}})
+	if err != nil {
+		t.Fatalf("list secrets with filters failed: %v", err)
+	}
+	if len(listed.SecretList) != 1 || listed.SecretList[0].Name != "svc/filter/one" {
+		t.Fatalf("expected one filtered secret, got %#v", listed.SecretList)
 	}
 }

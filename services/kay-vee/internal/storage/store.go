@@ -242,7 +242,7 @@ func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool,
 	return results[start:end], token, nil
 }
 
-func (s *Store) DescribeParameters(maxResults int, nextToken string) ([]model.ParameterMetadata, string, error) {
+func (s *Store) DescribeParameters(maxResults int, nextToken string, filters []model.ParameterStringFilter) ([]model.ParameterMetadata, string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -255,6 +255,14 @@ func (s *Store) DescribeParameters(maxResults int, nextToken string) ([]model.Pa
 	items := make([]model.ParameterMetadata, 0, len(names))
 	for _, name := range names {
 		record := s.parameters[name]
+		matches, err := matchesParameterFilters(record, filters)
+		if err != nil {
+			return nil, "", err
+		}
+		if !matches {
+			continue
+		}
+
 		items = append(items, model.ParameterMetadata{
 			Name:             record.Name,
 			Type:             record.Type,
@@ -588,7 +596,7 @@ func (s *Store) DescribeSecret(secretID string) (model.DescribeSecretResponse, e
 	}, nil
 }
 
-func (s *Store) ListSecrets(maxResults int, nextToken string) (model.ListSecretsResponse, error) {
+func (s *Store) ListSecrets(maxResults int, nextToken string, filters []model.SecretFilter) (model.ListSecretsResponse, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -601,6 +609,14 @@ func (s *Store) ListSecrets(maxResults int, nextToken string) (model.ListSecrets
 	items := make([]model.SecretListEntry, 0, len(names))
 	for _, name := range names {
 		record := s.secrets[name]
+		matches, err := matchesSecretFilters(record, filters)
+		if err != nil {
+			return model.ListSecretsResponse{}, err
+		}
+		if !matches {
+			continue
+		}
+
 		items = append(items, model.SecretListEntry{
 			ARN:             record.ARN,
 			Name:            record.Name,
@@ -1026,6 +1042,91 @@ func parseSelector(name string) (string, string) {
 		return name, ""
 	}
 	return name[:idx], name[idx+1:]
+}
+
+func matchesParameterFilters(record *ParameterRecord, filters []model.ParameterStringFilter) (bool, error) {
+	if len(filters) == 0 {
+		return true, nil
+	}
+
+	for _, filter := range filters {
+		key := strings.TrimSpace(strings.ToLower(filter.Key))
+		option := strings.TrimSpace(strings.ToLower(filter.Option))
+		if option == "" {
+			option = "equals"
+		}
+
+		if key != "name" && key != "type" {
+			return false, fmt.Errorf("ValidationException: unsupported ParameterFilters Key: %s", filter.Key)
+		}
+		if option != "equals" && option != "contains" && option != "beginswith" {
+			return false, fmt.Errorf("ValidationException: unsupported ParameterFilters Option: %s", filter.Option)
+		}
+		if len(filter.Values) == 0 {
+			return false, fmt.Errorf("ValidationException: ParameterFilters Values must not be empty")
+		}
+
+		left := record.Name
+		if key == "type" {
+			left = record.Type
+		}
+
+		matched := false
+		for _, value := range filter.Values {
+			switch option {
+			case "equals":
+				if left == value {
+					matched = true
+				}
+			case "contains":
+				if strings.Contains(left, value) {
+					matched = true
+				}
+			case "beginswith":
+				if strings.HasPrefix(left, value) {
+					matched = true
+				}
+			}
+			if matched {
+				break
+			}
+		}
+
+		if !matched {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+func matchesSecretFilters(record *SecretRecord, filters []model.SecretFilter) (bool, error) {
+	if len(filters) == 0 {
+		return true, nil
+	}
+
+	for _, filter := range filters {
+		key := strings.TrimSpace(strings.ToLower(filter.Key))
+		if key != "name" {
+			return false, fmt.Errorf("ValidationException: unsupported Filters Key: %s", filter.Key)
+		}
+		if len(filter.Values) == 0 {
+			return false, fmt.Errorf("ValidationException: Filters Values must not be empty")
+		}
+
+		matched := false
+		for _, value := range filter.Values {
+			if strings.Contains(record.Name, value) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 func matchesPath(name, path string, recursive bool) bool {

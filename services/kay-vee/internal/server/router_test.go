@@ -456,3 +456,73 @@ func TestPaginationViaTargets(t *testing.T) {
 		t.Fatalf("expected NextToken in list response")
 	}
 }
+
+func TestDescribeParametersFilterViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	putA := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/filter/a","Type":"String","Value":"a","Overwrite":true}`))
+	putA.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putARR := httptest.NewRecorder()
+	router.ServeHTTP(putARR, putA)
+
+	putB := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"/other/b","Type":"String","Value":"b","Overwrite":true}`))
+	putB.Header.Set("X-Amz-Target", "AmazonSSM.PutParameter")
+	putBRR := httptest.NewRecorder()
+	router.ServeHTTP(putBRR, putB)
+
+	describeReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"ParameterFilters":[{"Key":"Name","Option":"BeginsWith","Values":["/filter"]}]}`))
+	describeReq.Header.Set("X-Amz-Target", "AmazonSSM.DescribeParameters")
+	describeRR := httptest.NewRecorder()
+	router.ServeHTTP(describeRR, describeReq)
+	if describeRR.Code != http.StatusOK {
+		t.Fatalf("expected describe status 200, got %d body=%s", describeRR.Code, describeRR.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(describeRR.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse describe payload: %v", err)
+	}
+	params, ok := payload["Parameters"].([]any)
+	if !ok || len(params) != 1 {
+		t.Fatalf("expected one filtered parameter, got %v", payload["Parameters"])
+	}
+	param := params[0].(map[string]any)
+	if param["Name"] != "/filter/a" {
+		t.Fatalf("expected /filter/a, got %v", param["Name"])
+	}
+}
+
+func TestListSecretsFilterViaTarget(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	createOne := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"svc/filter/one","SecretString":"one"}`))
+	createOne.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+	createOneRR := httptest.NewRecorder()
+	router.ServeHTTP(createOneRR, createOne)
+
+	createTwo := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Name":"svc/other/two","SecretString":"two"}`))
+	createTwo.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+	createTwoRR := httptest.NewRecorder()
+	router.ServeHTTP(createTwoRR, createTwo)
+
+	listReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"Filters":[{"Key":"name","Values":["filter"]}]}`))
+	listReq.Header.Set("X-Amz-Target", "secretsmanager.ListSecrets")
+	listRR := httptest.NewRecorder()
+	router.ServeHTTP(listRR, listReq)
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("expected list status 200, got %d body=%s", listRR.Code, listRR.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(listRR.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse list payload: %v", err)
+	}
+	secrets, ok := payload["SecretList"].([]any)
+	if !ok || len(secrets) != 1 {
+		t.Fatalf("expected one filtered secret, got %v", payload["SecretList"])
+	}
+	secret := secrets[0].(map[string]any)
+	if secret["Name"] != "svc/filter/one" {
+		t.Fatalf("expected svc/filter/one, got %v", secret["Name"])
+	}
+}

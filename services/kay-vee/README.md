@@ -37,6 +37,9 @@
 - `UpdateSecretVersionStage`
 
 Pagination support (`MaxResults`, `NextToken`) is available on list/describe/history-style operations.
+Basic filtering support is available for:
+- `DescribeParameters` via `ParameterFilters` (`Name`/`Type` with `Equals`/`Contains`/`BeginsWith`)
+- `ListSecrets` via `Filters` (`name` contains matching)
 
 Admin endpoints:
 - `GET /admin/api/summary`

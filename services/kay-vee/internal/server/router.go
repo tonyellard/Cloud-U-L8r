@@ -244,7 +244,7 @@ func (s *Server) handleDescribeParameters(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	params, token, err := s.store.DescribeParameters(req.MaxResults, req.NextToken)
+	params, token, err := s.store.DescribeParameters(req.MaxResults, req.NextToken, req.ParameterFilters)
 	if err != nil {
 		writeFromError(w, err)
 		return
@@ -415,7 +415,7 @@ func (s *Server) handleListSecrets(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	res, err := s.store.ListSecrets(req.MaxResults, req.NextToken)
+	res, err := s.store.ListSecrets(req.MaxResults, req.NextToken, req.Filters)
 	if err != nil {
 		writeFromError(w, err)
 		return
