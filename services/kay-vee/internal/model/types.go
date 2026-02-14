@@ -26,11 +26,11 @@ type GetParametersRequest struct {
 }
 
 type GetParametersByPathRequest struct {
-	Path           string `json:"Path"`
-	Recursive      bool   `json:"Recursive"`
-	WithDecryption bool   `json:"WithDecryption"`
-	MaxResults     int    `json:"MaxResults,omitempty"`
-	NextToken      string `json:"NextToken,omitempty"`
+	Path             string                  `json:"Path"`
+	Recursive        bool                    `json:"Recursive"`
+	WithDecryption   bool                    `json:"WithDecryption"`
+	MaxResults       int                     `json:"MaxResults,omitempty"`
+	NextToken        string                  `json:"NextToken,omitempty"`
 	ParameterFilters []ParameterStringFilter `json:"ParameterFilters,omitempty"`
 }
 

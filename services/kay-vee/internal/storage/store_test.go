@@ -471,6 +471,24 @@ func TestActivityLogPaginationAndOrdering(t *testing.T) {
 	}
 }
 
+func TestActivityLogExcludesAdminSummary(t *testing.T) {
+	store := NewStore("us-east-1", "000000000000")
+
+	store.RecordActivity(model.AdminActivityEntry{Method: "GET", Path: "/admin/api/summary", Target: "admin.summary", StatusCode: 200})
+	store.RecordActivity(model.AdminActivityEntry{Method: "POST", Path: "/", Target: "AmazonSSM.GetParameter", StatusCode: 404, ErrorType: "ParameterNotFound"})
+
+	entries, _, err := store.ListActivity(0, "")
+	if err != nil {
+		t.Fatalf("list activity failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected only one visible activity entry, got %d", len(entries))
+	}
+	if entries[0].Target != "AmazonSSM.GetParameter" {
+		t.Fatalf("expected non-summary activity to remain, got %q", entries[0].Target)
+	}
+}
+
 func TestDescribeParametersFilters(t *testing.T) {
 	store := NewStore("us-east-1", "000000000000")
 

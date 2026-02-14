@@ -952,6 +952,10 @@ func (s *Store) ImportState(req model.AdminImportRequest) model.AdminImportRespo
 }
 
 func (s *Store) RecordActivity(entry model.AdminActivityEntry) {
+	if shouldExcludeActivity(entry) {
+		return
+	}
+
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = time.Now().UTC()
 	}
@@ -970,9 +974,13 @@ func (s *Store) ListActivity(maxResults int, nextToken string) ([]model.AdminAct
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	entries := make([]model.AdminActivityEntry, len(s.activity))
-	for i := range s.activity {
-		entries[len(s.activity)-1-i] = s.activity[i]
+	entries := make([]model.AdminActivityEntry, 0, len(s.activity))
+	for i := len(s.activity) - 1; i >= 0; i-- {
+		entry := s.activity[i]
+		if shouldExcludeActivity(entry) {
+			continue
+		}
+		entries = append(entries, entry)
 	}
 
 	start, end, token, err := paginateBounds(len(entries), maxResults, nextToken)
@@ -981,6 +989,16 @@ func (s *Store) ListActivity(maxResults int, nextToken string) ([]model.AdminAct
 	}
 
 	return entries[start:end], token, nil
+}
+
+func shouldExcludeActivity(entry model.AdminActivityEntry) bool {
+	if entry.Target == "admin.summary" {
+		return true
+	}
+	if entry.Path == "/admin/api/summary" {
+		return true
+	}
+	return false
 }
 
 func (s *Store) resolveSecretLocked(secretID string) (*SecretRecord, error) {

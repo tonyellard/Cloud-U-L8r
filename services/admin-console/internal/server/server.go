@@ -238,6 +238,95 @@ type DashboardStat struct {
 	Value int    `json:"value"`
 }
 
+type KayVeeSummaryResponse struct {
+	Service        string `json:"service,omitempty"`
+	Parameters     int    `json:"parameters"`
+	SecretsTotal   int    `json:"secretsTotal"`
+	SecretsActive  int    `json:"secretsActive"`
+	SecretsDeleted int    `json:"secretsDeleted"`
+}
+
+type KayVeeActivityEntry struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Target     string    `json:"target,omitempty"`
+	StatusCode int       `json:"statusCode"`
+	ErrorType  string    `json:"errorType,omitempty"`
+}
+
+type KayVeeActivityResponse struct {
+	Activity  []KayVeeActivityEntry `json:"activity"`
+	NextToken string                `json:"nextToken,omitempty"`
+}
+
+type KayVeeParameter struct {
+	Name             string    `json:"Name"`
+	Type             string    `json:"Type"`
+	Value            string    `json:"Value,omitempty"`
+	Version          int64     `json:"Version"`
+	ARN              string    `json:"ARN,omitempty"`
+	LastModifiedDate time.Time `json:"LastModifiedDate,omitempty"`
+}
+
+type KayVeeParametersResponse struct {
+	Parameters []KayVeeParameter `json:"parameters"`
+	NextToken  string            `json:"nextToken,omitempty"`
+}
+
+type KayVeePutParameterRequest struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Value     string `json:"value"`
+	Overwrite bool   `json:"overwrite"`
+}
+
+type KayVeeDeleteParameterRequest struct {
+	Name string `json:"name"`
+}
+
+type KayVeeLabelParameterRequest struct {
+	Name             string `json:"name"`
+	Label            string `json:"label"`
+	ParameterVersion int64  `json:"parameter_version"`
+}
+
+type KayVeeSecretEntry struct {
+	ARN             string     `json:"ARN"`
+	Name            string     `json:"Name"`
+	Description     string     `json:"Description,omitempty"`
+	CreatedDate     time.Time  `json:"CreatedDate"`
+	LastChangedDate time.Time  `json:"LastChangedDate"`
+	DeletedDate     *time.Time `json:"DeletedDate,omitempty"`
+}
+
+type KayVeeSecretsResponse struct {
+	Secrets   []KayVeeSecretEntry `json:"secrets"`
+	NextToken string              `json:"nextToken,omitempty"`
+}
+
+type KayVeeCreateSecretRequest struct {
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	SecretString string `json:"secret_string"`
+}
+
+type KayVeeDeleteSecretRequest struct {
+	SecretID string `json:"secret_id"`
+}
+
+type KayVeeRestoreSecretRequest struct {
+	SecretID string `json:"secret_id"`
+}
+
+type KayVeeSecretValueResponse struct {
+	ARN          string `json:"arn"`
+	Name         string `json:"name"`
+	VersionID    string `json:"version_id"`
+	SecretString string `json:"secret_string,omitempty"`
+	SecretBinary string `json:"secret_binary,omitempty"`
+}
+
 func NewRouter(logger *slog.Logger) http.Handler {
 	srv := &Server{
 		logger: logger,
@@ -254,6 +343,18 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-enn-ess/topics/{topicARN}/activities", srv.handleTopicActivities)
 	r.Get("/api/services/essthree/summary", srv.handleEssThreeSummary)
 	r.Get("/api/services/cloudfauxnt/summary", srv.handleCloudfauxntSummary)
+	r.Get("/api/services/kay-vee/summary", srv.handleKayVeeSummary)
+	r.Get("/api/services/kay-vee/activity", srv.handleKayVeeActivity)
+	r.Get("/api/services/kay-vee/export", srv.handleKayVeeExport)
+	r.Get("/api/services/kay-vee/parameters/by-path", srv.handleKayVeeParametersByPath)
+	r.Get("/api/services/kay-vee/secrets", srv.handleKayVeeSecrets)
+	r.Get("/api/services/kay-vee/secrets/value", srv.handleKayVeeSecretValue)
+	r.Post("/api/services/kay-vee/actions/put-parameter", srv.handleKayVeePutParameter)
+	r.Post("/api/services/kay-vee/actions/delete-parameter", srv.handleKayVeeDeleteParameter)
+	r.Post("/api/services/kay-vee/actions/label-parameter-version", srv.handleKayVeeLabelParameterVersion)
+	r.Post("/api/services/kay-vee/actions/create-secret", srv.handleKayVeeCreateSecret)
+	r.Post("/api/services/kay-vee/actions/delete-secret", srv.handleKayVeeDeleteSecret)
+	r.Post("/api/services/kay-vee/actions/restore-secret", srv.handleKayVeeRestoreSecret)
 	r.Get("/api/services/{service}/config/export", srv.handleServiceConfigExport)
 	r.Post("/api/services/ess-queue-ess/actions/create-queue", srv.handleCreateQueue)
 	r.Post("/api/services/ess-queue-ess/actions/send-message", srv.handleSendMessage)
@@ -297,6 +398,9 @@ func (s *Server) handleServiceConfigExport(w http.ResponseWriter, r *http.Reques
 	case "ess-enn-ess":
 		upstreamURL = "http://ess-enn-ess:9330/api/export"
 		fallbackFilename = "sns-export.yaml"
+	case "kay-vee":
+		upstreamURL = "http://kay-vee:9350/admin/api/export"
+		fallbackFilename = "kay-vee-export.json"
 	default:
 		writeError(w, http.StatusBadRequest, fmt.Errorf("unsupported service"))
 		return
@@ -393,6 +497,339 @@ func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleKayVeeSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchKayVeeSummary()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleKayVeeActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := strings.TrimSpace(r.URL.Query().Get("maxResults"))
+	if maxResults == "" {
+		maxResults = "25"
+	}
+
+	activity, err := s.fetchKayVeeActivity(maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, activity)
+}
+
+func (s *Server) handleKayVeeExport(w http.ResponseWriter, _ *http.Request) {
+	resp, err := s.client.Get("http://kay-vee:9350/admin/api/export")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("failed to fetch kay-vee export: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		writeError(w, http.StatusBadGateway, fmt.Errorf("kay-vee export failed (%d): %s", resp.StatusCode, message))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=kay-vee-export.json")
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		s.logger.Error("failed to proxy kay-vee export response", "error", err)
+	}
+}
+
+func (s *Server) handleKayVeeParametersByPath(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		path = "/"
+	}
+
+	recursive := true
+	if raw := strings.TrimSpace(r.URL.Query().Get("recursive")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("recursive must be a boolean"))
+			return
+		}
+		recursive = parsed
+	}
+
+	withDecryption := false
+	if raw := strings.TrimSpace(r.URL.Query().Get("withDecryption")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("withDecryption must be a boolean"))
+			return
+		}
+		withDecryption = parsed
+	}
+
+	maxResults := 10
+	if raw := strings.TrimSpace(r.URL.Query().Get("maxResults")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("maxResults must be a non-negative integer"))
+			return
+		}
+		if parsed > 10 {
+			parsed = 10
+		}
+		maxResults = parsed
+	}
+
+	payload := map[string]any{
+		"Path":           path,
+		"Recursive":      recursive,
+		"WithDecryption": withDecryption,
+		"MaxResults":     maxResults,
+	}
+
+	if nextToken := strings.TrimSpace(r.URL.Query().Get("nextToken")); nextToken != "" {
+		payload["NextToken"] = nextToken
+	}
+
+	parameterFilters := make([]map[string]any, 0, 2)
+	if filterType := strings.TrimSpace(r.URL.Query().Get("type")); filterType != "" {
+		parameterFilters = append(parameterFilters, map[string]any{"Key": "Type", "Option": "Equals", "Values": []string{filterType}})
+	}
+	if filterLabel := strings.TrimSpace(r.URL.Query().Get("label")); filterLabel != "" {
+		parameterFilters = append(parameterFilters, map[string]any{"Key": "Label", "Option": "Equals", "Values": []string{filterLabel}})
+	}
+	if len(parameterFilters) > 0 {
+		payload["ParameterFilters"] = parameterFilters
+	}
+
+	var upstream struct {
+		Parameters []KayVeeParameter `json:"Parameters"`
+		NextToken  string            `json:"NextToken,omitempty"`
+	}
+	if err := s.callKayVeeTarget("AmazonSSM.GetParametersByPath", payload, &upstream); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, KayVeeParametersResponse{Parameters: upstream.Parameters, NextToken: upstream.NextToken})
+}
+
+func (s *Server) handleKayVeePutParameter(w http.ResponseWriter, r *http.Request) {
+	var req KayVeePutParameterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if strings.TrimSpace(req.Value) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("value is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"Name":      strings.TrimSpace(req.Name),
+		"Type":      strings.TrimSpace(req.Type),
+		"Value":     req.Value,
+		"Overwrite": req.Overwrite,
+	}
+	if payload["Type"] == "" {
+		payload["Type"] = "String"
+	}
+
+	if err := s.callKayVeeTarget("AmazonSSM.PutParameter", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": strings.TrimSpace(req.Name)})
+}
+
+func (s *Server) handleKayVeeDeleteParameter(w http.ResponseWriter, r *http.Request) {
+	var req KayVeeDeleteParameterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callKayVeeTarget("AmazonSSM.DeleteParameter", map[string]any{"Name": strings.TrimSpace(req.Name)}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": strings.TrimSpace(req.Name)})
+}
+
+func (s *Server) handleKayVeeLabelParameterVersion(w http.ResponseWriter, r *http.Request) {
+	var req KayVeeLabelParameterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if strings.TrimSpace(req.Label) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("label is required"))
+		return
+	}
+	if req.ParameterVersion <= 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("parameter_version must be > 0"))
+		return
+	}
+
+	payload := map[string]any{
+		"Name":             strings.TrimSpace(req.Name),
+		"Labels":           []string{strings.TrimSpace(req.Label)},
+		"ParameterVersion": req.ParameterVersion,
+	}
+
+	if err := s.callKayVeeTarget("AmazonSSM.LabelParameterVersion", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleKayVeeSecrets(w http.ResponseWriter, r *http.Request) {
+	maxResults := 25
+	if raw := strings.TrimSpace(r.URL.Query().Get("maxResults")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("maxResults must be a non-negative integer"))
+			return
+		}
+		maxResults = parsed
+	}
+
+	secrets, err := s.fetchKayVeeSecrets(maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")), strings.TrimSpace(r.URL.Query().Get("nameFilter")))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, secrets)
+}
+
+func (s *Server) handleKayVeeSecretValue(w http.ResponseWriter, r *http.Request) {
+	secretID := strings.TrimSpace(r.URL.Query().Get("secretId"))
+	if secretID == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secretId is required"))
+		return
+	}
+
+	payload := map[string]any{"SecretId": secretID}
+	if versionStage := strings.TrimSpace(r.URL.Query().Get("versionStage")); versionStage != "" {
+		payload["VersionStage"] = versionStage
+	}
+
+	var upstream struct {
+		ARN          string  `json:"ARN"`
+		Name         string  `json:"Name"`
+		VersionID    string  `json:"VersionId"`
+		SecretString *string `json:"SecretString,omitempty"`
+		SecretBinary string  `json:"SecretBinary,omitempty"`
+	}
+	if err := s.callKayVeeTarget("secretsmanager.GetSecretValue", payload, &upstream); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	secretString := ""
+	if upstream.SecretString != nil {
+		secretString = *upstream.SecretString
+	}
+
+	writeJSON(w, http.StatusOK, KayVeeSecretValueResponse{
+		ARN:          upstream.ARN,
+		Name:         upstream.Name,
+		VersionID:    upstream.VersionID,
+		SecretString: secretString,
+		SecretBinary: upstream.SecretBinary,
+	})
+}
+
+func (s *Server) handleKayVeeCreateSecret(w http.ResponseWriter, r *http.Request) {
+	var req KayVeeCreateSecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if strings.TrimSpace(req.SecretString) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_string is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"Name":         strings.TrimSpace(req.Name),
+		"Description":  strings.TrimSpace(req.Description),
+		"SecretString": req.SecretString,
+	}
+
+	if err := s.callKayVeeTarget("secretsmanager.CreateSecret", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": strings.TrimSpace(req.Name)})
+}
+
+func (s *Server) handleKayVeeDeleteSecret(w http.ResponseWriter, r *http.Request) {
+	var req KayVeeDeleteSecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.SecretID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		return
+	}
+
+	if err := s.callKayVeeTarget("secretsmanager.DeleteSecret", map[string]any{"SecretId": strings.TrimSpace(req.SecretID)}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleKayVeeRestoreSecret(w http.ResponseWriter, r *http.Request) {
+	var req KayVeeRestoreSecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.SecretID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		return
+	}
+
+	if err := s.callKayVeeTarget("secretsmanager.RestoreSecret", map[string]any{"SecretId": strings.TrimSpace(req.SecretID)}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
@@ -911,7 +1348,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "dashboard"
 	}
-	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" {
+	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
 		return
 	}
@@ -994,13 +1431,41 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		}
 		return json.Marshal(summary)
 	}
+	if view == "kay-vee" {
+		summary, err := s.fetchKayVeeSummary()
+		if err != nil {
+			return nil, err
+		}
+		activity, err := s.fetchKayVeeActivity("25", "")
+		if err != nil {
+			return nil, err
+		}
+		parameters, err := s.fetchKayVeeParametersByPath("/", true, false, 10, "", "", "")
+		if err != nil {
+			return nil, err
+		}
+		secrets, err := s.fetchKayVeeSecrets(25, "", "")
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{
+			"service":             "kay-vee",
+			"summary":             summary,
+			"activity":            activity.Activity,
+			"nextToken":           activity.NextToken,
+			"parameters":          parameters.Parameters,
+			"parametersNextToken": parameters.NextToken,
+			"secrets":             secrets.Secrets,
+			"secretsNextToken":    secrets.NextToken,
+		})
+	}
 
 	return json.Marshal(s.buildDashboardSummary())
 }
 
 func (s *Server) buildDashboardSummary() DashboardSummary {
 	summary := DashboardSummary{UpdatedAt: time.Now().UTC()}
-	services := make([]DashboardService, 0, 4)
+	services := make([]DashboardService, 0, 5)
 
 	queueService := DashboardService{
 		Name:   "ess-queue-ess",
@@ -1083,6 +1548,26 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 		}
 	}
 	services = append(services, cdnService)
+
+	kayVeeService := DashboardService{
+		Name:   "kay-vee",
+		Status: s.checkService("http://kay-vee:9350/health"),
+		Stats: []DashboardStat{
+			{Label: "Parameters", Value: 0},
+			{Label: "Secrets", Value: 0},
+			{Label: "Deleted", Value: 0},
+		},
+	}
+	if kayVeeService.Status == "online" {
+		if summary, err := s.fetchKayVeeSummary(); err == nil {
+			kayVeeService.Stats[0].Value = summary.Parameters
+			kayVeeService.Stats[1].Value = summary.SecretsActive
+			kayVeeService.Stats[2].Value = summary.SecretsDeleted
+		} else {
+			s.logger.Warn("failed to fetch kay-vee dashboard stats", "error", err)
+		}
+	}
+	services = append(services, kayVeeService)
 
 	summary.Services = services
 	return summary
@@ -1202,6 +1687,151 @@ func (s *Server) fetchCloudfauxntSummary() (CloudfauxntSummaryResponse, error) {
 	}
 
 	return summary, nil
+}
+
+func (s *Server) fetchKayVeeSummary() (KayVeeSummaryResponse, error) {
+	resp, err := s.client.Get("http://kay-vee:9350/admin/api/summary")
+	if err != nil {
+		return KayVeeSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return KayVeeSummaryResponse{}, fmt.Errorf("kay-vee admin summary status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var summary KayVeeSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return KayVeeSummaryResponse{}, err
+	}
+
+	if strings.TrimSpace(summary.Service) == "" {
+		summary.Service = "kay-vee"
+	}
+
+	return summary, nil
+}
+
+func (s *Server) fetchKayVeeActivity(maxResults, nextToken string) (KayVeeActivityResponse, error) {
+	activityURL := "http://kay-vee:9350/admin/api/activity?maxResults=" + url.QueryEscape(maxResults)
+	if nextToken != "" {
+		activityURL += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+
+	resp, err := s.client.Get(activityURL)
+	if err != nil {
+		return KayVeeActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return KayVeeActivityResponse{}, fmt.Errorf("kay-vee admin activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var activity KayVeeActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return KayVeeActivityResponse{}, err
+	}
+
+	return activity, nil
+}
+
+func (s *Server) fetchKayVeeParametersByPath(path string, recursive, withDecryption bool, maxResults int, nextToken, typeFilter, labelFilter string) (KayVeeParametersResponse, error) {
+	payload := map[string]any{
+		"Path":           path,
+		"Recursive":      recursive,
+		"WithDecryption": withDecryption,
+		"MaxResults":     maxResults,
+	}
+	if strings.TrimSpace(nextToken) != "" {
+		payload["NextToken"] = strings.TrimSpace(nextToken)
+	}
+
+	parameterFilters := make([]map[string]any, 0, 2)
+	if strings.TrimSpace(typeFilter) != "" {
+		parameterFilters = append(parameterFilters, map[string]any{"Key": "Type", "Option": "Equals", "Values": []string{strings.TrimSpace(typeFilter)}})
+	}
+	if strings.TrimSpace(labelFilter) != "" {
+		parameterFilters = append(parameterFilters, map[string]any{"Key": "Label", "Option": "Equals", "Values": []string{strings.TrimSpace(labelFilter)}})
+	}
+	if len(parameterFilters) > 0 {
+		payload["ParameterFilters"] = parameterFilters
+	}
+
+	var upstream struct {
+		Parameters []KayVeeParameter `json:"Parameters"`
+		NextToken  string            `json:"NextToken,omitempty"`
+	}
+	if err := s.callKayVeeTarget("AmazonSSM.GetParametersByPath", payload, &upstream); err != nil {
+		return KayVeeParametersResponse{}, err
+	}
+
+	return KayVeeParametersResponse{Parameters: upstream.Parameters, NextToken: upstream.NextToken}, nil
+}
+
+func (s *Server) fetchKayVeeSecrets(maxResults int, nextToken, nameFilter string) (KayVeeSecretsResponse, error) {
+	payload := map[string]any{"MaxResults": maxResults}
+	if strings.TrimSpace(nextToken) != "" {
+		payload["NextToken"] = strings.TrimSpace(nextToken)
+	}
+	if strings.TrimSpace(nameFilter) != "" {
+		payload["Filters"] = []map[string]any{{"Key": "name", "Values": []string{strings.TrimSpace(nameFilter)}}}
+	}
+
+	var upstream struct {
+		SecretList []KayVeeSecretEntry `json:"SecretList"`
+		NextToken  string              `json:"NextToken,omitempty"`
+	}
+	if err := s.callKayVeeTarget("secretsmanager.ListSecrets", payload, &upstream); err != nil {
+		return KayVeeSecretsResponse{}, err
+	}
+
+	return KayVeeSecretsResponse{Secrets: upstream.SecretList, NextToken: upstream.NextToken}, nil
+}
+
+func (s *Server) callKayVeeTarget(targetName string, payload any, target any) error {
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "http://kay-vee:9350/", bytes.NewReader(encodedPayload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	request.Header.Set("X-Amz-Target", targetName)
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		var awsErr struct {
+			Type    string `json:"__type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(responseBody, &awsErr); err == nil && strings.TrimSpace(awsErr.Type) != "" {
+			return fmt.Errorf("kay-vee target %s failed (%d): %s: %s", targetName, response.StatusCode, awsErr.Type, awsErr.Message)
+		}
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("kay-vee target %s failed (%d): %s", targetName, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Server) fetchQueues() ([]QueueView, error) {

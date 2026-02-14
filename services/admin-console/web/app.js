@@ -10,6 +10,14 @@ let activeTopicActivityARN = '';
 let activeTopicActivityName = '';
 let expandedPubSubTopicARN = '';
 let latestPubSubState = null;
+let kayVeeActivityRows = [];
+let kayVeeActivityNextToken = '';
+let kayVeeSummary = null;
+let kayVeeParameterRows = [];
+let kayVeeParameterNextToken = '';
+let kayVeeSecretRows = [];
+let kayVeeSecretNextToken = '';
+const kayVeeSecretValues = new Map();
 
 function displayServiceName(name) {
   if (name === 'essthree') return 'ess-three';
@@ -24,6 +32,7 @@ function getServiceReadmeURL(serviceName) {
     'cloudfauxnt': 'services/cloudfauxnt/README.md',
     'ess-queue-ess': 'services/ess-queue-ess/README.md',
     'ess-enn-ess': 'services/ess-enn-ess/README.md',
+    'kay-vee': 'services/kay-vee/README.md',
     'admin-console': 'services/admin-console/README.md',
   };
 
@@ -97,6 +106,10 @@ function switchView(view) {
     title.textContent = 'ess-enn-ess';
     subtitle.textContent = 'Topic, subscription, and publish operations';
     loadPubSubState();
+  } else if (view === 'kay-vee') {
+    title.textContent = 'kay-vee';
+    subtitle.textContent = 'Parameter Store + Secrets Manager emulator admin surface';
+    loadKayVeeOverview();
   } else if (view === 'essthree') {
     title.textContent = 'ess-three';
     subtitle.textContent = 'Informational ess-three surface summary (more admin actions coming soon)';
@@ -228,6 +241,492 @@ async function loadCloudfauxntSummary() {
   } catch (error) {
     setAlert(error.message);
   }
+}
+
+async function loadKayVeeOverview() {
+  try {
+    const [summary, activityData, parameterData, secretsData] = await Promise.all([
+      apiGet('/api/services/kay-vee/summary'),
+      apiGet('/api/services/kay-vee/activity?maxResults=25'),
+      apiGet('/api/services/kay-vee/parameters/by-path?path=%2F&recursive=true&withDecryption=false&maxResults=10'),
+      apiGet('/api/services/kay-vee/secrets?maxResults=25'),
+    ]);
+    kayVeeSummary = summary;
+    kayVeeActivityRows = activityData.activity || [];
+    kayVeeActivityNextToken = activityData.nextToken || '';
+    kayVeeParameterRows = parameterData.parameters || [];
+    kayVeeParameterNextToken = parameterData.nextToken || '';
+    kayVeeSecretRows = secretsData.secrets || [];
+    kayVeeSecretNextToken = secretsData.nextToken || '';
+    renderKayVeeOverview({
+      service: 'kay-vee',
+      summary: kayVeeSummary,
+      activity: kayVeeActivityRows,
+      nextToken: kayVeeActivityNextToken,
+      parameters: kayVeeParameterRows,
+      parametersNextToken: kayVeeParameterNextToken,
+      secrets: kayVeeSecretRows,
+      secretsNextToken: kayVeeSecretNextToken,
+    });
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function loadMoreKayVeeActivity() {
+  if (!kayVeeActivityNextToken) return;
+  try {
+    const activityData = await apiGet(`/api/services/kay-vee/activity?maxResults=25&nextToken=${encodeURIComponent(kayVeeActivityNextToken)}`);
+    kayVeeActivityRows = kayVeeActivityRows.concat(activityData.activity || []);
+    kayVeeActivityNextToken = activityData.nextToken || '';
+    renderKayVeeOverview({
+      service: 'kay-vee',
+      summary: kayVeeSummary,
+      activity: kayVeeActivityRows,
+      nextToken: kayVeeActivityNextToken,
+      parameters: kayVeeParameterRows,
+      parametersNextToken: kayVeeParameterNextToken,
+      secrets: kayVeeSecretRows,
+      secretsNextToken: kayVeeSecretNextToken,
+    });
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function exportKayVeeState() {
+  const anchor = document.createElement('a');
+  anchor.href = '/api/services/kay-vee/export';
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+function kayVeeParameterQueryFromForm(nextToken = '') {
+  const path = document.getElementById('kv-param-path')?.value?.trim() || '/';
+  const recursive = document.getElementById('kv-param-recursive')?.checked !== false;
+  const withDecryption = document.getElementById('kv-param-decrypt')?.checked === true;
+  const typeFilter = document.getElementById('kv-param-type-filter')?.value?.trim() || '';
+  const labelFilter = document.getElementById('kv-param-label-filter')?.value?.trim() || '';
+
+  const query = new URLSearchParams();
+  query.set('path', path);
+  query.set('recursive', String(recursive));
+  query.set('withDecryption', String(withDecryption));
+  query.set('maxResults', '10');
+  if (nextToken) query.set('nextToken', nextToken);
+  if (typeFilter) query.set('type', typeFilter);
+  if (labelFilter) query.set('label', labelFilter);
+  return query.toString();
+}
+
+async function loadKayVeeParameters(reset = true) {
+  try {
+    const query = kayVeeParameterQueryFromForm(reset ? '' : kayVeeParameterNextToken);
+    const response = await apiGet(`/api/services/kay-vee/parameters/by-path?${query}`);
+    if (reset) {
+      kayVeeParameterRows = response.parameters || [];
+    } else {
+      kayVeeParameterRows = kayVeeParameterRows.concat(response.parameters || []);
+    }
+    kayVeeParameterNextToken = response.nextToken || '';
+
+    renderKayVeeOverview({
+      service: 'kay-vee',
+      summary: kayVeeSummary,
+      activity: kayVeeActivityRows,
+      nextToken: kayVeeActivityNextToken,
+      parameters: kayVeeParameterRows,
+      parametersNextToken: kayVeeParameterNextToken,
+      secrets: kayVeeSecretRows,
+      secretsNextToken: kayVeeSecretNextToken,
+    });
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function loadKayVeeSecrets(reset = true) {
+  try {
+    const nameFilter = document.getElementById('kv-secret-name-filter')?.value?.trim() || '';
+    const query = new URLSearchParams();
+    query.set('maxResults', '25');
+    if (!reset && kayVeeSecretNextToken) query.set('nextToken', kayVeeSecretNextToken);
+    if (nameFilter) query.set('nameFilter', nameFilter);
+
+    const response = await apiGet(`/api/services/kay-vee/secrets?${query.toString()}`);
+    if (reset) {
+      kayVeeSecretRows = response.secrets || [];
+    } else {
+      kayVeeSecretRows = kayVeeSecretRows.concat(response.secrets || []);
+    }
+    kayVeeSecretNextToken = response.nextToken || '';
+
+    renderKayVeeOverview({
+      service: 'kay-vee',
+      summary: kayVeeSummary,
+      activity: kayVeeActivityRows,
+      nextToken: kayVeeActivityNextToken,
+      parameters: kayVeeParameterRows,
+      parametersNextToken: kayVeeParameterNextToken,
+      secrets: kayVeeSecretRows,
+      secretsNextToken: kayVeeSecretNextToken,
+    });
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function createKayVeeSecret() {
+  try {
+    const name = document.getElementById('kv-secret-create-name')?.value?.trim() || '';
+    const description = document.getElementById('kv-secret-create-description')?.value?.trim() || '';
+    const secretString = document.getElementById('kv-secret-create-value')?.value || '';
+
+    if (!name) {
+      setAlert('Secret name is required.');
+      return;
+    }
+    if (!secretString) {
+      setAlert('Secret value is required.');
+      return;
+    }
+
+    await apiPost('/api/services/kay-vee/actions/create-secret', {
+      name,
+      description,
+      secret_string: secretString,
+    });
+    setAlert(`Created secret ${name}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function deleteKayVeeSecret(secretID) {
+  try {
+    const decodedSecretID = decodeURIComponent(secretID || '').trim();
+    if (!decodedSecretID) return;
+    if (!window.confirm(`Delete secret ${decodedSecretID}?`)) return;
+
+    await apiPost('/api/services/kay-vee/actions/delete-secret', { secret_id: decodedSecretID });
+    setAlert(`Deleted secret ${decodedSecretID}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function restoreKayVeeSecret(secretID) {
+  try {
+    const decodedSecretID = decodeURIComponent(secretID || '').trim();
+    if (!decodedSecretID) return;
+
+    await apiPost('/api/services/kay-vee/actions/restore-secret', { secret_id: decodedSecretID });
+    setAlert(`Restored secret ${decodedSecretID}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function revealKayVeeSecretValue(secretID) {
+  try {
+    const decodedSecretID = decodeURIComponent(secretID || '').trim();
+    if (!decodedSecretID) return;
+
+    const response = await apiGet(`/api/services/kay-vee/secrets/value?secretId=${encodeURIComponent(decodedSecretID)}`);
+    kayVeeSecretValues.set(decodedSecretID, response.secret_string || response.secret_binary || '(empty)');
+
+    renderKayVeeOverview({
+      service: 'kay-vee',
+      summary: kayVeeSummary,
+      activity: kayVeeActivityRows,
+      nextToken: kayVeeActivityNextToken,
+      parameters: kayVeeParameterRows,
+      parametersNextToken: kayVeeParameterNextToken,
+      secrets: kayVeeSecretRows,
+      secretsNextToken: kayVeeSecretNextToken,
+    });
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function putKayVeeParameter() {
+  try {
+    const name = document.getElementById('kv-put-name')?.value?.trim() || '';
+    const type = document.getElementById('kv-put-type')?.value?.trim() || 'String';
+    const value = document.getElementById('kv-put-value')?.value || '';
+    const overwrite = document.getElementById('kv-put-overwrite')?.checked === true;
+
+    if (!name) {
+      setAlert('Parameter name is required.');
+      return;
+    }
+    if (!value) {
+      setAlert('Parameter value is required.');
+      return;
+    }
+
+    await apiPost('/api/services/kay-vee/actions/put-parameter', { name, type, value, overwrite });
+    setAlert(`Saved parameter ${name}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function deleteKayVeeParameter(name) {
+  try {
+	const decodedName = decodeURIComponent(name || '').trim();
+    if (!decodedName) return;
+    if (!window.confirm(`Delete parameter ${decodedName}?`)) return;
+
+    await apiPost('/api/services/kay-vee/actions/delete-parameter', { name: decodedName });
+    setAlert(`Deleted parameter ${decodedName}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function labelKayVeeParameterVersion() {
+  try {
+    const name = document.getElementById('kv-label-name')?.value?.trim() || '';
+    const label = document.getElementById('kv-label-label')?.value?.trim() || '';
+    const versionRaw = document.getElementById('kv-label-version')?.value?.trim() || '';
+    const parameterVersion = Number(versionRaw);
+
+    if (!name || !label || !Number.isInteger(parameterVersion) || parameterVersion <= 0) {
+      setAlert('Name, label, and a positive integer version are required.');
+      return;
+    }
+
+    await apiPost('/api/services/kay-vee/actions/label-parameter-version', { name, label, parameter_version: parameterVersion });
+    setAlert(`Applied label ${label} to ${name}:${parameterVersion}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function renderKayVeeOverview(payload) {
+  const summary = payload.summary || {};
+  const activity = payload.activity || [];
+  const parameters = payload.parameters || kayVeeParameterRows || [];
+  const secrets = payload.secrets || kayVeeSecretRows || [];
+  const rows = activity.map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.target || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+    </tr>
+  `).join('');
+
+  const parameterRows = parameters.map((parameter) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(parameter.Name || '')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(parameter.Type || '')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(parameter.Value || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(parameter.Version || 0)}</td>
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${parameter.LastModifiedDate ? escapeHTML(new Date(parameter.LastModifiedDate).toLocaleString()) : '-'}</td>
+      <td class="py-2 text-right">
+        <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete parameter" aria-label="Delete parameter" onclick="deleteKayVeeParameter('${encodeURIComponent(parameter.Name || '')}')">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
+          </svg>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+
+  const secretRows = secrets.map((secret) => {
+    const secretKey = secret.Name || secret.ARN || '';
+    const revealedValue = kayVeeSecretValues.get(secretKey) || '••••••••';
+    const isDeleted = !!secret.DeletedDate;
+    return `
+      <tr class="border-b align-top">
+        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(secret.Name || '')}</td>
+        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(secret.Description || '-')}</td>
+        <td class="py-2 pr-2 text-xs break-all">${escapeHTML(revealedValue)}</td>
+        <td class="py-2 pr-2 text-xs">${isDeleted ? '<span class="px-2 py-1 rounded bg-amber-100 text-amber-800">deleted</span>' : '<span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">active</span>'}</td>
+        <td class="py-2 pr-2 text-xs whitespace-nowrap">${secret.LastChangedDate ? escapeHTML(new Date(secret.LastChangedDate).toLocaleString()) : '-'}</td>
+        <td class="py-2 text-right">
+          <div class="flex justify-end gap-2">
+            <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs" title="Reveal secret value" aria-label="Reveal secret value" onclick="revealKayVeeSecretValue('${encodeURIComponent(secretKey)}')">Reveal</button>
+            ${isDeleted
+              ? `<button class="px-2 py-1 rounded bg-emerald-700 text-white text-xs" title="Restore secret" aria-label="Restore secret" onclick="restoreKayVeeSecret('${encodeURIComponent(secretKey)}')">Restore</button>`
+              : `<button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete secret" aria-label="Delete secret" onclick="deleteKayVeeSecret('${encodeURIComponent(secretKey)}')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" /></svg></button>`}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  document.getElementById('view-content').innerHTML = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Parameters</div>
+        <div class="text-2xl font-semibold">${Number(summary.parameters || 0)}</div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Secrets (Total)</div>
+        <div class="text-2xl font-semibold">${Number(summary.secretsTotal || 0)}</div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Secrets (Active)</div>
+        <div class="text-2xl font-semibold">${Number(summary.secretsActive || 0)}</div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <div class="text-sm text-slate-500">Secrets (Deleted)</div>
+        <div class="text-2xl font-semibold">${Number(summary.secretsDeleted || 0)}</div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded border p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-semibold">State Portability</h3>
+        <div class="flex items-center gap-2">
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh kay-vee view" aria-label="Refresh kay-vee view" onclick="loadKayVeeOverview()">Refresh</button>
+          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Export kay-vee state" aria-label="Export kay-vee state" onclick="exportKayVeeState()">Export State</button>
+        </div>
+      </div>
+      <p class="text-xs text-slate-500">Import support will be added in a follow-up phase.</p>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <div class="bg-white rounded border p-4">
+        <h3 class="font-semibold mb-2">Put Parameter</h3>
+        <div class="grid gap-2">
+          <input id="kv-put-name" class="border rounded px-2 py-1 text-sm" placeholder="/app/dev/key" />
+          <select id="kv-put-type" class="border rounded px-2 py-1 text-sm">
+            <option value="String">String</option>
+            <option value="SecureString">SecureString</option>
+            <option value="StringList">StringList</option>
+          </select>
+          <textarea id="kv-put-value" class="border rounded px-2 py-1 text-sm" rows="2" placeholder="Value"></textarea>
+          <label class="text-sm flex items-center gap-2"><input id="kv-put-overwrite" type="checkbox" /> Overwrite existing</label>
+          <div class="flex justify-end">
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Save parameter" aria-label="Save parameter" onclick="putKayVeeParameter()">Save</button>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <h3 class="font-semibold mb-2">Label Parameter Version</h3>
+        <div class="grid gap-2">
+          <input id="kv-label-name" class="border rounded px-2 py-1 text-sm" placeholder="/app/dev/key" />
+          <input id="kv-label-label" class="border rounded px-2 py-1 text-sm" placeholder="stable" />
+          <input id="kv-label-version" type="number" min="1" class="border rounded px-2 py-1 text-sm" placeholder="1" />
+          <div class="flex justify-end">
+            <button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Apply label" aria-label="Apply label" onclick="labelKayVeeParameterVersion()">Apply Label</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <div class="bg-white rounded border p-4">
+        <h3 class="font-semibold mb-2">Create Secret</h3>
+        <div class="grid gap-2">
+          <input id="kv-secret-create-name" class="border rounded px-2 py-1 text-sm" placeholder="app/dev/secret" />
+          <input id="kv-secret-create-description" class="border rounded px-2 py-1 text-sm" placeholder="Description (optional)" />
+          <textarea id="kv-secret-create-value" class="border rounded px-2 py-1 text-sm" rows="2" placeholder="Secret value"></textarea>
+          <div class="flex justify-end">
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create secret" aria-label="Create secret" onclick="createKayVeeSecret()">Create Secret</button>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white rounded border p-4">
+        <h3 class="font-semibold mb-2">Secrets</h3>
+        <div class="grid md:grid-cols-3 gap-2 mb-3">
+          <input id="kv-secret-name-filter" class="border rounded px-2 py-1 text-sm" placeholder="Name filter (optional)" />
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh secrets" aria-label="Refresh secrets" onclick="loadKayVeeSecrets(true)">Refresh</button>
+          ${(payload.secretsNextToken || kayVeeSecretNextToken) ? '<button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more secrets" aria-label="Load more secrets" onclick="loadKayVeeSecrets(false)">Load More</button>' : ''}
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="text-xs text-slate-500 border-b">
+                <th class="text-left py-1 pr-2">Name</th>
+                <th class="text-left py-1 pr-2">Description</th>
+                <th class="text-left py-1 pr-2">Current Value</th>
+                <th class="text-left py-1 pr-2">State</th>
+                <th class="text-left py-1 pr-2">Last Changed</th>
+                <th class="text-right py-1">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${secretRows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No secrets found.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded border p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-semibold">Parameters</h3>
+        <div class="flex items-center gap-2">
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh parameters" aria-label="Refresh parameters" onclick="loadKayVeeParameters(true)">Refresh</button>
+          ${(payload.parametersNextToken || kayVeeParameterNextToken) ? '<button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more parameters" aria-label="Load more parameters" onclick="loadKayVeeParameters(false)">Load More</button>' : ''}
+        </div>
+      </div>
+      <div class="grid md:grid-cols-5 gap-2 mb-3">
+        <input id="kv-param-path" class="border rounded px-2 py-1 text-sm" placeholder="Path" value="/" />
+        <input id="kv-param-type-filter" class="border rounded px-2 py-1 text-sm" placeholder="Type filter (optional)" />
+        <input id="kv-param-label-filter" class="border rounded px-2 py-1 text-sm" placeholder="Label filter (optional)" />
+        <label class="text-sm flex items-center gap-2"><input id="kv-param-recursive" type="checkbox" checked /> Recursive</label>
+        <label class="text-sm flex items-center gap-2"><input id="kv-param-decrypt" type="checkbox" /> Decrypt</label>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs text-slate-500 border-b">
+              <th class="text-left py-1 pr-2">Name</th>
+              <th class="text-left py-1 pr-2">Type</th>
+              <th class="text-left py-1 pr-2">Value</th>
+              <th class="text-left py-1 pr-2">Version</th>
+              <th class="text-left py-1 pr-2">Last Modified</th>
+              <th class="text-right py-1">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${parameterRows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No parameters found.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bg-white rounded border p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-semibold">Recent Activity</h3>
+        ${payload.nextToken ? '<button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more activity" aria-label="Load more activity" onclick="loadMoreKayVeeActivity()">Load More</button>' : ''}
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs text-slate-500 border-b">
+              <th class="text-left py-1 pr-2">Timestamp</th>
+              <th class="text-left py-1 pr-2">Method</th>
+              <th class="text-left py-1 pr-2">Path</th>
+              <th class="text-left py-1 pr-2">Target</th>
+              <th class="text-left py-1 pr-2">Status</th>
+              <th class="text-left py-1">Error Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function renderFutureBanner(text) {
@@ -1528,6 +2027,15 @@ function connectSSE(view) {
         renderQueuesIncremental(payload.queues || []);
       } else if (view === 'ess-enn-ess') {
         renderPubSubState(payload);
+      } else if (view === 'kay-vee') {
+        kayVeeSummary = payload.summary || null;
+        kayVeeActivityRows = payload.activity || [];
+        kayVeeActivityNextToken = payload.nextToken || '';
+        kayVeeParameterRows = payload.parameters || kayVeeParameterRows;
+        kayVeeParameterNextToken = payload.parametersNextToken || kayVeeParameterNextToken;
+        kayVeeSecretRows = payload.secrets || kayVeeSecretRows;
+        kayVeeSecretNextToken = payload.secretsNextToken || kayVeeSecretNextToken;
+        renderKayVeeOverview(payload);
       } else if (view === 'essthree') {
         renderEssThreeSummary(payload);
       } else {
@@ -1546,6 +2054,7 @@ function connectSSE(view) {
 document.getElementById('menu-dashboard').addEventListener('click', () => switchView('dashboard'));
 document.getElementById('menu-ess-queue-ess').addEventListener('click', () => switchView('ess-queue-ess'));
 document.getElementById('menu-ess-enn-ess').addEventListener('click', () => switchView('ess-enn-ess'));
+document.getElementById('menu-kay-vee').addEventListener('click', () => switchView('kay-vee'));
 document.getElementById('menu-essthree').addEventListener('click', () => switchView('essthree'));
 document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
 

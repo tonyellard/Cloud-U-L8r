@@ -100,6 +100,7 @@ Preference for implementation: AWS JSON protocol compatibility where feasible, w
 - [KAY_VEE_STORAGE_MODEL.md](KAY_VEE_STORAGE_MODEL.md)
 - [KAY_VEE_IMPLEMENTATION_SPRINT_1.md](KAY_VEE_IMPLEMENTATION_SPRINT_1.md)
 - [KAY_VEE_TEST_PLAN.md](KAY_VEE_TEST_PLAN.md)
+- [KAY_VEE_ADMIN_CONSOLE_PLAN.md](KAY_VEE_ADMIN_CONSOLE_PLAN.md)
 
 ## Planning Status
 Planning baseline for MVP is complete. Next step is implementation Sprint 1.
