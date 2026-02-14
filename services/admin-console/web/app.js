@@ -455,6 +455,93 @@ async function revealKayVeeSecretValue(secretID) {
   }
 }
 
+async function putKayVeeSecretValue(secretID) {
+  try {
+    const decodedSecretID = decodeURIComponent(secretID || '').trim();
+    if (!decodedSecretID) return;
+
+    const secretString = window.prompt(`New value for ${decodedSecretID}:`, '');
+    if (secretString === null) return;
+    if (!secretString) {
+      setAlert('Secret value is required.');
+      return;
+    }
+
+    await apiPost('/api/services/kay-vee/actions/put-secret-value', {
+      secret_id: decodedSecretID,
+      secret_string: secretString,
+    });
+    kayVeeSecretValues.delete(decodedSecretID);
+    setAlert(`Added new secret version for ${decodedSecretID}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function updateKayVeeSecret(secretID) {
+  try {
+    const decodedSecretID = decodeURIComponent(secretID || '').trim();
+    if (!decodedSecretID) return;
+
+    const description = window.prompt(`Description update for ${decodedSecretID} (leave empty to skip):`, '');
+    if (description === null) return;
+    const secretString = window.prompt(`Optional new value for ${decodedSecretID} (leave empty to keep current value):`, '');
+    if (secretString === null) return;
+
+    if (!description && !secretString) {
+      setAlert('Provide a description or a new secret value to update.');
+      return;
+    }
+
+    const body = { secret_id: decodedSecretID };
+    if (description) body.description = description;
+    if (secretString) body.secret_string = secretString;
+
+    await apiPost('/api/services/kay-vee/actions/update-secret', body);
+    kayVeeSecretValues.delete(decodedSecretID);
+    setAlert(`Updated secret ${decodedSecretID}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function updateKayVeeSecretStage(secretID) {
+  try {
+    const decodedSecretID = decodeURIComponent(secretID || '').trim();
+    if (!decodedSecretID) return;
+
+    const versionStage = window.prompt('Version stage to move (for example AWSCURRENT):', 'AWSCURRENT');
+    if (versionStage === null) return;
+    const moveToVersionID = window.prompt('Move to version id:', '');
+    if (moveToVersionID === null) return;
+    const removeFromVersionID = window.prompt('Optional remove-from version id:', '');
+    if (removeFromVersionID === null) return;
+
+    if (!versionStage.trim() || !moveToVersionID.trim()) {
+      setAlert('version stage and move-to version id are required.');
+      return;
+    }
+
+    const body = {
+      secret_id: decodedSecretID,
+      version_stage: versionStage.trim(),
+      move_to_version_id: moveToVersionID.trim(),
+    };
+    if (removeFromVersionID.trim()) {
+      body.remove_from_version_id = removeFromVersionID.trim();
+    }
+
+    await apiPost('/api/services/kay-vee/actions/update-secret-version-stage', body);
+    kayVeeSecretValues.delete(decodedSecretID);
+    setAlert(`Updated version stage ${versionStage.trim()} for ${decodedSecretID}.`, 'info');
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
 async function putKayVeeParameter() {
   try {
     const name = document.getElementById('kv-put-name')?.value?.trim() || '';
@@ -560,6 +647,9 @@ function renderKayVeeOverview(payload) {
         <td class="py-2 text-right">
           <div class="flex justify-end gap-2">
             <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs" title="Reveal secret value" aria-label="Reveal secret value" onclick="revealKayVeeSecretValue('${encodeURIComponent(secretKey)}')">Reveal</button>
+            ${!isDeleted ? `<button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Add secret version" aria-label="Add secret version" onclick="putKayVeeSecretValue('${encodeURIComponent(secretKey)}')">Put</button>` : ''}
+            ${!isDeleted ? `<button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Update secret" aria-label="Update secret" onclick="updateKayVeeSecret('${encodeURIComponent(secretKey)}')">Update</button>` : ''}
+            ${!isDeleted ? `<button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Update secret stage" aria-label="Update secret stage" onclick="updateKayVeeSecretStage('${encodeURIComponent(secretKey)}')">Stage</button>` : ''}
             ${isDeleted
               ? `<button class="px-2 py-1 rounded bg-emerald-700 text-white text-xs" title="Restore secret" aria-label="Restore secret" onclick="restoreKayVeeSecret('${encodeURIComponent(secretKey)}')">Restore</button>`
               : `<button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete secret" aria-label="Delete secret" onclick="deleteKayVeeSecret('${encodeURIComponent(secretKey)}')"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" /></svg></button>`}
@@ -684,7 +774,7 @@ function renderKayVeeOverview(payload) {
         <label class="text-sm flex items-center gap-2"><input id="kv-param-recursive" type="checkbox" checked /> Recursive</label>
         <label class="text-sm flex items-center gap-2"><input id="kv-param-decrypt" type="checkbox" /> Decrypt</label>
       </div>
-      <div class="h-[100px] overflow-y-auto overflow-x-auto">
+      <div class="overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="text-xs text-slate-500 border-b">
@@ -708,7 +798,7 @@ function renderKayVeeOverview(payload) {
         <h3 class="font-semibold">Recent Activity</h3>
         ${payload.nextToken ? '<button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more activity" aria-label="Load more activity" onclick="loadMoreKayVeeActivity()">Load More</button>' : ''}
       </div>
-      <div class="overflow-x-auto">
+      <div class="h-[100px] overflow-y-auto overflow-x-auto">
         <table class="w-full">
           <thead>
             <tr class="text-xs text-slate-500 border-b">

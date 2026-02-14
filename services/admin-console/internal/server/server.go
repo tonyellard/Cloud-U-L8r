@@ -326,6 +326,26 @@ type KayVeeRestoreSecretRequest struct {
 	SecretID string `json:"secret_id"`
 }
 
+type KayVeePutSecretValueRequest struct {
+	SecretID     string `json:"secret_id"`
+	SecretString string `json:"secret_string,omitempty"`
+	SecretBinary string `json:"secret_binary,omitempty"`
+}
+
+type KayVeeUpdateSecretRequest struct {
+	SecretID     string `json:"secret_id"`
+	Description  string `json:"description,omitempty"`
+	SecretString string `json:"secret_string,omitempty"`
+	SecretBinary string `json:"secret_binary,omitempty"`
+}
+
+type KayVeeUpdateSecretVersionStageRequest struct {
+	SecretID            string `json:"secret_id"`
+	VersionStage        string `json:"version_stage"`
+	MoveToVersionID     string `json:"move_to_version_id"`
+	RemoveFromVersionID string `json:"remove_from_version_id,omitempty"`
+}
+
 type KayVeeSecretValueResponse struct {
 	ARN          string `json:"arn"`
 	Name         string `json:"name"`
@@ -362,6 +382,9 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/kay-vee/actions/create-secret", srv.handleKayVeeCreateSecret)
 	r.Post("/api/services/kay-vee/actions/delete-secret", srv.handleKayVeeDeleteSecret)
 	r.Post("/api/services/kay-vee/actions/restore-secret", srv.handleKayVeeRestoreSecret)
+	r.Post("/api/services/kay-vee/actions/put-secret-value", srv.handleKayVeePutSecretValue)
+	r.Post("/api/services/kay-vee/actions/update-secret", srv.handleKayVeeUpdateSecret)
+	r.Post("/api/services/kay-vee/actions/update-secret-version-stage", srv.handleKayVeeUpdateSecretVersionStage)
 	r.Get("/api/services/{service}/config/export", srv.handleServiceConfigExport)
 	r.Post("/api/services/ess-queue-ess/actions/create-queue", srv.handleCreateQueue)
 	r.Post("/api/services/ess-queue-ess/actions/send-message", srv.handleSendMessage)
@@ -815,6 +838,107 @@ func (s *Server) handleKayVeeRestoreSecret(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.callKayVeeTarget("secretsmanager.RestoreSecret", map[string]any{"SecretId": strings.TrimSpace(req.SecretID)}, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleKayVeePutSecretValue(w http.ResponseWriter, r *http.Request) {
+	var req KayVeePutSecretValueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.SecretID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		return
+	}
+	if strings.TrimSpace(req.SecretString) == "" && strings.TrimSpace(req.SecretBinary) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_string or secret_binary is required"))
+		return
+	}
+
+	payload := map[string]any{"SecretId": strings.TrimSpace(req.SecretID)}
+	if strings.TrimSpace(req.SecretString) != "" {
+		payload["SecretString"] = req.SecretString
+	}
+	if strings.TrimSpace(req.SecretBinary) != "" {
+		payload["SecretBinary"] = req.SecretBinary
+	}
+
+	if err := s.callKayVeeTarget("secretsmanager.PutSecretValue", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleKayVeeUpdateSecret(w http.ResponseWriter, r *http.Request) {
+	var req KayVeeUpdateSecretRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.SecretID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		return
+	}
+	if strings.TrimSpace(req.Description) == "" && strings.TrimSpace(req.SecretString) == "" && strings.TrimSpace(req.SecretBinary) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("description, secret_string, or secret_binary is required"))
+		return
+	}
+
+	payload := map[string]any{"SecretId": strings.TrimSpace(req.SecretID)}
+	if strings.TrimSpace(req.Description) != "" {
+		payload["Description"] = strings.TrimSpace(req.Description)
+	}
+	if strings.TrimSpace(req.SecretString) != "" {
+		payload["SecretString"] = req.SecretString
+	}
+	if strings.TrimSpace(req.SecretBinary) != "" {
+		payload["SecretBinary"] = req.SecretBinary
+	}
+
+	if err := s.callKayVeeTarget("secretsmanager.UpdateSecret", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleKayVeeUpdateSecretVersionStage(w http.ResponseWriter, r *http.Request) {
+	var req KayVeeUpdateSecretVersionStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	if strings.TrimSpace(req.SecretID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		return
+	}
+	if strings.TrimSpace(req.VersionStage) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("version_stage is required"))
+		return
+	}
+	if strings.TrimSpace(req.MoveToVersionID) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("move_to_version_id is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"SecretId":        strings.TrimSpace(req.SecretID),
+		"VersionStage":    strings.TrimSpace(req.VersionStage),
+		"MoveToVersionId": strings.TrimSpace(req.MoveToVersionID),
+	}
+	if strings.TrimSpace(req.RemoveFromVersionID) != "" {
+		payload["RemoveFromVersionId"] = strings.TrimSpace(req.RemoveFromVersionID)
+	}
+
+	if err := s.callKayVeeTarget("secretsmanager.UpdateSecretVersionStage", payload, nil); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}

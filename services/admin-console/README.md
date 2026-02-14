@@ -37,6 +37,9 @@ Consolidated operator console for the local Cloud-U-L8r stack.
 - `POST /api/services/kay-vee/actions/create-secret`
 - `POST /api/services/kay-vee/actions/delete-secret`
 - `POST /api/services/kay-vee/actions/restore-secret`
+- `POST /api/services/kay-vee/actions/put-secret-value`
+- `POST /api/services/kay-vee/actions/update-secret`
+- `POST /api/services/kay-vee/actions/update-secret-version-stage`
 - `GET /api/services/essthree/summary`
 - `GET /api/services/cloudfauxnt/summary`
 - `GET /api/services/{service}/config/export` (`ess-queue-ess`, `ess-enn-ess`, and `kay-vee`)
