@@ -2,6 +2,11 @@
 
 `kay-vee` is a local emulator for AWS Systems Manager Parameter Store and AWS Secrets Manager.
 
+## Current Status
+
+`kay-vee` is active in the stack and integrated into `admin-console` for summary, activity, parameter workflows, and secret workflows.
+Historical planning documents remain under `docs/` for reference, but `services/kay-vee/README.md` is the source-of-truth for currently supported behavior.
+
 ## Features
 
 - AWS-style JSON RPC over `X-Amz-Target`
@@ -110,3 +115,8 @@ chmod +x test/aws_cli_smoke.sh
 python3 test/boto3_smoke.py
 dotnet run --project test/dotnet-smoke
 ```
+
+Prerequisites for smoke tests:
+- AWS CLI (for `aws_cli_smoke.sh`)
+- Python 3 + `boto3` (for `boto3_smoke.py`)
+- .NET SDK (for `test/dotnet-smoke`)
