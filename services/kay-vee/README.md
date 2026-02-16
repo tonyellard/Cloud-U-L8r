@@ -91,3 +91,22 @@ curl -s http://localhost:9350/ \
 - This emulator intentionally prioritizes local dev compatibility over strict AWS parity.
 - Rotation workflows are currently out of scope.
 - Some AWS edge-case validation and less-common filter keys/options are intentionally not implemented yet.
+
+## Smoke Tests (Port 9350)
+
+Two lightweight integration scripts are available under `test/`:
+
+- `test/aws_cli_smoke.sh` (AWS CLI)
+- `test/boto3_smoke.py` (Python + boto3)
+- `test/dotnet-smoke` (.NET console + AWS SDK)
+
+They each create, update, and retrieve one parameter and one secret against the running endpoint.
+
+Run from `services/kay-vee`:
+
+```bash
+chmod +x test/aws_cli_smoke.sh
+./test/aws_cli_smoke.sh
+python3 test/boto3_smoke.py
+dotnet run --project test/dotnet-smoke
+```
