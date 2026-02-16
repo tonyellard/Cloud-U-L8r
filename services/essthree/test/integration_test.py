@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """
 Integration tests for ess-three S3 emulator.
 Tests the emulator using the boto3 AWS SDK.

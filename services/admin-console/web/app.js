@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 let activeView = 'dashboard';
 let eventSource = null;
 const expandedQueues = new Set();

@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # test_admin_dashboard.sh - Test the admin dashboard with subscription support
 
 set -e

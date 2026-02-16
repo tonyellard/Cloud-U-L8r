@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 # This file is DISABLED - it interferes with the main docker-compose.yml
 # DO NOT USE THIS FILE DIRECTLY
 # Instead, run from the main cloud-u-l8r directory:

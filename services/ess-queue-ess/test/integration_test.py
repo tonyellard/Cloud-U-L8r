@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """
 Integration tests for Ess-Queue-Ess SQS emulator.
 Tests core SQS operations and admin UI functionality.
