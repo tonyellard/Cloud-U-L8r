@@ -62,6 +62,17 @@ services:
     depends_on:
       - ess-queue-ess
 
+  kay-vee:
+    build:
+      context: ./services/kay-vee
+    container_name: kay-vee
+    ports:
+      - "9350:9350"
+    environment:
+      - PORT=9350
+    networks:
+      - shared-network
+
   admin-console:
     build:
       context: ./services/admin-console
@@ -73,6 +84,7 @@ services:
     depends_on:
       - ess-queue-ess
       - ess-enn-ess
+      - kay-vee
     networks:
       - shared-network
 
