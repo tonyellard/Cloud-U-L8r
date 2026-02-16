@@ -18,6 +18,8 @@ let kayVeeParameterNextToken = '';
 let kayVeeSecretRows = [];
 let kayVeeSecretNextToken = '';
 const kayVeeSecretValues = new Map();
+let kayVeeLabelParameterTarget = '';
+let kayVeeUpdateParameterTarget = null;
 
 function displayServiceName(name) {
   if (name === 'essthree') return 'ess-three';
@@ -628,6 +630,57 @@ async function putKayVeeParameter() {
   }
 }
 
+async function updateKayVeeParameter() {
+  try {
+    const rawName = document.getElementById('kv-modal-update-name')?.value?.trim() || '';
+    const name = rawName && rawName.startsWith('/') ? rawName : (rawName ? `/${rawName}` : '');
+    const type = document.getElementById('kv-modal-update-type')?.value?.trim() || 'String';
+    const value = document.getElementById('kv-modal-update-value')?.value || '';
+
+    if (!name) {
+      setAlert('Parameter name is required.');
+      return;
+    }
+    if (!value) {
+      setAlert('Parameter value is required.');
+      return;
+    }
+
+    await apiPost('/api/services/kay-vee/actions/put-parameter', { name, type, value, overwrite: true });
+    setAlert(`Updated parameter ${name}.`, 'info');
+    closeKayVeeUpdateParameterModal();
+    await loadKayVeeOverview();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function openKayVeeUpdateParameterModal(encodedParameterName) {
+  const decodedName = decodeURIComponent(encodedParameterName || '').trim();
+  if (!decodedName) return;
+
+  const parameter = (kayVeeParameterRows || []).find((item) => (item.Name || '') === decodedName);
+  if (!parameter) return;
+
+  kayVeeUpdateParameterTarget = parameter;
+
+  const nameInput = document.getElementById('kv-modal-update-name');
+  const typeSelect = document.getElementById('kv-modal-update-type');
+  const valueInput = document.getElementById('kv-modal-update-value');
+  if (nameInput) nameInput.value = parameter.Name || '';
+  if (typeSelect) typeSelect.value = parameter.Type || 'String';
+  if (valueInput) valueInput.value = '';
+
+  const modal = document.getElementById('kv-update-parameter-modal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeKayVeeUpdateParameterModal() {
+  const modal = document.getElementById('kv-update-parameter-modal');
+  if (modal) modal.classList.add('hidden');
+  kayVeeUpdateParameterTarget = null;
+}
+
 async function deleteKayVeeParameter(name) {
   try {
     const decodedName = decodeURIComponent(name || '').trim();
@@ -645,10 +698,10 @@ async function deleteKayVeeParameter(name) {
 
 async function labelKayVeeParameterVersion() {
   try {
-    const rawName = document.getElementById('kv-label-name')?.value?.trim() || '';
+    const rawName = document.getElementById('kv-modal-label-name')?.value?.trim() || kayVeeLabelParameterTarget;
     const name = rawName && rawName.startsWith('/') ? rawName : (rawName ? `/${rawName}` : '');
-    const label = document.getElementById('kv-label-label')?.value?.trim() || '';
-    const versionRaw = document.getElementById('kv-label-version')?.value?.trim() || '';
+    const label = document.getElementById('kv-modal-label-value')?.value?.trim() || '';
+    const versionRaw = document.getElementById('kv-modal-label-version')?.value?.trim() || '';
     const parameterVersion = Number(versionRaw);
 
     if (!name || !label || !Number.isInteger(parameterVersion) || parameterVersion <= 0) {
@@ -658,10 +711,34 @@ async function labelKayVeeParameterVersion() {
 
     await apiPost('/api/services/kay-vee/actions/label-parameter-version', { name, label, parameter_version: parameterVersion });
     setAlert(`Applied label ${label} to ${name}:${parameterVersion}.`, 'info');
+    closeKayVeeLabelParameterModal();
     await loadKayVeeOverview();
   } catch (error) {
     setAlert(error.message);
   }
+}
+
+function openKayVeeLabelParameterModal(parameterName) {
+  const decodedName = decodeURIComponent(parameterName || '').trim();
+  if (!decodedName) return;
+
+  kayVeeLabelParameterTarget = decodedName;
+
+  const nameInput = document.getElementById('kv-modal-label-name');
+  const labelInput = document.getElementById('kv-modal-label-value');
+  const versionInput = document.getElementById('kv-modal-label-version');
+  if (nameInput) nameInput.value = decodedName;
+  if (labelInput) labelInput.value = '';
+  if (versionInput) versionInput.value = '';
+
+  const modal = document.getElementById('kv-label-parameter-modal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeKayVeeLabelParameterModal() {
+  const modal = document.getElementById('kv-label-parameter-modal');
+  if (modal) modal.classList.add('hidden');
+  kayVeeLabelParameterTarget = '';
 }
 
 function renderKayVeeOverview(payload) {
@@ -677,11 +754,15 @@ function renderKayVeeOverview(payload) {
       <td class="py-2 pr-2 text-xs">${Number(parameter.Version || 0)}</td>
       <td class="py-2 pr-2 text-xs whitespace-nowrap">${parameter.LastModifiedDate ? escapeHTML(new Date(parameter.LastModifiedDate).toLocaleString()) : '-'}</td>
       <td class="py-2 text-right">
-        <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete parameter" aria-label="Delete parameter" onclick="deleteKayVeeParameter('${encodeURIComponent(parameter.Name || '')}')">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
-          </svg>
-        </button>
+        <div class="flex justify-end gap-2">
+          <button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Update parameter" aria-label="Update parameter" onclick="openKayVeeUpdateParameterModal('${encodeURIComponent(parameter.Name || '')}')">Update</button>
+          <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs" title="Label parameter version" aria-label="Label parameter version" onclick="openKayVeeLabelParameterModal('${encodeURIComponent(parameter.Name || '')}')">Label</button>
+          <button class="h-8 w-8 rounded bg-red-600 text-white leading-none inline-flex items-center justify-center" title="Delete parameter" aria-label="Delete parameter" onclick="deleteKayVeeParameter('${encodeURIComponent(parameter.Name || '')}')">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h6l1-14" />
+            </svg>
+          </button>
+        </div>
       </td>
     </tr>
   `).join('');
@@ -739,6 +820,8 @@ function renderKayVeeOverview(payload) {
       </div>
     </div>
 
+    <div class="bg-slate-900 text-white rounded border border-slate-900 px-4 py-2 text-sm font-semibold tracking-wide uppercase">Parameters</div>
+
     <div class="grid lg:grid-cols-2 gap-4">
       <div class="bg-white rounded border p-4">
         <h3 class="font-semibold mb-2">Put Parameter</h3>
@@ -754,56 +837,6 @@ function renderKayVeeOverview(payload) {
           <div class="flex justify-end">
             <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Save parameter" aria-label="Save parameter" onclick="putKayVeeParameter()">Save</button>
           </div>
-        </div>
-      </div>
-      <div class="bg-white rounded border p-4">
-        <h3 class="font-semibold mb-2">Label Parameter Version</h3>
-        <div class="grid gap-2">
-          <input id="kv-label-name" class="border rounded px-2 py-1 text-sm" placeholder="/app/dev/key" />
-          <input id="kv-label-label" class="border rounded px-2 py-1 text-sm" placeholder="stable" />
-          <input id="kv-label-version" type="number" min="1" class="border rounded px-2 py-1 text-sm" placeholder="1" />
-          <div class="flex justify-end">
-            <button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Apply label" aria-label="Apply label" onclick="labelKayVeeParameterVersion()">Apply Label</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="grid lg:grid-cols-2 gap-4">
-      <div class="bg-white rounded border p-4">
-        <h3 class="font-semibold mb-2">Create Secret</h3>
-        <div class="grid gap-2">
-          <input id="kv-secret-create-name" class="border rounded px-2 py-1 text-sm" placeholder="app/dev/secret" />
-          <input id="kv-secret-create-description" class="border rounded px-2 py-1 text-sm" placeholder="Description (optional)" />
-          <textarea id="kv-secret-create-value" class="border rounded px-2 py-1 text-sm" rows="2" placeholder="Secret value"></textarea>
-          <div class="flex justify-end">
-            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create secret" aria-label="Create secret" onclick="createKayVeeSecret()">Create Secret</button>
-          </div>
-        </div>
-      </div>
-      <div class="bg-white rounded border p-4">
-        <h3 class="font-semibold mb-2">Secrets</h3>
-        <div class="grid md:grid-cols-3 gap-2 mb-3">
-          <input id="kv-secret-name-filter" class="border rounded px-2 py-1 text-sm" placeholder="Name filter (optional)" />
-          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh secrets" aria-label="Refresh secrets" onclick="loadKayVeeSecrets(true)">Refresh</button>
-          ${(payload.secretsNextToken || kayVeeSecretNextToken) ? '<button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more secrets" aria-label="Load more secrets" onclick="loadKayVeeSecrets(false)">Load More</button>' : ''}
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="text-xs text-slate-500 border-b">
-                <th class="text-left py-1 pr-2">Name</th>
-                <th class="text-left py-1 pr-2">Description</th>
-                <th class="text-left py-1 pr-2">Current Value</th>
-                <th class="text-left py-1 pr-2">State</th>
-                <th class="text-left py-1 pr-2">Last Changed</th>
-                <th class="text-right py-1">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${secretRows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No secrets found.</td></tr>'}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>
@@ -842,6 +875,46 @@ function renderKayVeeOverview(payload) {
       </div>
     </div>
 
+    <div class="bg-slate-900 text-white rounded border border-slate-900 px-4 py-2 text-sm font-semibold tracking-wide uppercase">Secrets</div>
+
+    <div class="bg-white rounded border p-4">
+      <h3 class="font-semibold mb-2">Create Secret</h3>
+      <div class="grid gap-2">
+        <input id="kv-secret-create-name" class="border rounded px-2 py-1 text-sm" placeholder="app/dev/secret" />
+        <input id="kv-secret-create-description" class="border rounded px-2 py-1 text-sm" placeholder="Description (optional)" />
+        <textarea id="kv-secret-create-value" class="border rounded px-2 py-1 text-sm" rows="2" placeholder="Secret value"></textarea>
+        <div class="flex justify-end">
+          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create secret" aria-label="Create secret" onclick="createKayVeeSecret()">Create Secret</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded border p-4">
+      <h3 class="font-semibold mb-2">Secrets</h3>
+      <div class="grid md:grid-cols-3 gap-2 mb-3">
+        <input id="kv-secret-name-filter" class="border rounded px-2 py-1 text-sm" placeholder="Name filter (optional)" />
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh secrets" aria-label="Refresh secrets" onclick="loadKayVeeSecrets(true)">Refresh</button>
+        ${(payload.secretsNextToken || kayVeeSecretNextToken) ? '<button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more secrets" aria-label="Load more secrets" onclick="loadKayVeeSecrets(false)">Load More</button>' : ''}
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs text-slate-500 border-b">
+              <th class="text-left py-1 pr-2">Name</th>
+              <th class="text-left py-1 pr-2">Description</th>
+              <th class="text-left py-1 pr-2">Current Value</th>
+              <th class="text-left py-1 pr-2">State</th>
+              <th class="text-left py-1 pr-2">Last Changed</th>
+              <th class="text-right py-1">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${secretRows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No secrets found.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div id="kayvee-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeKayVeeActivityModal()">
       <div class="bg-white w-full max-w-5xl rounded border shadow-lg">
         <div class="px-4 py-3 border-b flex items-center justify-between">
@@ -853,6 +926,46 @@ function renderKayVeeOverview(payload) {
         </div>
         <div class="p-4 max-h-[70vh] overflow-auto" id="kayvee-activity-body">
           <p class="text-sm text-slate-500">No activity entries.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="kv-label-parameter-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeKayVeeLabelParameterModal()">
+      <div class="bg-white w-full max-w-md rounded border shadow-lg">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+          <h3 class="font-semibold">Label Parameter Version</h3>
+          <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close label modal" aria-label="Close label modal" onclick="closeKayVeeLabelParameterModal()">✕</button>
+        </div>
+        <div class="p-4 grid gap-2">
+          <input id="kv-modal-label-name" class="border rounded px-2 py-1 text-sm" placeholder="/app/dev/key" readonly />
+          <input id="kv-modal-label-value" class="border rounded px-2 py-1 text-sm" placeholder="stable" />
+          <input id="kv-modal-label-version" type="number" min="1" class="border rounded px-2 py-1 text-sm" placeholder="1" />
+          <div class="flex justify-end gap-2 pt-1">
+            <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Cancel label" aria-label="Cancel label" onclick="closeKayVeeLabelParameterModal()">Cancel</button>
+            <button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Apply label" aria-label="Apply label" onclick="labelKayVeeParameterVersion()">Apply Label</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="kv-update-parameter-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeKayVeeUpdateParameterModal()">
+      <div class="bg-white w-full max-w-md rounded border shadow-lg">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+          <h3 class="font-semibold">Update Parameter</h3>
+          <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close update modal" aria-label="Close update modal" onclick="closeKayVeeUpdateParameterModal()">✕</button>
+        </div>
+        <div class="p-4 grid gap-2">
+          <input id="kv-modal-update-name" class="border rounded px-2 py-1 text-sm" placeholder="/app/dev/key" readonly />
+          <select id="kv-modal-update-type" class="border rounded px-2 py-1 text-sm">
+            <option value="String">String</option>
+            <option value="SecureString">SecureString</option>
+            <option value="StringList">StringList</option>
+          </select>
+          <textarea id="kv-modal-update-value" class="border rounded px-2 py-1 text-sm" rows="3" placeholder="New value"></textarea>
+          <div class="flex justify-end gap-2 pt-1">
+            <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Cancel update" aria-label="Cancel update" onclick="closeKayVeeUpdateParameterModal()">Cancel</button>
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Update parameter" aria-label="Update parameter" onclick="updateKayVeeParameter()">Update</button>
+          </div>
         </div>
       </div>
     </div>

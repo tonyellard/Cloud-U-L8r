@@ -92,7 +92,7 @@ clean:
 # Kill processes bound to service ports
 clean-ports:
 	@echo "Cleaning service ports with fuser..."
-	@sudo fuser -k 9300/tcp 9310/tcp 9320/tcp 9330/tcp 9999/tcp 2>/dev/null || true
+	@sudo fuser -k 9300/tcp 9310/tcp 9320/tcp 9330/tcp 9340/tcp 9350/tcp 9999/tcp 2>/dev/null || true
 	@echo "✅ Service ports cleaned"
 
 # Stop a single service by name
