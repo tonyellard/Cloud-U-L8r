@@ -710,11 +710,6 @@ CloudFauxnt is a development tool with some intentional limitations:
 
 Licensed under the Apache License, Version 2.0. See `LICENSE`.
 
-## Trademark notice
-
-Not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS).
-Amazon S3 and Amazon CloudFront are trademarks of Amazon.com, Inc. or its affiliates.
-
 ## Related Projects
 
 - [ess-three](../essthree) - Lightweight S3 emulator for local development
@@ -731,7 +726,9 @@ Contributions welcome! Please:
 
 Licensed under the Apache License, Version 2.0. See the root [LICENSE](../../LICENSE) file for details.
 
-**Trademark Notice**: Not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon CloudFront and AWS are trademarks of Amazon.com, Inc. or its affiliates.
+## Trademark Notice
+
+This project is not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon S3, Amazon CloudFront, Amazon Secrets Manager, Amazon Parameter Store are all trademarks of amazon.com, Inc., or it's affiliates.
 
 ## Support
 

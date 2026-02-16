@@ -138,3 +138,7 @@ To use Ess-Queue-Ess in your .NET application:
    ```
 
 3. Use the standard AWS SDK methods - no code changes needed!
+
+## Trademark Notice
+
+This project is not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon S3, Amazon CloudFront, Amazon Secrets Manager, Amazon Parameter Store are all trademarks of amazon.com, Inc., or it's affiliates.
