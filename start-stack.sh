@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Full Stack Docker Compose Startup Script
 # This script properly starts all emulator services
 

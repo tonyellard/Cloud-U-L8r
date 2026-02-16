@@ -117,3 +117,7 @@ Contributions are welcome! Please see [CONTRIBUTORS.md](CONTRIBUTORS.md) for gui
 ## Authors
 
 See [AUTHORS](AUTHORS) for a list of contributors.
+
+## Trademark Notice
+
+This project is not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon S3, Amazon CloudFront, Amazon Secrets Manager, Amazon Parameter Store are all trademarks of amazon.com, Inc., or it's affiliates.

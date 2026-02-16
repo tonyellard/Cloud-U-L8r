@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 
 # Test DLQ visibility timeout behavior
 # Usage: ./test-dlq.sh <queue-name> <visibility-timeout>

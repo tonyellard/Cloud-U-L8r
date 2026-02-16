@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Comprehensive Stack Cleanup and Shutdown
 # Removes all emulator containers, networks, and volumes
 

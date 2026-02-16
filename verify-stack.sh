@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Verify Full Stack Deployment
 # Tests that all four emulator services are running and responsive
 

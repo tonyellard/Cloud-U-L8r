@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Quick test script for SNS-SQS integration
 # This script starts both services and runs an integration test
 

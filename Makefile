@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 .PHONY: all build rebuild up down logs test clean clean-ports stop-service start-service restart-service status help
 
 SERVICE ?=

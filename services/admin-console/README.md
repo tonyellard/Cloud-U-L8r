@@ -63,3 +63,11 @@ Or build this service only:
 ```bash
 docker compose build admin-console
 ```
+
+## License
+
+Licensed under the Apache License, Version 2.0. See the root [LICENSE](../../LICENSE) file for details.
+
+## Trademark Notice
+
+This project is not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon S3, Amazon CloudFront, Amazon Secrets Manager, Amazon Parameter Store are all trademarks of amazon.com, Inc., or it's affiliates.

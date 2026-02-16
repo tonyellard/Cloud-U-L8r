@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Integration test for Phase 6: HTTP Delivery Enhancements
 # Tests retry logic, exponential backoff, and error handling
 

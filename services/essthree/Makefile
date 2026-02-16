@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 .PHONY: build run test test-coverage clean docker-build docker-run docker-stop docker-logs help
 
 # Variables

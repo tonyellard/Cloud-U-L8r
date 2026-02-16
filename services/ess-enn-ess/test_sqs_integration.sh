@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Integration test for Phase 5: SQS Delivery Integration
 
 set -e

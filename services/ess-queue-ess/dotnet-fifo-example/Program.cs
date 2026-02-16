@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using System;

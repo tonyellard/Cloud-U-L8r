@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 ﻿using Amazon;
 using Amazon.Runtime;
 using Amazon.SecretsManager;

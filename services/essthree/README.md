@@ -288,7 +288,6 @@ This is a development tool and has some limitations:
 
 Licensed under the Apache License, Version 2.0. See the root [LICENSE](../../LICENSE) file for details.
 
-## Trademark notice
+## Trademark Notice
 
-Not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS).
-Amazon S3 and Amazon CloudFront are trademarks of Amazon.com, Inc. or its affiliates.
+This project is not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS). Amazon S3, Amazon CloudFront, Amazon Secrets Manager, Amazon Parameter Store are all trademarks of amazon.com, Inc., or it's affiliates.
