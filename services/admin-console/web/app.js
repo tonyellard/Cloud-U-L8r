@@ -279,18 +279,63 @@ async function loadMoreKayVeeActivity() {
     const activityData = await apiGet(`/api/services/kay-vee/activity?maxResults=25&nextToken=${encodeURIComponent(kayVeeActivityNextToken)}`);
     kayVeeActivityRows = kayVeeActivityRows.concat(activityData.activity || []);
     kayVeeActivityNextToken = activityData.nextToken || '';
-    renderKayVeeOverview({
-      service: 'kay-vee',
-      summary: kayVeeSummary,
-      activity: kayVeeActivityRows,
-      nextToken: kayVeeActivityNextToken,
-      parameters: kayVeeParameterRows,
-      parametersNextToken: kayVeeParameterNextToken,
-      secrets: kayVeeSecretRows,
-      secretsNextToken: kayVeeSecretNextToken,
-    });
+    renderKayVeeActivityModalContent();
   } catch (error) {
     setAlert(error.message);
+  }
+}
+
+function openKayVeeActivityModal() {
+  const modal = document.getElementById('kayvee-activity-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderKayVeeActivityModalContent();
+}
+
+function closeKayVeeActivityModal() {
+  const modal = document.getElementById('kayvee-activity-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function renderKayVeeActivityModalContent() {
+  const body = document.getElementById('kayvee-activity-body');
+  if (!body) return;
+
+  const rows = (kayVeeActivityRows || []).map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.target || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Method</th>
+            <th class="text-left py-1 pr-2">Path</th>
+            <th class="text-left py-1 pr-2">Target</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1">Error Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const loadMore = document.getElementById('kayvee-activity-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !kayVeeActivityNextToken);
   }
 }
 
@@ -437,6 +482,21 @@ async function revealKayVeeSecretValue(secretID) {
     const decodedSecretID = decodeURIComponent(secretID || '').trim();
     if (!decodedSecretID) return;
 
+    if (kayVeeSecretValues.has(decodedSecretID)) {
+      kayVeeSecretValues.delete(decodedSecretID);
+      renderKayVeeOverview({
+        service: 'kay-vee',
+        summary: kayVeeSummary,
+        activity: kayVeeActivityRows,
+        nextToken: kayVeeActivityNextToken,
+        parameters: kayVeeParameterRows,
+        parametersNextToken: kayVeeParameterNextToken,
+        secrets: kayVeeSecretRows,
+        secretsNextToken: kayVeeSecretNextToken,
+      });
+      return;
+    }
+
     const response = await apiGet(`/api/services/kay-vee/secrets/value?secretId=${encodeURIComponent(decodedSecretID)}`);
     kayVeeSecretValues.set(decodedSecretID, response.secret_string || response.secret_binary || '(empty)');
 
@@ -544,10 +604,12 @@ async function updateKayVeeSecretStage(secretID) {
 
 async function putKayVeeParameter() {
   try {
-    const name = document.getElementById('kv-put-name')?.value?.trim() || '';
+    const rawName = document.getElementById('kv-put-name')?.value?.trim() || '';
     const type = document.getElementById('kv-put-type')?.value?.trim() || 'String';
     const value = document.getElementById('kv-put-value')?.value || '';
     const overwrite = document.getElementById('kv-put-overwrite')?.checked === true;
+
+    const name = rawName && rawName.startsWith('/') ? rawName : (rawName ? `/${rawName}` : '');
 
     if (!name) {
       setAlert('Parameter name is required.');
@@ -568,12 +630,13 @@ async function putKayVeeParameter() {
 
 async function deleteKayVeeParameter(name) {
   try {
-	const decodedName = decodeURIComponent(name || '').trim();
-    if (!decodedName) return;
-    if (!window.confirm(`Delete parameter ${decodedName}?`)) return;
+    const decodedName = decodeURIComponent(name || '').trim();
+    const normalizedName = decodedName && decodedName.startsWith('/') ? decodedName : (decodedName ? `/${decodedName}` : '');
+    if (!normalizedName) return;
+    if (!window.confirm(`Delete parameter ${normalizedName}?`)) return;
 
-    await apiPost('/api/services/kay-vee/actions/delete-parameter', { name: decodedName });
-    setAlert(`Deleted parameter ${decodedName}.`, 'info');
+    await apiPost('/api/services/kay-vee/actions/delete-parameter', { name: normalizedName });
+    setAlert(`Deleted parameter ${normalizedName}.`, 'info');
     await loadKayVeeOverview();
   } catch (error) {
     setAlert(error.message);
@@ -582,7 +645,8 @@ async function deleteKayVeeParameter(name) {
 
 async function labelKayVeeParameterVersion() {
   try {
-    const name = document.getElementById('kv-label-name')?.value?.trim() || '';
+    const rawName = document.getElementById('kv-label-name')?.value?.trim() || '';
+    const name = rawName && rawName.startsWith('/') ? rawName : (rawName ? `/${rawName}` : '');
     const label = document.getElementById('kv-label-label')?.value?.trim() || '';
     const versionRaw = document.getElementById('kv-label-version')?.value?.trim() || '';
     const parameterVersion = Number(versionRaw);
@@ -602,19 +666,8 @@ async function labelKayVeeParameterVersion() {
 
 function renderKayVeeOverview(payload) {
   const summary = payload.summary || {};
-  const activity = payload.activity || [];
   const parameters = payload.parameters || kayVeeParameterRows || [];
   const secrets = payload.secrets || kayVeeSecretRows || [];
-  const rows = activity.map((entry) => `
-    <tr class="border-b align-top">
-      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
-      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
-      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
-      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.target || '-')}</td>
-      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
-      <td class="py-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
-    </tr>
-  `).join('');
 
   const parameterRows = parameters.map((parameter) => `
     <tr class="border-b align-top">
@@ -635,7 +688,8 @@ function renderKayVeeOverview(payload) {
 
   const secretRows = secrets.map((secret) => {
     const secretKey = secret.Name || secret.ARN || '';
-    const revealedValue = kayVeeSecretValues.get(secretKey) || '••••••••';
+    const isRevealed = kayVeeSecretValues.has(secretKey);
+    const revealedValue = isRevealed ? (kayVeeSecretValues.get(secretKey) || '(empty)') : '••••••••';
     const isDeleted = !!secret.DeletedDate;
     return `
       <tr class="border-b align-top">
@@ -646,8 +700,7 @@ function renderKayVeeOverview(payload) {
         <td class="py-2 pr-2 text-xs whitespace-nowrap">${secret.LastChangedDate ? escapeHTML(new Date(secret.LastChangedDate).toLocaleString()) : '-'}</td>
         <td class="py-2 text-right">
           <div class="flex justify-end gap-2">
-            <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs" title="Reveal secret value" aria-label="Reveal secret value" onclick="revealKayVeeSecretValue('${encodeURIComponent(secretKey)}')">Reveal</button>
-            ${!isDeleted ? `<button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Add secret version" aria-label="Add secret version" onclick="putKayVeeSecretValue('${encodeURIComponent(secretKey)}')">Put</button>` : ''}
+            <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs" title="${isRevealed ? 'Hide secret value' : 'Reveal secret value'}" aria-label="${isRevealed ? 'Hide secret value' : 'Reveal secret value'}" onclick="revealKayVeeSecretValue('${encodeURIComponent(secretKey)}')">${isRevealed ? 'Hide' : 'Reveal'}</button>
             ${!isDeleted ? `<button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Update secret" aria-label="Update secret" onclick="updateKayVeeSecret('${encodeURIComponent(secretKey)}')">Update</button>` : ''}
             ${!isDeleted ? `<button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Update secret stage" aria-label="Update secret stage" onclick="updateKayVeeSecretStage('${encodeURIComponent(secretKey)}')">Stage</button>` : ''}
             ${isDeleted
@@ -680,14 +733,10 @@ function renderKayVeeOverview(payload) {
     </div>
 
     <div class="bg-white rounded border p-4">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="font-semibold">State Portability</h3>
-        <div class="flex items-center gap-2">
-          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh kay-vee view" aria-label="Refresh kay-vee view" onclick="loadKayVeeOverview()">Refresh</button>
-          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Export kay-vee state" aria-label="Export kay-vee state" onclick="exportKayVeeState()">Export State</button>
-        </div>
+      <div class="flex items-center justify-end gap-2">
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="View activity log" aria-label="View activity log" onclick="openKayVeeActivityModal()">Activity Log</button>
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh kay-vee view" aria-label="Refresh kay-vee view" onclick="loadKayVeeOverview()">Refresh</button>
       </div>
-      <p class="text-xs text-slate-500">Import support will be added in a follow-up phase.</p>
     </div>
 
     <div class="grid lg:grid-cols-2 gap-4">
@@ -793,27 +842,18 @@ function renderKayVeeOverview(payload) {
       </div>
     </div>
 
-    <div class="bg-white rounded border p-4">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="font-semibold">Recent Activity</h3>
-        ${payload.nextToken ? '<button class="px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more activity" aria-label="Load more activity" onclick="loadMoreKayVeeActivity()">Load More</button>' : ''}
-      </div>
-      <div class="h-[100px] overflow-y-auto overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="text-xs text-slate-500 border-b">
-              <th class="text-left py-1 pr-2">Timestamp</th>
-              <th class="text-left py-1 pr-2">Method</th>
-              <th class="text-left py-1 pr-2">Path</th>
-              <th class="text-left py-1 pr-2">Target</th>
-              <th class="text-left py-1 pr-2">Status</th>
-              <th class="text-left py-1">Error Type</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
-          </tbody>
-        </table>
+    <div id="kayvee-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeKayVeeActivityModal()">
+      <div class="bg-white w-full max-w-5xl rounded border shadow-lg">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+          <h3 class="font-semibold">Kay-Vee Activity Log</h3>
+          <div class="flex items-center gap-2">
+            <button id="kayvee-activity-load-more" class="hidden px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more activity" aria-label="Load more activity" onclick="loadMoreKayVeeActivity()">Load More</button>
+            <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity log" aria-label="Close activity log" onclick="closeKayVeeActivityModal()">✕</button>
+          </div>
+        </div>
+        <div class="p-4 max-h-[70vh] overflow-auto" id="kayvee-activity-body">
+          <p class="text-sm text-slate-500">No activity entries.</p>
+        </div>
       </div>
     </div>
   `;
