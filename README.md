@@ -1,15 +1,16 @@
 # Cloud-U-L8r
 
-A unified development stack for local AWS service emulation, providing S3, SQS, SNS, and CloudFront-like capabilities in a single orchestrated environment.
+A unified development stack for local AWS service emulation, providing S3, SQS, SNS, CloudFront-like, and Parameter/Secrets capabilities in a single orchestrated environment.
 
 ## Services
 
-This monorepo contains five interconnected services:
+This monorepo contains six interconnected services:
 
 - **ess-three** (Port 9300) - S3-compatible object storage emulator
 - **cloudfauxnt** (Port 9310) - CloudFront-like CDN emulator with signed URL support
 - **ess-queue-ess** (Port 9320) - SQS-compatible message queue emulator with FIFO and DLQ support
 - **ess-enn-ess** (Port 9330) - SNS-compatible notification service emulator
+- **kay-vee** (Port 9350) - Combined SSM Parameter Store + Secrets Manager emulator
 - **admin-console** (Port 9999) - Consolidated operator console for dashboard + per-service administration
 
 ## Quick Start
@@ -39,6 +40,7 @@ Once running, services are available at:
 - **CloudFront (cloudfauxnt)**: `http://localhost:9310`
 - **SQS (ess-queue-ess)**: `http://localhost:9320`
 - **SNS (ess-enn-ess)**: `http://localhost:9330` (Admin UI: `http://localhost:9331`)
+- **kay-vee**: `http://localhost:9350`
 - **Admin Console**: `http://localhost:9999`
 
 For inter-container communication, services use the internal `shared-network`:
@@ -46,6 +48,7 @@ For inter-container communication, services use the internal `shared-network`:
 - `http://cloudfauxnt:9310`
 - `http://ess-queue-ess:9320`
 - `http://ess-enn-ess:9330` (Admin UI: `http://ess-enn-ess:9331`)
+- `http://kay-vee:9350`
 - `http://admin-console:9999`
 
 ## Port Scheme
@@ -55,6 +58,7 @@ All services use the 93xx port range with 10-port increments:
 - **9310**: CloudFront CDN
 - **9320**: SQS Queue
 - **9330**: SNS Notifications (9331 for Admin UI)
+- **9350**: Parameter + Secrets Emulator (`kay-vee`)
 - **9999**: Consolidated Admin Console
 
 ## Configuration
@@ -99,6 +103,7 @@ go work use ./services/admin-console ./services/essthree ./services/cloudfauxnt 
 - [cloudfauxnt Documentation](services/cloudfauxnt/README.md)
 - [ess-queue-ess Documentation](services/ess-queue-ess/README.md)
 - [ess-enn-ess Documentation](services/ess-enn-ess/README.md)
+- [kay-vee Documentation](services/kay-vee/README.md)
 - [admin-console Documentation](services/admin-console/README.md)
 
 ## License

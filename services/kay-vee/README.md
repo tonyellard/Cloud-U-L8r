@@ -2,6 +2,11 @@
 
 `kay-vee` is a local emulator for AWS Systems Manager Parameter Store and AWS Secrets Manager.
 
+## Current Status
+
+`kay-vee` is active in the stack and integrated into `admin-console` for summary, activity, parameter workflows, and secret workflows.
+Historical planning documents remain under `docs/` for reference, but `services/kay-vee/README.md` is the source-of-truth for currently supported behavior.
+
 ## Features
 
 - AWS-style JSON RPC over `X-Amz-Target`
@@ -91,3 +96,27 @@ curl -s http://localhost:9350/ \
 - This emulator intentionally prioritizes local dev compatibility over strict AWS parity.
 - Rotation workflows are currently out of scope.
 - Some AWS edge-case validation and less-common filter keys/options are intentionally not implemented yet.
+
+## Smoke Tests (Port 9350)
+
+Two lightweight integration scripts are available under `test/`:
+
+- `test/aws_cli_smoke.sh` (AWS CLI)
+- `test/boto3_smoke.py` (Python + boto3)
+- `test/dotnet-smoke` (.NET console + AWS SDK)
+
+They each create, update, and retrieve one parameter and one secret against the running endpoint.
+
+Run from `services/kay-vee`:
+
+```bash
+chmod +x test/aws_cli_smoke.sh
+./test/aws_cli_smoke.sh
+python3 test/boto3_smoke.py
+dotnet run --project test/dotnet-smoke
+```
+
+Prerequisites for smoke tests:
+- AWS CLI (for `aws_cli_smoke.sh`)
+- Python 3 + `boto3` (for `boto3_smoke.py`)
+- .NET SDK (for `test/dotnet-smoke`)
