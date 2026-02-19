@@ -52,43 +52,41 @@ func (s *Server) Router() http.Handler {
 		})
 
 		// Object operations
-		r.Route("/{key:.*}", func(r chi.Router) {
-			r.Head("/", s.handleHeadObject)
+		r.Head("/*", s.handleHeadObject)
 
-			r.Get("/", s.handleGetObject)
+		r.Get("/*", s.handleGetObjectOrListPrefix)
 
-			r.Put("/", func(w http.ResponseWriter, req *http.Request) {
-				// Check if this is a multipart operation
-				_, hasPartNumber := req.URL.Query()["partNumber"]
-				_, hasUploadId := req.URL.Query()["uploadId"]
-				if hasPartNumber && hasUploadId {
-					s.handleUploadPart(w, req)
-				} else {
-					s.handlePutObject(w, req)
-				}
-			})
+		r.Put("/*", func(w http.ResponseWriter, req *http.Request) {
+			// Check if this is a multipart operation
+			_, hasPartNumber := req.URL.Query()["partNumber"]
+			_, hasUploadId := req.URL.Query()["uploadId"]
+			if hasPartNumber && hasUploadId {
+				s.handleUploadPart(w, req)
+			} else {
+				s.handlePutObject(w, req)
+			}
+		})
 
-			r.Post("/", func(w http.ResponseWriter, req *http.Request) {
-				// Check what type of POST this is
-				_, hasUploads := req.URL.Query()["uploads"]
-				_, hasUploadId := req.URL.Query()["uploadId"]
+		r.Post("/*", func(w http.ResponseWriter, req *http.Request) {
+			// Check what type of POST this is
+			_, hasUploads := req.URL.Query()["uploads"]
+			_, hasUploadId := req.URL.Query()["uploadId"]
 
-				if hasUploads {
-					s.handleCreateMultipartUpload(w, req)
-				} else if hasUploadId {
-					s.handleCompleteMultipartUpload(w, req)
-				} else {
-					http.Error(w, "Not Found", http.StatusNotFound)
-				}
-			})
+			if hasUploads {
+				s.handleCreateMultipartUpload(w, req)
+			} else if hasUploadId {
+				s.handleCompleteMultipartUpload(w, req)
+			} else {
+				http.Error(w, "Not Found", http.StatusNotFound)
+			}
+		})
 
-			r.Delete("/", func(w http.ResponseWriter, req *http.Request) {
-				if _, ok := req.URL.Query()["uploadId"]; ok {
-					s.handleAbortMultipartUpload(w, req)
-				} else {
-					s.handleDeleteObject(w, req)
-				}
-			})
+		r.Delete("/*", func(w http.ResponseWriter, req *http.Request) {
+			if _, ok := req.URL.Query()["uploadId"]; ok {
+				s.handleAbortMultipartUpload(w, req)
+			} else {
+				s.handleDeleteObject(w, req)
+			}
 		})
 	})
 

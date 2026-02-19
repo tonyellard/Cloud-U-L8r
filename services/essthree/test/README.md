@@ -60,6 +60,21 @@ aws s3 cp s3://mybucket/test.txt downloaded.txt --endpoint-url=http://localhost:
 aws s3 rm s3://mybucket/test.txt --endpoint-url=http://localhost:9300
 ```
 
+## Nested Sync Regression Scenario
+
+This scenario reproduces and verifies the `aws s3 sync` nested-folder path behavior.
+
+```bash
+# Start ess-three first
+docker-compose up -d
+
+# Run nested sync smoke test
+chmod +x test/nested_sync_smoke.sh
+test/nested_sync_smoke.sh
+```
+
+The script creates nested local folders, runs `aws s3 sync`, and validates nested keys with `head-object`.
+
 ## Expected Results
 
 All tests should pass with output similar to:
