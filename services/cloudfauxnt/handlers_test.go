@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -150,6 +151,86 @@ func TestDefaultRootObjectAppliedToRootPath(t *testing.T) {
 		}
 	default:
 		t.Fatal("origin did not receive a request")
+	}
+}
+
+func TestContentTypeInferredFromExtensionWhenOriginReturnsOctetStream(t *testing.T) {
+	t.Parallel()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "<html><body>ok</body></html>")
+	}))
+	defer origin.Close()
+
+	config := &Config{
+		Server: ServerConfig{},
+		Origins: []Origin{
+			{
+				Name:             "s3",
+				URL:              origin.URL,
+				PathPatterns:     []string{"/s3/*"},
+				StripPrefix:      "/s3",
+				TargetPrefix:     "/test-bucket",
+				RequireSignature: boolPtr(false),
+			},
+		},
+		Signing: SigningConfig{Enabled: false},
+	}
+
+	router := SetupRouter(config, nil)
+	req := httptest.NewRequest(http.MethodGet, "/s3/index.html", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	if got := resp.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("unexpected content-type: got=%s want-prefix=text/html", got)
+	}
+}
+
+func TestContentTypePreservedWhenOriginProvidesSpecificType(t *testing.T) {
+	t.Parallel()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "plain")
+	}))
+	defer origin.Close()
+
+	config := &Config{
+		Server: ServerConfig{},
+		Origins: []Origin{
+			{
+				Name:             "s3",
+				URL:              origin.URL,
+				PathPatterns:     []string{"/s3/*"},
+				StripPrefix:      "/s3",
+				TargetPrefix:     "/test-bucket",
+				RequireSignature: boolPtr(false),
+			},
+		},
+		Signing: SigningConfig{Enabled: false},
+	}
+
+	router := SetupRouter(config, nil)
+	req := httptest.NewRequest(http.MethodGet, "/s3/index.html", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	if got := resp.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content-type: got=%s want=text/plain; charset=utf-8", got)
 	}
 }
 

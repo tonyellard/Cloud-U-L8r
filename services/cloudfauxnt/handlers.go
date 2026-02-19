@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -114,6 +116,7 @@ func (ph *ProxyHandler) proxyToOrigin(w http.ResponseWriter, r *http.Request, or
 
 	// Customize response modifier to add CloudFront headers
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		normalizeResponseContentType(resp)
 		resp.Header.Set("X-Cache", "Miss from cloudfauxnt")
 		resp.Header.Set("X-Amz-Cf-Id", generateCloudFrontID())
 		resp.Header.Set("Via", "1.1 cloudfauxnt")
@@ -168,6 +171,31 @@ func applyDefaultRootObject(path, defaultRootObject string) string {
 	}
 
 	return path
+}
+
+func normalizeResponseContentType(resp *http.Response) {
+	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+		return
+	}
+
+	current := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	mediaType := strings.ToLower(strings.Split(current, ";")[0])
+	if mediaType != "" && mediaType != "application/octet-stream" {
+		return
+	}
+
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Disposition"))), "attachment") {
+		return
+	}
+
+	ext := strings.ToLower(path.Ext(resp.Request.URL.Path))
+	if ext == "" {
+		return
+	}
+
+	if guessed := mime.TypeByExtension(ext); guessed != "" {
+		resp.Header.Set("Content-Type", guessed)
+	}
 }
 
 // writeCloudFrontError writes an error response in CloudFront XML format
