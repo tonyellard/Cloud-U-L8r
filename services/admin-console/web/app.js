@@ -22,6 +22,15 @@ const kayVeeSecretValues = new Map();
 let kayVeeLabelParameterTarget = '';
 let kayVeeUpdateParameterTarget = null;
 
+const validViews = new Set([
+  'dashboard',
+  'ess-queue-ess',
+  'ess-enn-ess',
+  'kay-vee',
+  'essthree',
+  'cloudfauxnt',
+]);
+
 function displayServiceName(name) {
   if (name === 'essthree') return 'ess-three';
   return name;
@@ -42,6 +51,18 @@ function getServiceReadmeURL(serviceName) {
   const readmePath = readmePaths[serviceName];
   if (!readmePath) return '';
   return `${repoBaseURL}/blob/main/${readmePath}`;
+}
+
+function getAdminViewForService(serviceName) {
+  const viewMap = {
+    'ess-queue-ess': 'ess-queue-ess',
+    'ess-enn-ess': 'ess-enn-ess',
+    'kay-vee': 'kay-vee',
+    'essthree': 'essthree',
+    'cloudfauxnt': 'cloudfauxnt',
+  };
+
+  return viewMap[serviceName] || '';
 }
 
 const editableQueueAttributeKeys = [
@@ -90,30 +111,86 @@ function setActiveMenu(view) {
   if (activeBtn) activeBtn.classList.add('bg-slate-700');
 }
 
-function switchView(view) {
-  activeView = view;
-  setActiveMenu(view);
+function normalizeView(view) {
+  if (!view || !validViews.has(view)) {
+    return 'dashboard';
+  }
+  return view;
+}
+
+function getViewFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeView(params.get('view'));
+}
+
+function relativeURLForView(view) {
+  const url = new URL(window.location.href);
+  if (view === 'dashboard') {
+    url.searchParams.delete('view');
+  } else {
+    url.searchParams.set('view', view);
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function writeHistoryState(view, mode = 'push') {
+  const state = { view };
+  const relativeURL = relativeURLForView(view);
+  if (mode === 'replace') {
+    window.history.replaceState(state, '', relativeURL);
+    return;
+  }
+  window.history.pushState(state, '', relativeURL);
+}
+
+function sortMenuServicesAlphabetically() {
+  const nav = document.querySelector('aside nav');
+  if (!nav) return;
+
+  const dashboardButton = document.getElementById('menu-dashboard');
+  const serviceButtons = Array.from(nav.querySelectorAll('.menu-btn'))
+    .filter((button) => button.id !== 'menu-dashboard')
+    .sort((a, b) => a.textContent.trim().localeCompare(b.textContent.trim(), undefined, { sensitivity: 'base' }));
+
+  if (dashboardButton) {
+    nav.appendChild(dashboardButton);
+  }
+  serviceButtons.forEach((button) => nav.appendChild(button));
+}
+
+function switchView(view, options = {}) {
+  const nextView = normalizeView(view);
+  const changed = nextView !== activeView;
+  const updateHistory = options.updateHistory !== false;
+  const historyMode = options.historyMode || 'push';
+
+  activeView = nextView;
+  setActiveMenu(nextView);
   setAlert('');
+
+  if (updateHistory && (changed || historyMode === 'replace')) {
+    writeHistoryState(nextView, historyMode);
+  }
 
   const title = document.getElementById('view-title');
   const subtitle = document.getElementById('view-subtitle');
-  if (view === 'dashboard') {
+  if (nextView === 'dashboard') {
     title.textContent = 'Dashboard';
     subtitle.textContent = 'Live status of active emulator surface';
     loadDashboard();
-  } else if (view === 'ess-queue-ess') {
+  } else if (nextView === 'ess-queue-ess') {
     title.textContent = 'ess-queue-ess';
     subtitle.textContent = 'Queue operations and non-mutating message inspection';
     loadQueues();
-  } else if (view === 'ess-enn-ess') {
+  } else if (nextView === 'ess-enn-ess') {
     title.textContent = 'ess-enn-ess';
     subtitle.textContent = 'Topic, subscription, and publish operations';
     loadPubSubState();
-  } else if (view === 'kay-vee') {
+  } else if (nextView === 'kay-vee') {
     title.textContent = 'kay-vee';
     subtitle.textContent = 'Parameter Store + Secrets Manager emulator admin surface';
     loadKayVeeOverview();
-  } else if (view === 'essthree') {
+  } else if (nextView === 'essthree') {
     title.textContent = 'ess-three';
     subtitle.textContent = 'Informational ess-three surface summary (more admin actions coming soon)';
     loadEssThreeSummary();
@@ -123,7 +200,7 @@ function switchView(view) {
     loadCloudfauxntSummary();
   }
 
-  connectSSE(view);
+    connectSSE(nextView);
 }
 
 async function apiGet(path) {
@@ -158,8 +235,16 @@ async function loadDashboard() {
 }
 
 function renderDashboard(data) {
-  const serviceRows = (data.services || []).map((service) => {
+  const sortedServices = [...(data.services || [])].sort((a, b) => (
+    displayServiceName(a.name).localeCompare(displayServiceName(b.name), undefined, { sensitivity: 'base' })
+  ));
+
+  const serviceRows = sortedServices.map((service) => {
     const serviceReadmeURL = getServiceReadmeURL(service.name);
+    const serviceAdminView = getAdminViewForService(service.name);
+    const serviceTitle = serviceAdminView
+      ? `<button class="font-medium text-blue-700 hover:text-blue-900 hover:underline" title="Open ${displayServiceName(service.name)} admin view" aria-label="Open ${displayServiceName(service.name)} admin view" onclick="switchView('${serviceAdminView}')">${displayServiceName(service.name)}</button>`
+      : `<div class="font-medium">${displayServiceName(service.name)}</div>`;
     const badge = service.status === 'online'
       ? '<span class="px-2 py-1 rounded text-xs bg-emerald-100 text-emerald-800">online</span>'
       : '<span class="px-2 py-1 rounded text-xs bg-red-100 text-red-800">offline</span>';
@@ -171,7 +256,7 @@ function renderDashboard(data) {
     return `
       <div class="bg-white rounded border p-4 flex items-start gap-4">
         <div class="w-48 shrink-0">
-          <div class="font-medium">${displayServiceName(service.name)}</div>
+          ${serviceTitle}
           <div class="mt-1">${badge}</div>
         </div>
         <div class="flex-1">
@@ -2302,4 +2387,11 @@ document.getElementById('menu-kay-vee').addEventListener('click', () => switchVi
 document.getElementById('menu-essthree').addEventListener('click', () => switchView('essthree'));
 document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
 
-switchView('dashboard');
+window.addEventListener('popstate', (event) => {
+  const stateView = event.state?.view;
+  const nextView = normalizeView(stateView || getViewFromLocation());
+  switchView(nextView, { updateHistory: false });
+});
+
+sortMenuServicesAlphabetically();
+switchView(getViewFromLocation(), { historyMode: 'replace' });
