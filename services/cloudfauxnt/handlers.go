@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -85,13 +87,12 @@ func (ph *ProxyHandler) proxyToOrigin(w http.ResponseWriter, r *http.Request, or
 			req.URL.Path = strings.TrimPrefix(req.URL.Path, origin.StripPrefix)
 		}
 
-		// Apply default root object before adding target prefix
-		// Check if the path is "/" or empty (both mean root) and if so, rewrite to the configured default
-		if req.URL.Path == "" || req.URL.Path == "/" {
-			if origin.DefaultRootObject != nil && *origin.DefaultRootObject != "" {
-				req.URL.Path = "/" + *origin.DefaultRootObject
-			} else if ph.config.Server.DefaultRootObject != "" {
-				req.URL.Path = "/" + ph.config.Server.DefaultRootObject
+		// Apply default root object before adding target prefix.
+		// For GET/HEAD, normalize both directory-style paths ending with "/"
+		// and directory-style paths without a trailing slash.
+		if req.Method == http.MethodGet || req.Method == http.MethodHead {
+			if defaultRootObject := ph.defaultRootObjectForOrigin(origin); defaultRootObject != "" {
+				req.URL.Path = applyDefaultRootObject(req.URL.Path, defaultRootObject)
 			}
 		}
 
@@ -115,6 +116,7 @@ func (ph *ProxyHandler) proxyToOrigin(w http.ResponseWriter, r *http.Request, or
 
 	// Customize response modifier to add CloudFront headers
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		normalizeResponseContentType(resp)
 		resp.Header.Set("X-Cache", "Miss from cloudfauxnt")
 		resp.Header.Set("X-Amz-Cf-Id", generateCloudFrontID())
 		resp.Header.Set("Via", "1.1 cloudfauxnt")
@@ -131,6 +133,69 @@ func (ph *ProxyHandler) proxyToOrigin(w http.ResponseWriter, r *http.Request, or
 	// Serve the proxy request
 	proxy.ServeHTTP(w, r)
 	return nil
+}
+
+func (ph *ProxyHandler) defaultRootObjectForOrigin(origin *Origin) string {
+	if origin.DefaultRootObject != nil && *origin.DefaultRootObject != "" {
+		return *origin.DefaultRootObject
+	}
+
+	return ph.config.Server.DefaultRootObject
+}
+
+func applyDefaultRootObject(path, defaultRootObject string) string {
+	if defaultRootObject == "" {
+		return path
+	}
+
+	if path == "" {
+		return "/" + defaultRootObject
+	}
+
+	if path == "/" {
+		return "/" + defaultRootObject
+	}
+
+	if strings.HasSuffix(path, "/") {
+		return path + defaultRootObject
+	}
+
+	lastSlash := strings.LastIndex(path, "/")
+	lastSegment := path
+	if lastSlash >= 0 {
+		lastSegment = path[lastSlash+1:]
+	}
+
+	if lastSegment != "" && !strings.Contains(lastSegment, ".") {
+		return path + "/" + defaultRootObject
+	}
+
+	return path
+}
+
+func normalizeResponseContentType(resp *http.Response) {
+	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+		return
+	}
+
+	current := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	mediaType := strings.ToLower(strings.Split(current, ";")[0])
+	if mediaType != "" && mediaType != "application/octet-stream" {
+		return
+	}
+
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Disposition"))), "attachment") {
+		return
+	}
+
+	ext := strings.ToLower(path.Ext(resp.Request.URL.Path))
+	if ext == "" {
+		return
+	}
+
+	if guessed := mime.TypeByExtension(ext); guessed != "" {
+		resp.Header.Set("Content-Type", guessed)
+	}
 }
 
 // writeCloudFrontError writes an error response in CloudFront XML format
