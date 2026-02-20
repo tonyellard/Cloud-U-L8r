@@ -1,4 +1,4 @@
-module github.com/tony/ess-three
+module github.com/tonyellard/essthree
 
 go 1.23
 

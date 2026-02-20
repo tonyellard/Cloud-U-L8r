@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/tony/ess-three/internal/server"
-	"github.com/tony/ess-three/internal/storage"
+	"github.com/tonyellard/essthree/internal/server"
+	"github.com/tonyellard/essthree/internal/storage"
 )
 
 func main() {

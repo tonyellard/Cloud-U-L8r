@@ -1,6 +1,6 @@
 module github.com/tonyellard/ess-enn-ess
 
-go 1.21
+go 1.23
 
 require (
 	github.com/tonyellard/cloud-u-l8r/pkg/health v0.0.0
