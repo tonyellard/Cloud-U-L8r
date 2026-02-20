@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tony/ess-three/internal/storage"
+	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 )
 
 // S3 XML response structures
@@ -45,14 +46,6 @@ type Contents struct {
 	ETag         string    `xml:"ETag"`
 	Size         int64     `xml:"Size"`
 	StorageClass string    `xml:"StorageClass"`
-}
-
-type Error struct {
-	XMLName   xml.Name `xml:"Error"`
-	Code      string   `xml:"Code"`
-	Message   string   `xml:"Message"`
-	Resource  string   `xml:"Resource"`
-	RequestId string   `xml:"RequestId"`
 }
 
 type InitiateMultipartUploadResult struct {
@@ -141,7 +134,7 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -311,16 +304,16 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		// Parse range header
 		rangeStart, rangeEnd, err := parseRangeHeader(rangeHeader)
 		if err != nil {
-			s.sendError(w, r, "InvalidRange", err.Error(), http.StatusRequestedRangeNotSatisfiable)
+			awserrors.WriteXML(w, r, "InvalidRange", err.Error(), http.StatusRequestedRangeNotSatisfiable)
 			return
 		}
 
 		reader, metadata, start, end, err := s.storage.GetObjectRange(bucket, key, rangeStart, rangeEnd)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				s.sendError(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
+				awserrors.WriteXML(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
 			} else {
-				s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+				awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -349,9 +342,9 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		reader, metadata, err := s.storage.GetObject(bucket, key)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				s.sendError(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
+				awserrors.WriteXML(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
 			} else {
-				s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+				awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -437,7 +430,7 @@ func (s *Server) handlePutObject(w http.ResponseWriter, r *http.Request) {
 
 	objMetadata, err := s.storage.PutObject(bucket, key, r.Body, metadata, contentType)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -491,7 +484,7 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 
 	err := s.storage.DeleteObject(bucket, key)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -505,7 +498,7 @@ func (s *Server) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 	// Parse delete request
 	var deleteReq DeleteRequest
 	if err := xml.NewDecoder(r.Body).Decode(&deleteReq); err != nil {
-		s.sendError(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
+		awserrors.WriteXML(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
 		return
 	}
 
@@ -565,7 +558,7 @@ func (s *Server) handleCreateMultipartUpload(w http.ResponseWriter, r *http.Requ
 
 	upload, err := s.storage.CreateMultipartUpload(bucket, key, contentType, metadata)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -590,13 +583,13 @@ func (s *Server) handleUploadPart(w http.ResponseWriter, r *http.Request) {
 
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil {
-		s.sendError(w, r, "InvalidArgument", "Invalid part number", http.StatusBadRequest)
+		awserrors.WriteXML(w, r, "InvalidArgument", "Invalid part number", http.StatusBadRequest)
 		return
 	}
 
 	part, err := s.storage.UploadPart(bucket, key, uploadID, partNumber, r.Body)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -613,7 +606,7 @@ func (s *Server) handleCompleteMultipartUpload(w http.ResponseWriter, r *http.Re
 	// Parse complete request
 	var completeReq CompleteMultipartUploadRequest
 	if err := xml.NewDecoder(r.Body).Decode(&completeReq); err != nil {
-		s.sendError(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
+		awserrors.WriteXML(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
 		return
 	}
 
@@ -629,7 +622,7 @@ func (s *Server) handleCompleteMultipartUpload(w http.ResponseWriter, r *http.Re
 	// Complete the upload
 	objMeta, err := s.storage.CompleteMultipartUpload(bucket, key, uploadID, parts)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -654,27 +647,11 @@ func (s *Server) handleAbortMultipartUpload(w http.ResponseWriter, r *http.Reque
 
 	err := s.storage.AbortMultipartUpload(bucket, key, uploadID)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// sendError sends an S3-formatted error response
-func (s *Server) sendError(w http.ResponseWriter, r *http.Request, code, message string, statusCode int) {
-	errorResp := Error{
-		Code:      code,
-		Message:   message,
-		Resource:  r.URL.Path,
-		RequestId: r.Header.Get("X-Request-ID"),
-	}
-
-	w.Header().Set("Content-Type", "application/xml")
-	w.Header().Set("Server", "ess-three")
-	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
-	w.WriteHeader(statusCode)
-	xml.NewEncoder(w).Encode(errorResp)
 }
 
 func (s *Server) objectKey(r *http.Request) string {

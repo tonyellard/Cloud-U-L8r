@@ -5,7 +5,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"net/http/httputil"
@@ -16,6 +15,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
+	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 )
 
 // ProxyHandler handles incoming requests and proxies them to origins
@@ -37,7 +38,7 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Find matching origin first to determine signature requirement and default root object
 	origin, err := ph.config.FindOrigin(r.URL.Path)
 	if err != nil {
-		ph.writeCloudFrontError(w, "NoSuchKey", "The specified path does not match any configured origin", http.StatusNotFound)
+		awserrors.WriteCloudFrontXML(w, "NoSuchKey", "The specified path does not match any configured origin", generateCloudFrontID(), http.StatusNotFound)
 		return
 	}
 
@@ -51,14 +52,14 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Validate signature if required
 	if requireSignature {
 		if err := ph.validator.ValidateRequest(r); err != nil {
-			ph.writeCloudFrontError(w, "AccessDenied", err.Error(), http.StatusForbidden)
+			awserrors.WriteCloudFrontXML(w, "AccessDenied", err.Error(), generateCloudFrontID(), http.StatusForbidden)
 			return
 		}
 	}
 
 	// Proxy to origin
 	if err := ph.proxyToOrigin(w, r, origin); err != nil {
-		ph.writeCloudFrontError(w, "ServiceUnavailable", err.Error(), http.StatusServiceUnavailable)
+		awserrors.WriteCloudFrontXML(w, "ServiceUnavailable", err.Error(), generateCloudFrontID(), http.StatusServiceUnavailable)
 		return
 	}
 }
@@ -127,7 +128,7 @@ func (ph *ProxyHandler) proxyToOrigin(w http.ResponseWriter, r *http.Request, or
 
 	// Handle errors
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		ph.writeCloudFrontError(w, "BadGateway", fmt.Sprintf("Failed to reach origin: %v", err), http.StatusBadGateway)
+		awserrors.WriteCloudFrontXML(w, "BadGateway", fmt.Sprintf("Failed to reach origin: %v", err), generateCloudFrontID(), http.StatusBadGateway)
 	}
 
 	// Serve the proxy request
@@ -198,35 +199,10 @@ func normalizeResponseContentType(resp *http.Response) {
 	}
 }
 
-// writeCloudFrontError writes an error response in CloudFront XML format
-func (ph *ProxyHandler) writeCloudFrontError(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "application/xml")
-	w.Header().Set("X-Amz-Cf-Id", generateCloudFrontID())
-	w.Header().Set("Server", "CloudFauxnt")
-	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
-	w.WriteHeader(status)
-
-	errorXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<Error>
-  <Code>%s</Code>
-  <Message>%s</Message>
-  <RequestId>%s</RequestId>
-</Error>`, code, message, generateCloudFrontID())
-
-	io.WriteString(w, errorXML)
-}
-
 // generateCloudFrontID generates a unique CloudFront request ID
 func generateCloudFrontID() string {
 	id := uuid.New().String()
 	return strings.ToUpper(strings.ReplaceAll(id, "-", ""))
-}
-
-// HealthHandler handles health check requests
-func HealthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, `{"status":"healthy","service":"cloudfauxnt"}`)
 }
 
 // SetupRouter configures the Chi router with all routes
@@ -240,7 +216,7 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 	}
 
 	// Health check endpoint
-	r.Get("/health", HealthHandler)
+	r.Get("/health", health.Handler("cloudfauxnt"))
 	r.Get("/admin/api/overview", func(w http.ResponseWriter, r *http.Request) {
 		type originOverview struct {
 			Name              string   `json:"name"`

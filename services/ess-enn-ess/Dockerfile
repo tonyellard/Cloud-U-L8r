@@ -1,21 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /build
 
 # Install dependencies
 RUN apk add --no-cache git
 
-# Copy go mod and sum
-COPY go.mod go.sum ./
+# Copy shared packages
+COPY pkg/ ./pkg/
 
-# Download dependencies
+# Copy service module files and download deps
+COPY services/ess-enn-ess/go.mod services/ess-enn-ess/go.sum ./services/ess-enn-ess/
+WORKDIR /build/services/ess-enn-ess
 RUN go mod download
 
-# Copy source code
-COPY . .
+# Copy service source code
+WORKDIR /build
+COPY services/ess-enn-ess/ ./services/ess-enn-ess/
 
 # Build the application
+WORKDIR /build/services/ess-enn-ess
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o ess-enn-ess ./cmd/ess-enn-ess
 
 # Runtime stage
@@ -27,7 +32,7 @@ WORKDIR /app
 RUN apk --no-cache add ca-certificates
 
 # Copy binary from builder
-COPY --from=builder /build/ess-enn-ess .
+COPY --from=builder /build/services/ess-enn-ess/ess-enn-ess .
 
 # Create data directory
 RUN mkdir -p /app/data

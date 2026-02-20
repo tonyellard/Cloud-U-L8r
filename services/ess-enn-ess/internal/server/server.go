@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 	"github.com/tonyellard/ess-enn-ess/internal/activity"
 	"github.com/tonyellard/ess-enn-ess/internal/config"
 	"github.com/tonyellard/ess-enn-ess/internal/delivery"
@@ -45,7 +46,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *Server {
 // registerRoutes registers all SNS API routes
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/", s.handleSNSRequest)
-	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/health", health.Handler("ess-enn-ess"))
 }
 
 // RegisterAdminRoutes registers the admin dashboard routes on the same server
@@ -54,17 +55,6 @@ func (s *Server) RegisterAdminRoutes(dashboardHandler http.HandlerFunc, apiHandl
 	for path, handler := range apiHandlers {
 		s.mux.HandleFunc(path, handler)
 	}
-}
-
-// handleHealth handles health check requests
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "OK")
 }
 
 // handleSNSRequest handles SNS API requests

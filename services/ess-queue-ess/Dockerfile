@@ -1,34 +1,37 @@
-FROM golang:1.23-bookworm AS builder
+# SPDX-License-Identifier: Apache-2.0
+# Build stage
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /build
 
-# Copy go mod files
-COPY go.mod go.sum* ./
+# Copy shared packages
+COPY pkg/ ./pkg/
+
+# Copy service module files and download deps
+COPY services/ess-queue-ess/go.mod services/ess-queue-ess/go.sum* ./services/ess-queue-ess/
+WORKDIR /build/services/ess-queue-ess
 RUN go mod download
 
-# Copy source code
-COPY *.go ./
-COPY admin.html ./
-
-# Copy license files to builder stage
-COPY LICENSE NOTICE ./
+# Copy service source code
+WORKDIR /build
+COPY services/ess-queue-ess/ ./services/ess-queue-ess/
 
 # Build the application
+WORKDIR /build/services/ess-queue-ess
 RUN CGO_ENABLED=0 GOOS=linux go build -o ess-queue-ess .
 
 # Final stage
-FROM debian:bookworm-slim
+FROM alpine:latest
 
-# Install ca-certificates
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /build/ess-queue-ess .
+COPY --from=builder /build/services/ess-queue-ess/ess-queue-ess .
 
 # Copy license files
-COPY --from=builder /build/LICENSE /build/NOTICE ./
+COPY services/ess-queue-ess/LICENSE services/ess-queue-ess/NOTICE ./
 
 # Create directory for queue data and config
 RUN mkdir -p /app/data /app/config

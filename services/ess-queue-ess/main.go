@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 )
 
 func main() {
@@ -50,7 +51,7 @@ func main() {
 	r.Use(middleware.RequestID)
 
 	// Routes
-	r.Get("/health", healthHandler)
+	r.Get("/health", health.Handler("ess-queue-ess"))
 	r.Get("/admin", adminUIHandler)
 	r.Get("/admin/api/queues", adminAPIHandler)
 	r.Post("/admin/api/queue", adminCreateQueueHandler)

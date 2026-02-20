@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 )
 
 //go:embed admin.html
@@ -43,7 +44,7 @@ func sqsHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Fall back to Query protocol (form-encoded)
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		action = r.FormValue("Action")
@@ -77,7 +78,7 @@ func sqsHandler(w http.ResponseWriter, r *http.Request) {
 	case "CancelMessageMoveTask":
 		handleCancelMessageMoveTask(w, r)
 	default:
-		sendError(w, "InvalidAction", "Unknown action: "+action, http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "InvalidAction", "Unknown action: "+action, http.StatusBadRequest)
 	}
 }
 
@@ -134,7 +135,7 @@ func handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Amz-Target") != "" {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -154,7 +155,7 @@ func handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		queueName = r.FormValue("QueueName")
@@ -162,13 +163,13 @@ func handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if queueName == "" {
-		sendError(w, "MissingParameter", "QueueName is required", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "MissingParameter", "QueueName is required", http.StatusBadRequest)
 		return
 	}
 
 	queue, err := queueManager.CreateQueue(queueName, attributes)
 	if err != nil {
-		sendError(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXMLWrapped(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -200,7 +201,7 @@ func handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Amz-Target") != "" {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -210,7 +211,7 @@ func handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		queueURL = r.FormValue("QueueUrl")
@@ -224,7 +225,7 @@ func handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
 		}
 		sendXMLResponse(w, DeleteQueueResponse{})
 	} else {
-		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
 	}
 }
 
@@ -235,7 +236,7 @@ func handleListQueues(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Amz-Target") != "" {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -245,7 +246,7 @@ func handleListQueues(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		prefix = r.FormValue("QueueNamePrefix")
@@ -289,7 +290,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Amz-Target") != "" {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -317,7 +318,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		queueURL = r.FormValue("QueueUrl")
@@ -332,7 +333,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
 		return
 	}
 
@@ -378,7 +379,7 @@ func handleReceiveMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Amz-Target") != "" {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -397,7 +398,7 @@ func handleReceiveMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 		queueURL = r.FormValue("QueueUrl")
@@ -413,7 +414,7 @@ func handleReceiveMessage(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
 		return
 	}
 
@@ -458,7 +459,7 @@ func handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	if isJSON {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -471,7 +472,7 @@ func handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		queueURL = r.FormValue("QueueUrl")
@@ -482,7 +483,7 @@ func handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
 		return
 	}
 
@@ -496,7 +497,7 @@ func handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 			sendXMLResponse(w, DeleteMessageResponse{})
 		}
 	} else {
-		sendError(w, "ReceiptHandleIsInvalid", "Invalid receipt handle", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "ReceiptHandleIsInvalid", "Invalid receipt handle", http.StatusBadRequest)
 	}
 }
 
@@ -508,7 +509,7 @@ func handleGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	if isJSON {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -518,7 +519,7 @@ func handleGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		queueURL = r.FormValue("QueueUrl")
@@ -528,7 +529,7 @@ func handleGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
 		return
 	}
 
@@ -577,7 +578,7 @@ func handleSetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	if isJSON {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -601,7 +602,7 @@ func handleSetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		queueURL = r.FormValue("QueueUrl")
@@ -610,18 +611,18 @@ func handleSetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 
 	queueName := extractQueueName(queueURL)
 	if queueName == "" {
-		sendError(w, "MissingParameter", "QueueUrl is required", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "MissingParameter", "QueueUrl is required", http.StatusBadRequest)
 		return
 	}
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
 		return
 	}
 
 	if err := queue.SetAttributes(attributes); err != nil {
-		sendError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -643,7 +644,7 @@ func handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Amz-Target") != "" {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -653,7 +654,7 @@ func handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Form-encoded request
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		queueURL = r.FormValue("QueueUrl")
@@ -663,7 +664,7 @@ func handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		sendError(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
 		return
 	}
 
@@ -747,35 +748,6 @@ func sendResponse(w http.ResponseWriter, r *http.Request, xmlData interface{}, j
 	} else {
 		sendXMLResponse(w, xmlData)
 	}
-}
-
-func sendError(w http.ResponseWriter, code string, message string, status int) {
-	type ErrorResponse struct {
-		XMLName xml.Name `xml:"ErrorResponse"`
-		Error   struct {
-			Type    string `xml:"Type"`
-			Code    string `xml:"Code"`
-			Message string `xml:"Message"`
-		} `xml:"Error"`
-	}
-
-	resp := ErrorResponse{}
-	resp.Error.Type = "Sender"
-	resp.Error.Code = code
-	resp.Error.Message = message
-
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-
-	encoder := xml.NewEncoder(w)
-	encoder.Indent("", "  ")
-	encoder.Encode(resp)
-}
-
-// Health check handler
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // Root handler
@@ -1091,7 +1063,7 @@ func handleStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 	if isJSON {
 		jsonBody, err := parseRequestJSON(r)
 		if err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse JSON request", http.StatusBadRequest)
 			return
 		}
 
@@ -1106,7 +1078,7 @@ func handleStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if err := r.ParseForm(); err != nil {
-			sendError(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "InvalidParameterValue", "Failed to parse request", http.StatusBadRequest)
 			return
 		}
 		sourceArn = r.FormValue("SourceArn")
@@ -1125,7 +1097,7 @@ func handleStartMessageMoveTask(w http.ResponseWriter, r *http.Request) {
 		// Get the source queue from DLQ and find which queue has this as their DLQ
 		_, exists := queueManager.GetQueue(sourceName)
 		if !exists {
-			sendError(w, "NonExistentQueue", "Source queue does not exist", http.StatusBadRequest)
+			awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Source queue does not exist", http.StatusBadRequest)
 			return
 		}
 
