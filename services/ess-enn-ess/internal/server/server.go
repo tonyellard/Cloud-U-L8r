@@ -176,21 +176,40 @@ func (s *Server) handleGetTopicAttributes(w http.ResponseWriter, r *http.Request
 	topicArn := r.FormValue("TopicArn")
 	if topicArn == "" {
 		s.activityLogger.LogError(activity.EventTypeGetAttributes, "", "", "topic arn is required", nil)
+		http.Error(w, "TopicArn is required", http.StatusBadRequest)
 		return
 	}
 
-	_, err := s.topicStore.GetAttributes(topicArn)
+	attrs, err := s.topicStore.GetAttributes(topicArn)
 	if err != nil {
 		s.activityLogger.LogError(activity.EventTypeGetAttributes, topicArn, "", err.Error(), nil)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
+	// Get the topic for additional built-in attributes
+	topic, _ := s.topicStore.GetTopic(topicArn)
+
 	duration := time.Since(start)
 	s.activityLogger.LogWithDuration(activity.EventTypeGetAttributes, topicArn, activity.StatusSuccess, duration, nil)
 
-	w.Header().Set("Content-Type", "application/x-www-form-urlencoded")
-	fmt.Fprint(w, "<?xml version=\"1.0\"?><GetTopicAttributesResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\"><GetTopicAttributesResult><Attributes></Attributes></GetTopicAttributesResult><ResponseMetadata></ResponseMetadata></GetTopicAttributesResponse>")
+	// Build attribute entries XML
+	attrsXML := ""
+	// Standard SNS topic attributes
+	attrsXML += fmt.Sprintf("<entry><key>TopicArn</key><value>%s</value></entry>", topicArn)
+	if topic != nil {
+		attrsXML += fmt.Sprintf("<entry><key>DisplayName</key><value>%s</value></entry>", topic.DisplayName)
+		attrsXML += fmt.Sprintf("<entry><key>SubscriptionsConfirmed</key><value>%d</value></entry>", topic.SubscriptionCount)
+		attrsXML += "<entry><key>SubscriptionsPending</key><value>0</value></entry>"
+		attrsXML += "<entry><key>SubscriptionsDeleted</key><value>0</value></entry>"
+	}
+	// Custom attributes
+	for k, v := range attrs {
+		attrsXML += fmt.Sprintf("<entry><key>%s</key><value>%s</value></entry>", k, v)
+	}
+
+	w.Header().Set("Content-Type", "text/xml")
+	fmt.Fprintf(w, `<?xml version="1.0"?><GetTopicAttributesResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><GetTopicAttributesResult><Attributes>%s</Attributes></GetTopicAttributesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetTopicAttributesResponse>`, attrsXML, generateRequestId())
 }
 
 // handleSetTopicAttributes sets a topic attribute

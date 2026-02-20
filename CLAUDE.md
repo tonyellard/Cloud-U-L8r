@@ -13,6 +13,9 @@ Cloud-U-L8r/
 │   ├── ess-enn-ess.config.yaml
 │   └── ess-queue-ess.config.yaml
 ├── docs/                            # Architecture docs (kay-vee planning)
+├── pkg/                             # Shared Go packages
+│   ├── awserrors/                   # AWS-compatible error formatting (XML, JSON, CloudFront)
+│   └── health/                      # Standardized health check handler
 ├── services/
 │   ├── essthree/                    # S3 emulator (port 9300)
 │   ├── cloudfauxnt/                 # CloudFront emulator (port 9310)
@@ -23,7 +26,7 @@ Cloud-U-L8r/
 ├── tests/integration/               # Cross-service integration tests
 ├── docker-compose.yml               # Full stack orchestration
 ├── Makefile                         # Primary build/run interface
-├── go.work                          # Go workspace (all 6 services)
+├── go.work                          # Go workspace (all 6 services + shared packages)
 ├── start-stack.sh                   # Stack startup script
 ├── cleanup-stack.sh                 # Comprehensive container cleanup
 ├── verify-stack.sh                  # Health-check all services
@@ -35,17 +38,16 @@ Cloud-U-L8r/
 | Service | Port | Emulates | Router | Entry Point |
 |---------|------|----------|--------|-------------|
 | **essthree** | 9300 | S3 | chi | `cmd/ess-three/main.go` |
-| **cloudfauxnt** | 9310 | CloudFront | chi | `main.go` (root) |
-| **ess-queue-ess** | 9320 | SQS | chi | `main.go` (root) |
+| **cloudfauxnt** | 9310 | CloudFront | chi | `cmd/cloudfauxnt/main.go` |
+| **ess-queue-ess** | 9320 | SQS | chi | `cmd/ess-queue-ess/main.go` |
 | **ess-enn-ess** | 9330 | SNS | stdlib | `cmd/ess-enn-ess/main.go` |
 | **kay-vee** | 9350 | SSM + Secrets Manager | stdlib | `cmd/kay-vee/main.go` |
 | **admin-console** | 9999 | Admin dashboard | chi | `cmd/admin-console/main.go` |
 
 ### Service Internal Layouts
 
-Services follow one of two layout patterns:
+All services follow the same `cmd/` + `internal/` layout pattern:
 
-**Pattern A — `cmd/` + `internal/` (structured):** essthree, ess-enn-ess, kay-vee, admin-console
 ```
 service/
 ├── cmd/<service-name>/main.go    # Entry point
@@ -54,17 +56,6 @@ service/
 │   ├── storage/                  # Data storage layer (where applicable)
 │   ├── model/                    # Data types (where applicable)
 │   └── <domain>/                 # Domain packages (ess-enn-ess has topic/, subscription/, delivery/, etc.)
-├── Dockerfile
-└── go.mod
-```
-
-**Pattern B — Flat layout:** cloudfauxnt, ess-queue-ess
-```
-service/
-├── main.go                       # Entry point
-├── handlers.go                   # HTTP handlers
-├── config.go                     # Configuration loading
-├── <domain>.go                   # Domain logic (queue.go, signing.go, cors.go, etc.)
 ├── Dockerfile
 └── go.mod
 ```
@@ -101,7 +92,7 @@ Or all at once:
 make test
 ```
 
-Unit tests use `httptest.NewRequest` / `httptest.NewRecorder` for HTTP handler testing. Services with Go unit tests: **essthree**, **cloudfauxnt**, **kay-vee**, **admin-console**.
+Unit tests use `httptest.NewRequest` / `httptest.NewRecorder` for HTTP handler testing. Services with Go unit tests: **essthree**, **cloudfauxnt**, **ess-queue-ess**, **ess-enn-ess**, **kay-vee**, **admin-console**.
 
 ### Integration Tests
 
@@ -135,7 +126,7 @@ go build ./services/essthree/...
 go test ./services/kay-vee/...
 ```
 
-Go version: **1.23** for most services (ess-enn-ess uses 1.21). Workspace requires Go **1.25.6+**.
+Go version: **1.23** for all services. Workspace requires Go **1.24.7+**.
 
 ### Dependencies
 
@@ -143,12 +134,12 @@ Services are intentionally minimal in external dependencies:
 
 | Service | External Dependencies |
 |---------|----------------------|
-| essthree | `go-chi/chi` v5 |
-| cloudfauxnt | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3` |
-| ess-queue-ess | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3` |
-| ess-enn-ess | `gopkg.in/yaml.v3` only |
-| kay-vee | **None** (stdlib only) |
-| admin-console | `go-chi/chi` v5 |
+| essthree | `go-chi/chi` v5, `pkg/awserrors`, `pkg/health` |
+| cloudfauxnt | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3`, `pkg/health` |
+| ess-queue-ess | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3`, `pkg/awserrors`, `pkg/health` |
+| ess-enn-ess | `gopkg.in/yaml.v3`, `pkg/health` |
+| kay-vee | `pkg/awserrors`, `pkg/health` |
+| admin-console | `go-chi/chi` v5, `pkg/awserrors`, `pkg/health` |
 
 ## Docker
 
@@ -263,11 +254,13 @@ All services use the 93xx range with 10-port increments:
 | Task | Files to Look At |
 |------|-----------------|
 | Add a new S3 operation | `services/essthree/internal/server/handlers.go`, `server.go` |
-| Modify CloudFront proxy | `services/cloudfauxnt/handlers.go`, `config.go` |
-| Add SQS action | `services/ess-queue-ess/handlers.go`, `queue.go` |
+| Modify CloudFront proxy | `services/cloudfauxnt/internal/server/handlers.go`, `config.go` |
+| Add SQS action | `services/ess-queue-ess/internal/server/handlers.go`, `queue.go` |
 | Add SNS operation | `services/ess-enn-ess/internal/server/handlers.go` |
 | Add SSM/Secrets Manager operation | `services/kay-vee/internal/server/router.go`, `internal/storage/store.go` |
 | Modify admin dashboard | `services/admin-console/internal/server/server.go`, `web/` directory |
+| Add shared error handling | `pkg/awserrors/errors.go` |
+| Add shared health behavior | `pkg/health/health.go` |
 | Change service config | `config/<service>.config.yaml` |
 | Update Docker build | `services/<service>/Dockerfile`, `docker-compose.yml` |
 | Add integration test | `tests/integration/test_cross_service.sh` |

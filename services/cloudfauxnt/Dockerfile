@@ -18,7 +18,7 @@ COPY services/cloudfauxnt/ ./services/cloudfauxnt/
 
 # Build the application
 WORKDIR /build/services/cloudfauxnt
-RUN CGO_ENABLED=0 GOOS=linux go build -o cloudfauxnt .
+RUN CGO_ENABLED=0 GOOS=linux go build -o cloudfauxnt ./cmd/cloudfauxnt
 
 # Final stage
 FROM alpine:latest

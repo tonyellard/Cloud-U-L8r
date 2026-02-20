@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/tonyellard/cloudfauxnt/internal/server"
 )
 
 func main() {
@@ -17,7 +19,7 @@ func main() {
 
 	// Load configuration
 	log.Printf("Loading configuration from %s", *configPath)
-	config, err := LoadConfig(*configPath)
+	config, err := server.LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
@@ -28,13 +30,13 @@ func main() {
 	}
 
 	// Initialize signature validator if signing is enabled
-	var validator *SignatureValidator
+	var validator *server.SignatureValidator
 	if config.Signing.Enabled {
 		clockSkew := config.Signing.TokenOptions.ClockSkewSeconds
 		if clockSkew == 0 {
 			clockSkew = 30 // Default 30 seconds clock skew
 		}
-		validator = NewSignatureValidator(config.Signing.PublicKey, config.Signing.KeyPairID, clockSkew)
+		validator = server.NewSignatureValidator(config.Signing.PublicKey, config.Signing.KeyPairID, clockSkew)
 		log.Printf("CloudFront signature validation enabled (Key Pair ID: %s, Clock Skew: %d seconds)",
 			config.Signing.KeyPairID, clockSkew)
 	} else {
@@ -42,11 +44,11 @@ func main() {
 	}
 
 	// Setup router
-	router := SetupRouter(config, validator)
+	router := server.SetupRouter(config, validator)
 
 	// Configure HTTP server
 	addr := fmt.Sprintf("%s:%d", config.Server.Host, config.Server.Port)
-	server := &http.Server{
+	srv := &http.Server{
 		Addr:         addr,
 		Handler:      router,
 		ReadTimeout:  time.Duration(config.Server.TimeoutSeconds) * time.Second,
@@ -56,7 +58,7 @@ func main() {
 
 	// Start server
 	log.Printf("CloudFauxnt listening on %s", addr)
-	if err := server.ListenAndServe(); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

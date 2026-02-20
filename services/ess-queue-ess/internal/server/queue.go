@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package server
 
 import (
 	"crypto/md5"
@@ -393,6 +393,20 @@ func (q *Queue) DeleteMessage(receiptHandle string) bool {
 		if msg.ReceiptHandle == receiptHandle {
 			// Remove message
 			q.Messages = append(q.Messages[:i], q.Messages[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// ChangeMessageVisibility changes the visibility timeout of a message
+func (q *Queue) ChangeMessageVisibility(receiptHandle string, visibilityTimeout int) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	for _, msg := range q.Messages {
+		if msg.ReceiptHandle == receiptHandle {
+			msg.VisibilityTimeout = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
 			return true
 		}
 	}

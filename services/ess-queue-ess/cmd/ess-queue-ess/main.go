@@ -9,9 +9,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/tonyellard/cloud-u-l8r/pkg/health"
+	"github.com/tonyellard/ess-queue-ess/internal/server"
 )
 
 func main() {
@@ -21,12 +19,12 @@ func main() {
 
 	// Load configuration if provided
 	if *configPath != "" {
-		config, err := LoadConfig(*configPath)
+		config, err := server.LoadConfig(*configPath)
 		if err != nil {
 			log.Printf("Warning: Failed to load config: %v", err)
 		} else {
 			log.Printf("Loaded configuration from %s", *configPath)
-			if err := BootstrapQueues(config); err != nil {
+			if err := server.BootstrapQueues(config); err != nil {
 				log.Fatalf("Failed to bootstrap queues: %v", err)
 			}
 			log.Printf("Bootstrapped %d queues from configuration", len(config.Queues))
@@ -43,28 +41,14 @@ func main() {
 		port = "9320" // Default SQS port for local development
 	}
 
-	r := chi.NewRouter()
-
-	// Middleware
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.RequestID)
-
-	// Routes
-	r.Get("/health", health.Handler("ess-queue-ess"))
-	r.Get("/admin", adminUIHandler)
-	r.Get("/admin/api/queues", adminAPIHandler)
-	r.Post("/admin/api/queue", adminCreateQueueHandler)
-	r.Delete("/admin/api/queue", adminDeleteQueueHandler)
-	r.Post("/admin/api/message", adminSendMessageHandler)
-	r.Get("/admin/api/config/export", adminExportConfigHandler)
-	r.HandleFunc("/*", rootHandler)
+	// Setup router
+	router := server.SetupRouter()
 
 	log.Printf("Starting Ess-Queue-Ess on port %s", port)
 	log.Printf("SQS endpoint: http://localhost:%s/", port)
 	log.Printf("Admin UI: http://localhost:%s/admin", port)
 
-	if err := http.ListenAndServe(":"+port, r); err != nil {
+	if err := http.ListenAndServe(":"+port, router); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }
