@@ -44,10 +44,10 @@ func main() {
 	// Try to load existing topics and subscriptions from the config file
 	loadExportedState(*configFile, snsServer.GetTopicStore(), snsServer.GetSubscriptionStore(), logger)
 
-	// Register admin dashboard routes on the same SNS server
-	dashboardHandler, apiHandlers := admin.GetAdminRouteHandlers(cfg, logger,
+	// Register admin API routes on the same SNS server
+	apiHandlers := admin.GetAdminRouteHandlers(cfg, logger,
 		snsServer.GetTopicStore(), snsServer.GetSubscriptionStore(), snsServer.GetActivityLogger())
-	snsServer.RegisterAdminRoutes(dashboardHandler, apiHandlers)
+	snsServer.RegisterAdminRoutes(apiHandlers)
 
 	// Start server
 	serverErrors := make(chan error, 1)
@@ -58,7 +58,6 @@ func main() {
 
 	logger.Info("SNS emulator started successfully")
 	logger.Info("API endpoint", "url", fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.APIPort))
-	logger.Info("Admin dashboard", "url", fmt.Sprintf("http://localhost:%d/admin", cfg.Server.APIPort))
 	logger.Info("Health check", "url", fmt.Sprintf("http://%s:%d/health", cfg.Server.Host, cfg.Server.APIPort))
 
 	// Wait for shutdown signal

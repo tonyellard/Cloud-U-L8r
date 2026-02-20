@@ -3,7 +3,6 @@
 package server
 
 import (
-	"embed"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -23,9 +22,6 @@ import (
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 )
 
-//go:embed admin.html
-var adminHTML embed.FS
-
 var queueManager = NewQueueManager()
 
 // SetupRouter creates and configures the chi router with all routes
@@ -39,7 +35,6 @@ func SetupRouter() *chi.Mux {
 
 	// Routes
 	r.Get("/health", health.Handler("ess-queue-ess"))
-	r.Get("/admin", adminUIHandler)
 	r.Get("/admin/api/queues", adminAPIHandler)
 	r.Post("/admin/api/queue", adminCreateQueueHandler)
 	r.Delete("/admin/api/queue", adminDeleteQueueHandler)
@@ -818,20 +813,6 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	io.WriteString(w, "Ess-Queue-Ess - AWS SQS Emulator\n")
-}
-
-// Admin UI handler
-func adminUIHandler(w http.ResponseWriter, r *http.Request) {
-	data, err := adminHTML.ReadFile("admin.html")
-	if err != nil {
-		http.Error(w, "Admin UI not found", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
-	w.Write(data)
 }
 
 // Admin API: Queue details

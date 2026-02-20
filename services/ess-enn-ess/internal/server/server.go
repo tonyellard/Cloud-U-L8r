@@ -49,9 +49,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/health", health.Handler("ess-enn-ess"))
 }
 
-// RegisterAdminRoutes registers the admin dashboard routes on the same server
-func (s *Server) RegisterAdminRoutes(dashboardHandler http.HandlerFunc, apiHandlers map[string]http.HandlerFunc) {
-	s.mux.HandleFunc("/admin", dashboardHandler)
+// RegisterAdminRoutes registers the admin API routes on the same server
+func (s *Server) RegisterAdminRoutes(apiHandlers map[string]http.HandlerFunc) {
 	for path, handler := range apiHandlers {
 		s.mux.HandleFunc(path, handler)
 	}

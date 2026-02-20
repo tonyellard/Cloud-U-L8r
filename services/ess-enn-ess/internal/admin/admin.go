@@ -19,9 +19,9 @@ import (
 	"github.com/tonyellard/ess-enn-ess/internal/topic"
 )
 
-// GetAdminRouteHandlers returns all admin dashboard route handlers
+// GetAdminRouteHandlers returns all admin API route handlers
 // This allows the admin routes to be registered on the SNS server's mux
-func GetAdminRouteHandlers(cfg *config.Config, logger *slog.Logger, topicStore *topic.Store, subscriptionStore *subscription.Store, activityLogger *activity.Logger) (http.HandlerFunc, map[string]http.HandlerFunc) {
+func GetAdminRouteHandlers(cfg *config.Config, logger *slog.Logger, topicStore *topic.Store, subscriptionStore *subscription.Store, activityLogger *activity.Logger) map[string]http.HandlerFunc {
 	// Create a temporary admin server just to get its methods
 	s := &Server{
 		config:            cfg,
@@ -31,10 +31,7 @@ func GetAdminRouteHandlers(cfg *config.Config, logger *slog.Logger, topicStore *
 		activityLogger:    activityLogger,
 	}
 
-	// Return the dashboard handler and a map of API handlers
-	dashboardHandler := s.handleDashboard
-
-	apiHandlers := map[string]http.HandlerFunc{
+	return map[string]http.HandlerFunc{
 		"/api/topics":               s.handleTopics,
 		"/api/topics/delete":        s.handleDeleteTopic,
 		"/api/subscriptions":        s.handleSubscriptions,
@@ -46,8 +43,6 @@ func GetAdminRouteHandlers(cfg *config.Config, logger *slog.Logger, topicStore *
 		"/api/import":               s.handleImport,
 		"/api/activities-stream":    s.handleActivityStream,
 	}
-
-	return dashboardHandler, apiHandlers
 }
 
 // Server represents the admin dashboard server
@@ -87,7 +82,6 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/export", s.handleExport)
 	s.mux.HandleFunc("/api/import", s.handleImport)
 	s.mux.HandleFunc("/api/activities-stream", s.handleActivityStream)
-	s.mux.HandleFunc("/", s.handleDashboard)
 }
 
 // handleHealth handles health check requests
@@ -95,12 +89,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, "OK")
-}
-
-// handleDashboard serves the admin dashboard
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, dashboardHTML)
 }
 
 // handleTopics handles GET (list) and POST (create) for topics
@@ -483,7 +471,7 @@ func (s *Server) Start() error {
 		WriteTimeout: time.Duration(s.config.Server.TimeoutSec) * time.Second,
 	}
 
-	s.logger.Info("Admin dashboard starting", "address", s.httpServer.Addr, "url", fmt.Sprintf("http://localhost:%d", s.config.Server.AdminPort))
+	s.logger.Info("Admin API server starting", "address", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
 
