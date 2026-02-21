@@ -21,6 +21,17 @@ let kayVeeSecretNextToken = '';
 const kayVeeSecretValues = new Map();
 let kayVeeLabelParameterTarget = '';
 let kayVeeUpdateParameterTarget = null;
+let cloudfauxntSummary = null;
+let cloudfauxntEditingOriginName = '';
+
+const validViews = new Set([
+  'dashboard',
+  'ess-queue-ess',
+  'ess-enn-ess',
+  'kay-vee',
+  'essthree',
+  'cloudfauxnt',
+]);
 
 function displayServiceName(name) {
   if (name === 'essthree') return 'ess-three';
@@ -42,6 +53,18 @@ function getServiceReadmeURL(serviceName) {
   const readmePath = readmePaths[serviceName];
   if (!readmePath) return '';
   return `${repoBaseURL}/blob/main/${readmePath}`;
+}
+
+function getAdminViewForService(serviceName) {
+  const viewMap = {
+    'ess-queue-ess': 'ess-queue-ess',
+    'ess-enn-ess': 'ess-enn-ess',
+    'kay-vee': 'kay-vee',
+    'essthree': 'essthree',
+    'cloudfauxnt': 'cloudfauxnt',
+  };
+
+  return viewMap[serviceName] || '';
 }
 
 const editableQueueAttributeKeys = [
@@ -90,40 +113,96 @@ function setActiveMenu(view) {
   if (activeBtn) activeBtn.classList.add('bg-slate-700');
 }
 
-function switchView(view) {
-  activeView = view;
-  setActiveMenu(view);
+function normalizeView(view) {
+  if (!view || !validViews.has(view)) {
+    return 'dashboard';
+  }
+  return view;
+}
+
+function getViewFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeView(params.get('view'));
+}
+
+function relativeURLForView(view) {
+  const url = new URL(window.location.href);
+  if (view === 'dashboard') {
+    url.searchParams.delete('view');
+  } else {
+    url.searchParams.set('view', view);
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function writeHistoryState(view, mode = 'push') {
+  const state = { view };
+  const relativeURL = relativeURLForView(view);
+  if (mode === 'replace') {
+    window.history.replaceState(state, '', relativeURL);
+    return;
+  }
+  window.history.pushState(state, '', relativeURL);
+}
+
+function sortMenuServicesAlphabetically() {
+  const nav = document.querySelector('aside nav');
+  if (!nav) return;
+
+  const dashboardButton = document.getElementById('menu-dashboard');
+  const serviceButtons = Array.from(nav.querySelectorAll('.menu-btn'))
+    .filter((button) => button.id !== 'menu-dashboard')
+    .sort((a, b) => a.textContent.trim().localeCompare(b.textContent.trim(), undefined, { sensitivity: 'base' }));
+
+  if (dashboardButton) {
+    nav.appendChild(dashboardButton);
+  }
+  serviceButtons.forEach((button) => nav.appendChild(button));
+}
+
+function switchView(view, options = {}) {
+  const nextView = normalizeView(view);
+  const changed = nextView !== activeView;
+  const updateHistory = options.updateHistory !== false;
+  const historyMode = options.historyMode || 'push';
+
+  activeView = nextView;
+  setActiveMenu(nextView);
   setAlert('');
+
+  if (updateHistory && (changed || historyMode === 'replace')) {
+    writeHistoryState(nextView, historyMode);
+  }
 
   const title = document.getElementById('view-title');
   const subtitle = document.getElementById('view-subtitle');
-  if (view === 'dashboard') {
+  if (nextView === 'dashboard') {
     title.textContent = 'Dashboard';
     subtitle.textContent = 'Live status of active emulator surface';
     loadDashboard();
-  } else if (view === 'ess-queue-ess') {
+  } else if (nextView === 'ess-queue-ess') {
     title.textContent = 'ess-queue-ess';
     subtitle.textContent = 'Queue operations and non-mutating message inspection';
     loadQueues();
-  } else if (view === 'ess-enn-ess') {
+  } else if (nextView === 'ess-enn-ess') {
     title.textContent = 'ess-enn-ess';
     subtitle.textContent = 'Topic, subscription, and publish operations';
     loadPubSubState();
-  } else if (view === 'kay-vee') {
+  } else if (nextView === 'kay-vee') {
     title.textContent = 'kay-vee';
     subtitle.textContent = 'Parameter Store + Secrets Manager emulator admin surface';
     loadKayVeeOverview();
-  } else if (view === 'essthree') {
+  } else if (nextView === 'essthree') {
     title.textContent = 'ess-three';
     subtitle.textContent = 'Informational ess-three surface summary (more admin actions coming soon)';
     loadEssThreeSummary();
   } else {
     title.textContent = 'cloudfauxnt';
-    subtitle.textContent = 'Informational CDN/origin overview (more admin actions coming soon)';
+    subtitle.textContent = 'Distribution, origin, behavior, and signing administration';
     loadCloudfauxntSummary();
   }
 
-  connectSSE(view);
+    connectSSE(nextView);
 }
 
 async function apiGet(path) {
@@ -158,8 +237,16 @@ async function loadDashboard() {
 }
 
 function renderDashboard(data) {
-  const serviceRows = (data.services || []).map((service) => {
+  const sortedServices = [...(data.services || [])].sort((a, b) => (
+    displayServiceName(a.name).localeCompare(displayServiceName(b.name), undefined, { sensitivity: 'base' })
+  ));
+
+  const serviceRows = sortedServices.map((service) => {
     const serviceReadmeURL = getServiceReadmeURL(service.name);
+    const serviceAdminView = getAdminViewForService(service.name);
+    const serviceTitle = serviceAdminView
+      ? `<button class="font-medium text-blue-700 hover:text-blue-900 hover:underline" title="Open ${displayServiceName(service.name)} admin view" aria-label="Open ${displayServiceName(service.name)} admin view" onclick="switchView('${serviceAdminView}')">${displayServiceName(service.name)}</button>`
+      : `<div class="font-medium">${displayServiceName(service.name)}</div>`;
     const badge = service.status === 'online'
       ? '<span class="px-2 py-1 rounded text-xs bg-emerald-100 text-emerald-800">online</span>'
       : '<span class="px-2 py-1 rounded text-xs bg-red-100 text-red-800">offline</span>';
@@ -171,7 +258,7 @@ function renderDashboard(data) {
     return `
       <div class="bg-white rounded border p-4 flex items-start gap-4">
         <div class="w-48 shrink-0">
-          <div class="font-medium">${displayServiceName(service.name)}</div>
+          ${serviceTitle}
           <div class="mt-1">${badge}</div>
         </div>
         <div class="flex-1">
@@ -241,6 +328,193 @@ async function loadCloudfauxntSummary() {
   try {
     const data = await apiGet('/api/services/cloudfauxnt/summary');
     renderCloudfauxntSummary(data);
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+async function toggleCloudfauxntSigning(enabled) {
+  try {
+    await apiPost('/api/services/cloudfauxnt/actions/set-signing', { enabled });
+    setAlert(`Cloudfauxnt signing ${enabled ? 'enabled' : 'disabled'}.`, 'info');
+    await loadCloudfauxntSummary();
+  } catch (error) {
+    setAlert(error.message);
+    await loadCloudfauxntSummary();
+  }
+}
+
+function openCloudfauxntSigningSettingsModal() {
+  const signing = cloudfauxntSummary?.signing || {};
+  const keyPairInput = document.getElementById('cloudfauxnt-signing-key-pair-id');
+  const publicKeyPathInput = document.getElementById('cloudfauxnt-signing-public-key-path');
+  const clockSkewInput = document.getElementById('cloudfauxnt-signing-clock-skew');
+  const defaultURLTTLInput = document.getElementById('cloudfauxnt-signing-url-ttl');
+  const defaultCookieTTLInput = document.getElementById('cloudfauxnt-signing-cookie-ttl');
+  const allowWildcardInput = document.getElementById('cloudfauxnt-signing-allow-wildcards');
+
+  if (!keyPairInput || !publicKeyPathInput || !clockSkewInput || !defaultURLTTLInput || !defaultCookieTTLInput || !allowWildcardInput) {
+    return;
+  }
+
+  keyPairInput.value = signing.key_pair_id || '';
+  publicKeyPathInput.value = signing.public_key_path || '';
+  clockSkewInput.value = Number(signing.token_options?.clock_skew_seconds || 0);
+  defaultURLTTLInput.value = Number(signing.token_options?.default_url_ttl_seconds || 0);
+  defaultCookieTTLInput.value = Number(signing.token_options?.default_cookie_ttl_seconds || 0);
+  allowWildcardInput.checked = signing.token_options?.allow_wildcard_patterns === true;
+
+  const modal = document.getElementById('cloudfauxnt-signing-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+}
+
+function closeCloudfauxntSigningSettingsModal() {
+  const modal = document.getElementById('cloudfauxnt-signing-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+function parseCloudfauxntSigningNumber(value, label) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
+  return parsed;
+}
+
+async function saveCloudfauxntSigningSettings() {
+  try {
+    const keyPairID = document.getElementById('cloudfauxnt-signing-key-pair-id')?.value?.trim() || '';
+    const publicKeyPath = document.getElementById('cloudfauxnt-signing-public-key-path')?.value?.trim() || '';
+    const clockSkewSeconds = parseCloudfauxntSigningNumber(document.getElementById('cloudfauxnt-signing-clock-skew')?.value, 'Clock skew');
+    const defaultURLTTLSeconds = parseCloudfauxntSigningNumber(document.getElementById('cloudfauxnt-signing-url-ttl')?.value, 'Default URL TTL');
+    const defaultCookieTTLSeconds = parseCloudfauxntSigningNumber(document.getElementById('cloudfauxnt-signing-cookie-ttl')?.value, 'Default cookie TTL');
+    const allowWildcardPatterns = document.getElementById('cloudfauxnt-signing-allow-wildcards')?.checked === true;
+
+    const updatedSummary = await apiPost('/api/services/cloudfauxnt/actions/update-signing-config', {
+      key_pair_id: keyPairID,
+      public_key_path: publicKeyPath,
+      token_options: {
+        clock_skew_seconds: clockSkewSeconds,
+        default_url_ttl_seconds: defaultURLTTLSeconds,
+        default_cookie_ttl_seconds: defaultCookieTTLSeconds,
+        allow_wildcard_patterns: allowWildcardPatterns,
+      },
+    });
+
+    cloudfauxntSummary = updatedSummary;
+    renderCloudfauxntSummary(updatedSummary);
+    closeCloudfauxntSigningSettingsModal();
+    setAlert('Cloudfauxnt signing settings updated.', 'info');
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function openCloudfauxntOriginModal(encodedCurrentName = '') {
+  const decodedCurrentName = decodeURIComponent(encodedCurrentName || '').trim();
+  cloudfauxntEditingOriginName = decodedCurrentName;
+
+  const title = document.getElementById('cloudfauxnt-origin-modal-title');
+  const currentNameInput = document.getElementById('cloudfauxnt-origin-current-name');
+  const nameInput = document.getElementById('cloudfauxnt-origin-name');
+  const urlInput = document.getElementById('cloudfauxnt-origin-url');
+  const patternsInput = document.getElementById('cloudfauxnt-origin-path-patterns');
+  const stripPrefixInput = document.getElementById('cloudfauxnt-origin-strip-prefix');
+  const targetPrefixInput = document.getElementById('cloudfauxnt-origin-target-prefix');
+  const defaultRootInput = document.getElementById('cloudfauxnt-origin-default-root');
+  const requireSignatureSelect = document.getElementById('cloudfauxnt-origin-require-signature');
+
+  if (!title || !currentNameInput || !nameInput || !urlInput || !patternsInput || !stripPrefixInput || !targetPrefixInput || !defaultRootInput || !requireSignatureSelect) {
+    return;
+  }
+
+  const existing = (cloudfauxntSummary?.origins || []).find((origin) => (origin.name || '') === decodedCurrentName);
+
+  if (existing) {
+    title.textContent = 'Edit Origin / Behavior';
+    currentNameInput.value = existing.name || '';
+    nameInput.value = existing.name || '';
+    urlInput.value = existing.url || '';
+    patternsInput.value = (existing.path_patterns || []).join('\n');
+    stripPrefixInput.value = existing.strip_prefix || '';
+    targetPrefixInput.value = existing.target_prefix || '';
+    defaultRootInput.value = existing.default_root_object || '';
+    if (existing.require_signature === true) {
+      requireSignatureSelect.value = 'true';
+    } else if (existing.require_signature === false) {
+      requireSignatureSelect.value = 'false';
+    } else {
+      requireSignatureSelect.value = 'inherit';
+    }
+  } else {
+    title.textContent = 'Add Origin / Behavior';
+    currentNameInput.value = '';
+    nameInput.value = '';
+    urlInput.value = '';
+    patternsInput.value = '';
+    stripPrefixInput.value = '';
+    targetPrefixInput.value = '';
+    defaultRootInput.value = '';
+    requireSignatureSelect.value = 'inherit';
+  }
+
+  const modal = document.getElementById('cloudfauxnt-origin-modal');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function closeCloudfauxntOriginModal() {
+  const modal = document.getElementById('cloudfauxnt-origin-modal');
+  if (modal) modal.classList.add('hidden');
+  cloudfauxntEditingOriginName = '';
+}
+
+async function saveCloudfauxntOrigin() {
+  try {
+    const currentName = document.getElementById('cloudfauxnt-origin-current-name')?.value?.trim() || '';
+    const name = document.getElementById('cloudfauxnt-origin-name')?.value?.trim() || '';
+    const originURL = document.getElementById('cloudfauxnt-origin-url')?.value?.trim() || '';
+    const pathPatternRaw = document.getElementById('cloudfauxnt-origin-path-patterns')?.value || '';
+    const stripPrefix = document.getElementById('cloudfauxnt-origin-strip-prefix')?.value?.trim() || '';
+    const targetPrefix = document.getElementById('cloudfauxnt-origin-target-prefix')?.value?.trim() || '';
+    const defaultRootObject = document.getElementById('cloudfauxnt-origin-default-root')?.value?.trim() || '';
+    const requireSignatureValue = document.getElementById('cloudfauxnt-origin-require-signature')?.value || 'inherit';
+
+    const pathPatterns = pathPatternRaw
+      .split(/\r?\n|,/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    if (!name || !originURL || pathPatterns.length === 0) {
+      setAlert('Name, URL, and at least one path pattern are required.');
+      return;
+    }
+
+    const body = {
+      current_name: currentName || undefined,
+      name,
+      url: originURL,
+      path_patterns: pathPatterns,
+      strip_prefix: stripPrefix,
+      target_prefix: targetPrefix,
+      require_signature: requireSignatureValue === 'inherit'
+        ? null
+        : requireSignatureValue === 'true',
+      default_root_object: defaultRootObject || null,
+    };
+
+    const actionPath = currentName
+      ? '/api/services/cloudfauxnt/actions/update-origin'
+      : '/api/services/cloudfauxnt/actions/create-origin';
+
+    const updatedSummary = await apiPost(actionPath, body);
+    cloudfauxntSummary = updatedSummary;
+    renderCloudfauxntSummary(updatedSummary);
+    closeCloudfauxntOriginModal();
+    setAlert(`${currentName ? 'Updated' : 'Added'} origin ${name}.`, 'info');
   } catch (error) {
     setAlert(error.message);
   }
@@ -1020,20 +1294,54 @@ function renderEssThreeSummary(data) {
   `;
 }
 
+function getCloudfauxntDistributionURL(data) {
+  const serverHostRaw = (data?.server?.host || '').trim();
+  const normalizedHost = (serverHostRaw === '' || serverHostRaw === '0.0.0.0' || serverHostRaw === '::' || serverHostRaw === '[::]')
+    ? window.location.hostname
+    : serverHostRaw;
+  const serverPort = Number(data?.server?.port || 0);
+  if (!normalizedHost || !Number.isFinite(serverPort) || serverPort <= 0) {
+    return '';
+  }
+
+  try {
+    const distributionURL = new URL(`${window.location.protocol}//${normalizedHost}`);
+    distributionURL.port = String(serverPort);
+    return distributionURL.toString();
+  } catch {
+    return '';
+  }
+}
+
 function renderCloudfauxntSummary(data) {
+  cloudfauxntSummary = data;
   const origins = data.origins || [];
+  const distributionURL = getCloudfauxntDistributionURL(data);
+  const signingEnabled = data.signing?.enabled === true;
+  const signingOptions = data.signing?.token_options || {};
   const rows = origins.map((origin) => `
     <tr class="border-b align-top">
       <td class="py-2 pr-2 text-sm">${escapeHTML(origin.name || '')}</td>
       <td class="py-2 pr-2 text-sm break-all">${escapeHTML(origin.url || '')}</td>
       <td class="py-2 pr-2 text-sm">${(origin.path_patterns || []).map((pattern) => `<div>${escapeHTML(pattern)}</div>`).join('')}</td>
       <td class="py-2 pr-2 text-sm">${origin.require_signature ? 'required' : 'not required'}</td>
-      <td class="py-2 text-sm">${escapeHTML(origin.default_root_object || data.server?.default_root_object || '-')}</td>
+      <td class="py-2 pr-2 text-sm">${escapeHTML(origin.default_root_object || data.server?.default_root_object || '-')}</td>
+      <td class="py-2 text-right">
+        <button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Edit origin and behavior" aria-label="Edit origin and behavior" onclick="openCloudfauxntOriginModal('${encodeURIComponent(origin.name || '')}')">Edit</button>
+      </td>
     </tr>
   `).join('');
 
   document.getElementById('view-content').innerHTML = `
-    ${renderFutureBanner('cloudfauxnt admin is currently informational. Additional admin actions will be added in a future update.')}
+    <div class="bg-white rounded border p-4 flex items-center justify-between">
+      <div>
+        <div class="text-sm text-slate-500">Distribution URL</div>
+        <div class="text-sm font-medium break-all">${escapeHTML(distributionURL || 'Unavailable')}</div>
+      </div>
+      ${distributionURL
+        ? `<a class="px-3 py-1 rounded bg-slate-900 text-white text-sm inline-flex items-center gap-1" title="Open cloudfauxnt distribution" aria-label="Open cloudfauxnt distribution" href="${distributionURL}" target="_blank" rel="noopener noreferrer">Open Distribution <span aria-hidden="true">↗</span></a>`
+        : ''}
+    </div>
     <div class="grid grid-cols-3 gap-4">
       <div class="bg-white rounded border p-4">
         <div class="text-sm text-slate-500">Origins</div>
@@ -1045,13 +1353,28 @@ function renderCloudfauxntSummary(data) {
       </div>
       <div class="bg-white rounded border p-4">
         <div class="text-sm text-slate-500">Signing</div>
-        <div class="text-2xl font-semibold">${data.signing?.enabled ? 'On' : 'Off'}</div>
+        <div class="mt-2 flex items-center justify-between">
+          <span class="text-sm font-semibold text-slate-700">${signingEnabled ? 'On' : 'Off'}</span>
+          <label class="inline-flex items-center cursor-pointer" title="Toggle cloudfauxnt signing" aria-label="Toggle cloudfauxnt signing">
+            <input type="checkbox" value="" class="sr-only peer" ${signingEnabled ? 'checked' : ''} onchange="toggleCloudfauxntSigning(this.checked)">
+            <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+          </label>
+        </div>
+        <div class="mt-2 text-xs text-slate-500">Key Pair: ${escapeHTML(data.signing?.key_pair_id || '-')}</div>
+        <div class="mt-1 text-xs text-slate-500">Clock Skew: ${Number(signingOptions.clock_skew_seconds || 0)}s</div>
+        <div class="mt-1 text-xs text-slate-500">URL TTL: ${Number(signingOptions.default_url_ttl_seconds || 0)}s · Cookie TTL: ${Number(signingOptions.default_cookie_ttl_seconds || 0)}s</div>
+        <div class="mt-3">
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Edit signing settings" aria-label="Edit signing settings" onclick="openCloudfauxntSigningSettingsModal()">Edit Settings</button>
+        </div>
       </div>
     </div>
     <div class="bg-white rounded border p-4">
       <div class="flex items-center justify-between mb-2">
         <h3 class="font-semibold">Origin & Behavior Overview</h3>
-        <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh cloudfauxnt overview" aria-label="Refresh cloudfauxnt overview" onclick="loadCloudfauxntSummary()">↻</button>
+        <div class="flex items-center gap-2">
+          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Add origin and behavior" aria-label="Add origin and behavior" onclick="openCloudfauxntOriginModal()">Add Origin</button>
+          <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh cloudfauxnt overview" aria-label="Refresh cloudfauxnt overview" onclick="loadCloudfauxntSummary()">↻</button>
+        </div>
       </div>
       <p class="text-xs text-slate-500 mb-2">Server: ${escapeHTML(data.server?.host || '')}:${Number(data.server?.port || 0)}</p>
       <div class="overflow-x-auto">
@@ -1062,13 +1385,109 @@ function renderCloudfauxntSummary(data) {
               <th class="text-left py-1 pr-2">URL</th>
               <th class="text-left py-1 pr-2">Behaviors</th>
               <th class="text-left py-1 pr-2">Signature</th>
-              <th class="text-left py-1">Default Root</th>
+              <th class="text-left py-1 pr-2">Default Root</th>
+              <th class="text-right py-1">Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${rows || '<tr><td colspan="5" class="py-2 text-sm text-slate-500">No origins configured.</td></tr>'}
+            ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No origins configured.</td></tr>'}
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <div id="cloudfauxnt-origin-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeCloudfauxntOriginModal()">
+      <div class="bg-white w-full max-w-2xl rounded border shadow-lg">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+          <h3 id="cloudfauxnt-origin-modal-title" class="font-semibold">Add Origin / Behavior</h3>
+          <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close origin modal" aria-label="Close origin modal" onclick="closeCloudfauxntOriginModal()">✕</button>
+        </div>
+        <div class="p-4 grid gap-3">
+          <input id="cloudfauxnt-origin-current-name" type="hidden" />
+          <div>
+            <label for="cloudfauxnt-origin-name" class="block text-xs text-slate-500 mb-1">Origin Name</label>
+            <input id="cloudfauxnt-origin-name" class="w-full border rounded px-2 py-1 text-sm" placeholder="s3" />
+          </div>
+          <div>
+            <label for="cloudfauxnt-origin-url" class="block text-xs text-slate-500 mb-1">Origin URL</label>
+            <input id="cloudfauxnt-origin-url" class="w-full border rounded px-2 py-1 text-sm" placeholder="http://essthree:9300" />
+          </div>
+          <div>
+            <label for="cloudfauxnt-origin-path-patterns" class="block text-xs text-slate-500 mb-1">Path Patterns (one per line)</label>
+            <textarea id="cloudfauxnt-origin-path-patterns" rows="3" class="w-full border rounded px-2 py-1 text-sm" placeholder="/s3/*"></textarea>
+          </div>
+          <div class="grid md:grid-cols-2 gap-3">
+            <div>
+              <label for="cloudfauxnt-origin-strip-prefix" class="block text-xs text-slate-500 mb-1">Strip Prefix</label>
+              <input id="cloudfauxnt-origin-strip-prefix" class="w-full border rounded px-2 py-1 text-sm" placeholder="/s3" />
+            </div>
+            <div>
+              <label for="cloudfauxnt-origin-target-prefix" class="block text-xs text-slate-500 mb-1">Target Prefix</label>
+              <input id="cloudfauxnt-origin-target-prefix" class="w-full border rounded px-2 py-1 text-sm" placeholder="/test-bucket" />
+            </div>
+          </div>
+          <div class="grid md:grid-cols-2 gap-3">
+            <div>
+              <label for="cloudfauxnt-origin-default-root" class="block text-xs text-slate-500 mb-1">Default Root Object (optional)</label>
+              <input id="cloudfauxnt-origin-default-root" class="w-full border rounded px-2 py-1 text-sm" placeholder="index.html" />
+            </div>
+            <div>
+              <label for="cloudfauxnt-origin-require-signature" class="block text-xs text-slate-500 mb-1">Require Signature</label>
+              <select id="cloudfauxnt-origin-require-signature" class="w-full border rounded px-2 py-1 text-sm">
+                <option value="inherit">Inherit global setting</option>
+                <option value="true">Required</option>
+                <option value="false">Not required</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 pt-1">
+            <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Cancel origin changes" aria-label="Cancel origin changes" onclick="closeCloudfauxntOriginModal()">Cancel</button>
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Save origin and behavior" aria-label="Save origin and behavior" onclick="saveCloudfauxntOrigin()">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="cloudfauxnt-signing-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeCloudfauxntSigningSettingsModal()">
+      <div class="bg-white w-full max-w-lg rounded border shadow-lg">
+      <div class="px-4 py-3 border-b flex items-center justify-between">
+        <h3 class="font-semibold">Edit Signing Settings</h3>
+        <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close signing modal" aria-label="Close signing modal" onclick="closeCloudfauxntSigningSettingsModal()">✕</button>
+      </div>
+      <div class="p-4 grid gap-3">
+        <div>
+        <label for="cloudfauxnt-signing-key-pair-id" class="block text-xs text-slate-500 mb-1">Key Pair ID</label>
+        <input id="cloudfauxnt-signing-key-pair-id" class="w-full border rounded px-2 py-1 text-sm" placeholder="K1234567890" />
+        </div>
+        <div>
+        <label for="cloudfauxnt-signing-public-key-path" class="block text-xs text-slate-500 mb-1">Public Key Path</label>
+        <input id="cloudfauxnt-signing-public-key-path" class="w-full border rounded px-2 py-1 text-sm" placeholder="keys/public_key.pem" />
+        </div>
+        <div class="grid md:grid-cols-2 gap-3">
+        <div>
+          <label for="cloudfauxnt-signing-clock-skew" class="block text-xs text-slate-500 mb-1">Clock Skew (seconds)</label>
+          <input id="cloudfauxnt-signing-clock-skew" type="number" min="0" class="w-full border rounded px-2 py-1 text-sm" placeholder="30" />
+        </div>
+        <div>
+          <label for="cloudfauxnt-signing-url-ttl" class="block text-xs text-slate-500 mb-1">Default URL TTL (seconds)</label>
+          <input id="cloudfauxnt-signing-url-ttl" type="number" min="0" class="w-full border rounded px-2 py-1 text-sm" placeholder="300" />
+        </div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-3 items-end">
+        <div>
+          <label for="cloudfauxnt-signing-cookie-ttl" class="block text-xs text-slate-500 mb-1">Default Cookie TTL (seconds)</label>
+          <input id="cloudfauxnt-signing-cookie-ttl" type="number" min="0" class="w-full border rounded px-2 py-1 text-sm" placeholder="300" />
+        </div>
+        <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+          <input id="cloudfauxnt-signing-allow-wildcards" type="checkbox" class="rounded border-slate-300" />
+          Allow wildcard patterns
+        </label>
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Cancel signing changes" aria-label="Cancel signing changes" onclick="closeCloudfauxntSigningSettingsModal()">Cancel</button>
+        <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Save signing settings" aria-label="Save signing settings" onclick="saveCloudfauxntSigningSettings()">Save</button>
+        </div>
+      </div>
       </div>
     </div>
   `;
@@ -2302,4 +2721,11 @@ document.getElementById('menu-kay-vee').addEventListener('click', () => switchVi
 document.getElementById('menu-essthree').addEventListener('click', () => switchView('essthree'));
 document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
 
-switchView('dashboard');
+window.addEventListener('popstate', (event) => {
+  const stateView = event.state?.view;
+  const nextView = normalizeView(stateView || getViewFromLocation());
+  switchView(nextView, { updateHistory: false });
+});
+
+sortMenuServicesAlphabetically();
+switchView(getViewFromLocation(), { historyMode: 'replace' });

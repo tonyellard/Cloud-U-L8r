@@ -188,14 +188,49 @@ type CloudfauxntSummaryResponse struct {
 		DefaultRootObject string `json:"default_root_object"`
 	} `json:"server"`
 	Signing struct {
-		Enabled   bool   `json:"enabled"`
-		KeyPairID string `json:"key_pair_id,omitempty"`
+		Enabled       bool   `json:"enabled"`
+		KeyPairID     string `json:"key_pair_id,omitempty"`
+		PublicKeyPath string `json:"public_key_path,omitempty"`
+		TokenOptions  struct {
+			ClockSkewSeconds        int  `json:"clock_skew_seconds"`
+			DefaultURLTTLSeconds    int  `json:"default_url_ttl_seconds"`
+			DefaultCookieTTLSeconds int  `json:"default_cookie_ttl_seconds"`
+			AllowWildcardPatterns   bool `json:"allow_wildcard_patterns"`
+		} `json:"token_options"`
 	} `json:"signing"`
 	Stats struct {
 		Origins   int `json:"origins"`
 		Behaviors int `json:"behaviors"`
 	} `json:"stats"`
 	Origins []CloudfauxntOriginOverview `json:"origins"`
+}
+
+type CloudfauxntSetSigningRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type CloudfauxntSigningTokenOptions struct {
+	ClockSkewSeconds        int  `json:"clock_skew_seconds"`
+	DefaultURLTTLSeconds    int  `json:"default_url_ttl_seconds"`
+	DefaultCookieTTLSeconds int  `json:"default_cookie_ttl_seconds"`
+	AllowWildcardPatterns   bool `json:"allow_wildcard_patterns"`
+}
+
+type CloudfauxntUpdateSigningConfigRequest struct {
+	KeyPairID     string                         `json:"key_pair_id"`
+	PublicKeyPath string                         `json:"public_key_path"`
+	TokenOptions  CloudfauxntSigningTokenOptions `json:"token_options"`
+}
+
+type CloudfauxntOriginUpsertRequest struct {
+	CurrentName       string   `json:"current_name,omitempty"`
+	Name              string   `json:"name"`
+	URL               string   `json:"url"`
+	PathPatterns      []string `json:"path_patterns"`
+	StripPrefix       string   `json:"strip_prefix,omitempty"`
+	TargetPrefix      string   `json:"target_prefix,omitempty"`
+	RequireSignature  *bool    `json:"require_signature"`
+	DefaultRootObject *string  `json:"default_root_object"`
 }
 
 type CreateTopicRequest struct {
@@ -371,6 +406,10 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-enn-ess/topics/{topicARN}/activities", srv.handleTopicActivities)
 	r.Get("/api/services/essthree/summary", srv.handleEssThreeSummary)
 	r.Get("/api/services/cloudfauxnt/summary", srv.handleCloudfauxntSummary)
+	r.Post("/api/services/cloudfauxnt/actions/set-signing", srv.handleCloudfauxntSetSigning)
+	r.Post("/api/services/cloudfauxnt/actions/update-signing-config", srv.handleCloudfauxntUpdateSigningConfig)
+	r.Post("/api/services/cloudfauxnt/actions/create-origin", srv.handleCloudfauxntCreateOrigin)
+	r.Post("/api/services/cloudfauxnt/actions/update-origin", srv.handleCloudfauxntUpdateOrigin)
 	r.Get("/api/services/kay-vee/summary", srv.handleKayVeeSummary)
 	r.Get("/api/services/kay-vee/activity", srv.handleKayVeeActivity)
 	r.Get("/api/services/kay-vee/export", srv.handleKayVeeExport)
@@ -521,6 +560,146 @@ func (s *Server) handleEssThreeSummary(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchCloudfauxntSummary()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleCloudfauxntSetSigning(w http.ResponseWriter, r *http.Request) {
+	var request CloudfauxntSetSigningRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		return
+	}
+
+	payload, err := json.Marshal(request)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Post("http://cloudfauxnt:9310/admin/api/signing", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("failed to update cloudfauxnt signing: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		writeError(w, http.StatusBadGateway, fmt.Errorf("cloudfauxnt signing update failed (%d): %s", resp.StatusCode, message))
+		return
+	}
+
+	summary, err := s.fetchCloudfauxntSummary()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleCloudfauxntUpdateSigningConfig(w http.ResponseWriter, r *http.Request) {
+	var request CloudfauxntUpdateSigningConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		return
+	}
+
+	payload := map[string]any{
+		"key_pair_id":     strings.TrimSpace(request.KeyPairID),
+		"public_key_path": strings.TrimSpace(request.PublicKeyPath),
+		"token_options": map[string]any{
+			"clock_skew_seconds":         request.TokenOptions.ClockSkewSeconds,
+			"default_url_ttl_seconds":    request.TokenOptions.DefaultURLTTLSeconds,
+			"default_cookie_ttl_seconds": request.TokenOptions.DefaultCookieTTLSeconds,
+			"allow_wildcard_patterns":    request.TokenOptions.AllowWildcardPatterns,
+		},
+	}
+
+	if err := s.callCloudfauxntAdminJSON(http.MethodPut, "/admin/api/signing/config", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	summary, err := s.fetchCloudfauxntSummary()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Request) {
+	var req CloudfauxntOriginUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		return
+	}
+
+	payload := map[string]any{
+		"name":                req.Name,
+		"url":                 req.URL,
+		"path_patterns":       req.PathPatterns,
+		"strip_prefix":        req.StripPrefix,
+		"target_prefix":       req.TargetPrefix,
+		"require_signature":   req.RequireSignature,
+		"default_root_object": req.DefaultRootObject,
+	}
+
+	if err := s.callCloudfauxntAdminJSON(http.MethodPost, "/admin/api/origins", payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	summary, err := s.fetchCloudfauxntSummary()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Request) {
+	var req CloudfauxntOriginUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		return
+	}
+
+	currentName := strings.TrimSpace(req.CurrentName)
+	if currentName == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("current_name is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"name":                req.Name,
+		"url":                 req.URL,
+		"path_patterns":       req.PathPatterns,
+		"strip_prefix":        req.StripPrefix,
+		"target_prefix":       req.TargetPrefix,
+		"require_signature":   req.RequireSignature,
+		"default_root_object": req.DefaultRootObject,
+	}
+
+	path := "/admin/api/origins/" + url.PathEscape(currentName)
+	if err := s.callCloudfauxntAdminJSON(http.MethodPut, path, payload, nil); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -1816,6 +1995,48 @@ func (s *Server) fetchCloudfauxntSummary() (CloudfauxntSummaryResponse, error) {
 	}
 
 	return summary, nil
+}
+
+func (s *Server) callCloudfauxntAdminJSON(method, endpoint string, payload any, out any) error {
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(encoded)
+	}
+
+	req, err := http.NewRequest(method, "http://cloudfauxnt:9310"+endpoint, body)
+	if err != nil {
+		return err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		message, _ := io.ReadAll(resp.Body)
+		trimmed := strings.TrimSpace(string(message))
+		if trimmed == "" {
+			trimmed = http.StatusText(resp.StatusCode)
+		}
+		return fmt.Errorf("cloudfauxnt admin status %d: %s", resp.StatusCode, trimmed)
+	}
+
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) fetchKayVeeSummary() (KayVeeSummaryResponse, error) {

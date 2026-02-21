@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,6 +23,29 @@ import (
 type ProxyHandler struct {
 	config    *Config
 	validator *SignatureValidator
+}
+
+type AdminOriginUpsertRequest struct {
+	Name              string   `json:"name"`
+	URL               string   `json:"url"`
+	PathPatterns      []string `json:"path_patterns"`
+	StripPrefix       string   `json:"strip_prefix,omitempty"`
+	TargetPrefix      string   `json:"target_prefix,omitempty"`
+	RequireSignature  *bool    `json:"require_signature"`
+	DefaultRootObject *string  `json:"default_root_object"`
+}
+
+type AdminSigningConfigUpdateRequest struct {
+	KeyPairID     *string            `json:"key_pair_id"`
+	PublicKeyPath *string            `json:"public_key_path"`
+	TokenOptions  *AdminTokenOptions `json:"token_options"`
+}
+
+type AdminTokenOptions struct {
+	ClockSkewSeconds        int  `json:"clock_skew_seconds"`
+	DefaultURLTTLSeconds    int  `json:"default_url_ttl_seconds"`
+	DefaultCookieTTLSeconds int  `json:"default_cookie_ttl_seconds"`
+	AllowWildcardPatterns   bool `json:"allow_wildcard_patterns"`
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -50,6 +74,10 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Validate signature if required
 	if requireSignature {
+		if ph.validator == nil {
+			ph.writeCloudFrontError(w, "AccessDenied", "signature validation is enabled but no validator is configured", http.StatusForbidden)
+			return
+		}
 		if err := ph.validator.ValidateRequest(r); err != nil {
 			ph.writeCloudFrontError(w, "AccessDenied", err.Error(), http.StatusForbidden)
 			return
@@ -232,6 +260,33 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 // SetupRouter configures the Chi router with all routes
 func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 	r := chi.NewRouter()
+	proxyHandler := NewProxyHandler(config, validator)
+	refreshSigningValidator := func() error {
+		if !config.Signing.Enabled {
+			proxyHandler.validator = nil
+			return nil
+		}
+
+		if strings.TrimSpace(config.Signing.KeyPairID) == "" {
+			return fmt.Errorf("signing key_pair_id is not configured")
+		}
+		if config.Signing.PublicKey == nil {
+			if strings.TrimSpace(config.Signing.PublicKeyPath) == "" {
+				return fmt.Errorf("signing public_key_path is not configured")
+			}
+			if err := config.loadPublicKey(); err != nil {
+				return err
+			}
+		}
+
+		clockSkew := config.Signing.TokenOptions.ClockSkewSeconds
+		if clockSkew == 0 {
+			clockSkew = 30
+		}
+
+		proxyHandler.validator = NewSignatureValidator(config.Signing.PublicKey, config.Signing.KeyPairID, clockSkew)
+		return nil
+	}
 
 	// Add CORS middleware if enabled
 	if config.CORS.Enabled {
@@ -260,8 +315,10 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 				DefaultRootObject string `json:"default_root_object"`
 			} `json:"server"`
 			Signing struct {
-				Enabled   bool   `json:"enabled"`
-				KeyPairID string `json:"key_pair_id,omitempty"`
+				Enabled       bool              `json:"enabled"`
+				KeyPairID     string            `json:"key_pair_id,omitempty"`
+				PublicKeyPath string            `json:"public_key_path,omitempty"`
+				TokenOptions  AdminTokenOptions `json:"token_options"`
 			} `json:"signing"`
 			Stats struct {
 				Origins   int `json:"origins"`
@@ -276,6 +333,13 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 		result.Server.DefaultRootObject = config.Server.DefaultRootObject
 		result.Signing.Enabled = config.Signing.Enabled
 		result.Signing.KeyPairID = config.Signing.KeyPairID
+		result.Signing.PublicKeyPath = config.Signing.PublicKeyPath
+		result.Signing.TokenOptions = AdminTokenOptions{
+			ClockSkewSeconds:        config.Signing.TokenOptions.ClockSkewSeconds,
+			DefaultURLTTLSeconds:    config.Signing.TokenOptions.DefaultURLTTLSeconds,
+			DefaultCookieTTLSeconds: config.Signing.TokenOptions.DefaultCookieTTLSeconds,
+			AllowWildcardPatterns:   config.Signing.TokenOptions.AllowWildcardPatterns,
+		}
 		result.Stats.Origins = len(config.Origins)
 
 		origins := make([]originOverview, 0, len(config.Origins))
@@ -306,9 +370,200 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 		_ = json.NewEncoder(w).Encode(result)
 	})
 
+	r.Post("/admin/api/signing", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Enabled bool `json:"enabled"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+
+		previousEnabled := config.Signing.Enabled
+		config.Signing.Enabled = req.Enabled
+		if err := refreshSigningValidator(); err != nil {
+			config.Signing.Enabled = previousEnabled
+			_ = refreshSigningValidator()
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled":     config.Signing.Enabled,
+			"key_pair_id": config.Signing.KeyPairID,
+		})
+	})
+
+	r.Put("/admin/api/signing/config", func(w http.ResponseWriter, r *http.Request) {
+		var req AdminSigningConfigUpdateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+
+		if req.KeyPairID != nil {
+			config.Signing.KeyPairID = strings.TrimSpace(*req.KeyPairID)
+		}
+		if req.PublicKeyPath != nil {
+			config.Signing.PublicKeyPath = strings.TrimSpace(*req.PublicKeyPath)
+			config.Signing.PublicKey = nil
+		}
+		if req.TokenOptions != nil {
+			if req.TokenOptions.ClockSkewSeconds < 0 {
+				http.Error(w, "token_options.clock_skew_seconds must be >= 0", http.StatusBadRequest)
+				return
+			}
+			if req.TokenOptions.DefaultURLTTLSeconds < 0 {
+				http.Error(w, "token_options.default_url_ttl_seconds must be >= 0", http.StatusBadRequest)
+				return
+			}
+			if req.TokenOptions.DefaultCookieTTLSeconds < 0 {
+				http.Error(w, "token_options.default_cookie_ttl_seconds must be >= 0", http.StatusBadRequest)
+				return
+			}
+			config.Signing.TokenOptions = TokenOptions{
+				ClockSkewSeconds:        req.TokenOptions.ClockSkewSeconds,
+				DefaultURLTTLSeconds:    req.TokenOptions.DefaultURLTTLSeconds,
+				DefaultCookieTTLSeconds: req.TokenOptions.DefaultCookieTTLSeconds,
+				AllowWildcardPatterns:   req.TokenOptions.AllowWildcardPatterns,
+			}
+		}
+
+		if err := refreshSigningValidator(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled":         config.Signing.Enabled,
+			"key_pair_id":     config.Signing.KeyPairID,
+			"public_key_path": config.Signing.PublicKeyPath,
+			"token_options": map[string]any{
+				"clock_skew_seconds":         config.Signing.TokenOptions.ClockSkewSeconds,
+				"default_url_ttl_seconds":    config.Signing.TokenOptions.DefaultURLTTLSeconds,
+				"default_cookie_ttl_seconds": config.Signing.TokenOptions.DefaultCookieTTLSeconds,
+				"allow_wildcard_patterns":    config.Signing.TokenOptions.AllowWildcardPatterns,
+			},
+		})
+	})
+
+	r.Post("/admin/api/origins", func(w http.ResponseWriter, r *http.Request) {
+		var req AdminOriginUpsertRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+
+		origin, err := buildOriginFromAdminRequest(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		for _, existing := range config.Origins {
+			if strings.EqualFold(existing.Name, origin.Name) {
+				http.Error(w, "origin name already exists", http.StatusConflict)
+				return
+			}
+		}
+
+		config.Origins = append(config.Origins, origin)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+	})
+
+	r.Put("/admin/api/origins/{name}", func(w http.ResponseWriter, r *http.Request) {
+		currentName := strings.TrimSpace(chi.URLParam(r, "name"))
+		if currentName == "" {
+			http.Error(w, "origin name is required", http.StatusBadRequest)
+			return
+		}
+
+		var req AdminOriginUpsertRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+
+		origin, err := buildOriginFromAdminRequest(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		index := slices.IndexFunc(config.Origins, func(existing Origin) bool {
+			return existing.Name == currentName
+		})
+		if index < 0 {
+			http.Error(w, "origin not found", http.StatusNotFound)
+			return
+		}
+
+		for i, existing := range config.Origins {
+			if i != index && strings.EqualFold(existing.Name, origin.Name) {
+				http.Error(w, "origin name already exists", http.StatusConflict)
+				return
+			}
+		}
+
+		config.Origins[index] = origin
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+	})
+
 	// Main proxy handler (catch-all)
-	proxyHandler := NewProxyHandler(config, validator)
 	r.NotFound(proxyHandler.ServeHTTP)
 
 	return r
+}
+
+func buildOriginFromAdminRequest(req AdminOriginUpsertRequest) (Origin, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return Origin{}, fmt.Errorf("origin name is required")
+	}
+
+	originURL := strings.TrimSpace(req.URL)
+	if originURL == "" {
+		return Origin{}, fmt.Errorf("origin URL is required")
+	}
+	if _, err := url.Parse(originURL); err != nil {
+		return Origin{}, fmt.Errorf("invalid origin URL")
+	}
+
+	pathPatterns := make([]string, 0, len(req.PathPatterns))
+	for _, pattern := range req.PathPatterns {
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			continue
+		}
+		pathPatterns = append(pathPatterns, trimmed)
+	}
+	if len(pathPatterns) == 0 {
+		return Origin{}, fmt.Errorf("at least one path pattern is required")
+	}
+
+	origin := Origin{
+		Name:             name,
+		URL:              originURL,
+		PathPatterns:     pathPatterns,
+		StripPrefix:      strings.TrimSpace(req.StripPrefix),
+		TargetPrefix:     strings.TrimSpace(req.TargetPrefix),
+		RequireSignature: req.RequireSignature,
+	}
+
+	if req.DefaultRootObject != nil {
+		normalized := strings.TrimSpace(*req.DefaultRootObject)
+		normalized = strings.TrimPrefix(normalized, "/")
+		if normalized == "" {
+			origin.DefaultRootObject = nil
+		} else {
+			origin.DefaultRootObject = &normalized
+		}
+	}
+
+	return origin, nil
 }
