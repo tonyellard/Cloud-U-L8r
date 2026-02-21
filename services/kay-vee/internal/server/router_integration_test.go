@@ -276,8 +276,8 @@ func TestIntegrationAdminActivityEndpoint(t *testing.T) {
 		t.Fatalf("expected one activity entry on first page, got %v", firstPage["activity"])
 	}
 	entry := entries[0].(map[string]any)
-	if entry["target"] != "AmazonSSM.GetParameter" {
-		t.Fatalf("expected most recent target AmazonSSM.GetParameter, got %v", entry["target"])
+	if entry["action"] != "AmazonSSM.GetParameter" {
+		t.Fatalf("expected most recent action AmazonSSM.GetParameter, got %v", entry["action"])
 	}
 	if entry["errorType"] != "ParameterNotFound" {
 		t.Fatalf("expected ParameterNotFound error type, got %v", entry["errorType"])
@@ -315,8 +315,8 @@ func TestIntegrationAdminActivityEndpoint(t *testing.T) {
 		t.Fatalf("expected one activity entry on second page, got %v", secondPage["activity"])
 	}
 	secondEntry := secondEntries[0].(map[string]any)
-	if secondEntry["target"] != "AmazonSSM.PutParameter" {
-		t.Fatalf("expected older target AmazonSSM.PutParameter, got %v", secondEntry["target"])
+	if secondEntry["action"] != "AmazonSSM.PutParameter" {
+		t.Fatalf("expected older action AmazonSSM.PutParameter, got %v", secondEntry["action"])
 	}
 }
 

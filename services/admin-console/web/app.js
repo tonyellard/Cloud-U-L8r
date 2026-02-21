@@ -27,6 +27,10 @@ let essThreeExpandedBucket = '';
 let essThreeObjectCache = new Map();
 let cloudfauxntSummary = null;
 let cloudfauxntEditingOriginName = '';
+let cloudfauxntActivityRows = [];
+let cloudfauxntActivityNextToken = '';
+let essQueueEssActivityRows = [];
+let essQueueEssActivityNextToken = '';
 
 const validViews = new Set([
   'dashboard',
@@ -590,9 +594,10 @@ function renderKayVeeActivityModalContent() {
       <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
       <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
       <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
-      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.target || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.action || '-')}</td>
       <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
-      <td class="py-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
     </tr>
   `).join('');
 
@@ -604,13 +609,14 @@ function renderKayVeeActivityModalContent() {
             <th class="text-left py-1 pr-2">Timestamp</th>
             <th class="text-left py-1 pr-2">Method</th>
             <th class="text-left py-1 pr-2">Path</th>
-            <th class="text-left py-1 pr-2">Target</th>
+            <th class="text-left py-1 pr-2">Action</th>
             <th class="text-left py-1 pr-2">Status</th>
-            <th class="text-left py-1">Error Type</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -1665,6 +1671,7 @@ function renderCloudfauxntSummary(data) {
       <div class="flex items-center justify-between mb-2">
         <h3 class="font-semibold">Origin & Behavior Overview</h3>
         <div class="flex items-center gap-2">
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="View activity log" aria-label="View activity log" onclick="openCloudfauxntActivityModal()">Activity Log</button>
           <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Add origin and behavior" aria-label="Add origin and behavior" onclick="openCloudfauxntOriginModal()">Add Origin</button>
           <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh cloudfauxnt overview" aria-label="Refresh cloudfauxnt overview" onclick="loadCloudfauxntSummary()">↻</button>
         </div>
@@ -1783,7 +1790,172 @@ function renderCloudfauxntSummary(data) {
       </div>
       </div>
     </div>
+
+    <div id="cloudfauxnt-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeCloudfauxntActivityModal()">
+      <div class="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[80vh] overflow-y-auto p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold">cloudfauxnt Activity Log</h3>
+          <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity log" aria-label="Close activity log" onclick="closeCloudfauxntActivityModal()">✕</button>
+        </div>
+        <div id="cloudfauxnt-activity-body"></div>
+        <div id="cloudfauxnt-activity-load-more" class="hidden mt-3 text-center">
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" onclick="loadMoreCloudfauxntActivity()">Load more</button>
+        </div>
+      </div>
+    </div>
   `;
+}
+
+// ess-queue-ess Activity Log
+async function openEssQueueEssActivityModal() {
+  const modal = document.getElementById('ess-queue-ess-activity-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  try {
+    const data = await apiGet('/api/services/ess-queue-ess/activity?maxResults=25');
+    essQueueEssActivityRows = data.activity || [];
+    essQueueEssActivityNextToken = data.nextToken || '';
+    renderEssQueueEssActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function closeEssQueueEssActivityModal() {
+  const modal = document.getElementById('ess-queue-ess-activity-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function renderEssQueueEssActivityModalContent() {
+  const body = document.getElementById('ess-queue-ess-activity-body');
+  if (!body) return;
+
+  const rows = (essQueueEssActivityRows || []).map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.action || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Method</th>
+            <th class="text-left py-1 pr-2">Path</th>
+            <th class="text-left py-1 pr-2">Action</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const loadMore = document.getElementById('ess-queue-ess-activity-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !essQueueEssActivityNextToken);
+  }
+}
+
+async function loadMoreEssQueueEssActivity() {
+  if (!essQueueEssActivityNextToken) return;
+  try {
+    const data = await apiGet(`/api/services/ess-queue-ess/activity?maxResults=25&nextToken=${encodeURIComponent(essQueueEssActivityNextToken)}`);
+    essQueueEssActivityRows = essQueueEssActivityRows.concat(data.activity || []);
+    essQueueEssActivityNextToken = data.nextToken || '';
+    renderEssQueueEssActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+// cloudfauxnt Activity Log
+async function openCloudfauxntActivityModal() {
+  const modal = document.getElementById('cloudfauxnt-activity-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  try {
+    const data = await apiGet('/api/services/cloudfauxnt/activity?maxResults=25');
+    cloudfauxntActivityRows = data.activity || [];
+    cloudfauxntActivityNextToken = data.nextToken || '';
+    renderCloudfauxntActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function closeCloudfauxntActivityModal() {
+  const modal = document.getElementById('cloudfauxnt-activity-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function renderCloudfauxntActivityModalContent() {
+  const body = document.getElementById('cloudfauxnt-activity-body');
+  if (!body) return;
+
+  const rows = (cloudfauxntActivityRows || []).map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.action || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Method</th>
+            <th class="text-left py-1 pr-2">Path</th>
+            <th class="text-left py-1 pr-2">Action</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const loadMore = document.getElementById('cloudfauxnt-activity-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !cloudfauxntActivityNextToken);
+  }
+}
+
+async function loadMoreCloudfauxntActivity() {
+  if (!cloudfauxntActivityNextToken) return;
+  try {
+    const data = await apiGet(`/api/services/cloudfauxnt/activity?maxResults=25&nextToken=${encodeURIComponent(cloudfauxntActivityNextToken)}`);
+    cloudfauxntActivityRows = cloudfauxntActivityRows.concat(data.activity || []);
+    cloudfauxntActivityNextToken = data.nextToken || '';
+    renderCloudfauxntActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
 }
 
 function renderPubSubState(data) {
@@ -2497,7 +2669,23 @@ function renderQueuesIncremental(queues) {
           </div>
         </details>
       </div>
+      <div class="flex justify-end gap-2 mb-2">
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="View activity log" aria-label="View activity log" onclick="openEssQueueEssActivityModal()">Activity Log</button>
+        <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh queues" aria-label="Refresh queues" onclick="loadQueues()">↻</button>
+      </div>
       <div id="queue-list" class="space-y-3"></div>
+      <div id="ess-queue-ess-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeEssQueueEssActivityModal()">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[80vh] overflow-y-auto p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold">ess-queue-ess Activity Log</h3>
+            <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity log" aria-label="Close activity log" onclick="closeEssQueueEssActivityModal()">✕</button>
+          </div>
+          <div id="ess-queue-ess-activity-body"></div>
+          <div id="ess-queue-ess-activity-load-more" class="hidden mt-3 text-center">
+            <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" onclick="loadMoreEssQueueEssActivity()">Load more</button>
+          </div>
+        </div>
+      </div>
     `;
   }
 

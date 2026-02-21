@@ -319,14 +319,22 @@ type KayVeeActivityEntry struct {
 	Timestamp  time.Time `json:"timestamp"`
 	Method     string    `json:"method"`
 	Path       string    `json:"path"`
-	Target     string    `json:"target,omitempty"`
+	Action     string    `json:"action,omitempty"`
 	StatusCode int       `json:"statusCode"`
 	ErrorType  string    `json:"errorType,omitempty"`
+	Detail     string    `json:"detail,omitempty"`
 }
 
 type KayVeeActivityResponse struct {
 	Activity  []KayVeeActivityEntry `json:"activity"`
 	NextToken string                `json:"nextToken,omitempty"`
+}
+
+// ServiceActivityResponse is a generic activity response type used by
+// services that emit the standard pkg/activity.Entry format.
+type ServiceActivityResponse struct {
+	Activity  []EssThreeActivityEntry `json:"activity"`
+	NextToken string                  `json:"nextToken,omitempty"`
 }
 
 type KayVeeParameter struct {
@@ -444,7 +452,9 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/essthree/actions/delete-object", srv.handleEssThreeDeleteObject)
 	r.Post("/api/services/essthree/actions/purge-bucket", srv.handleEssThreePurgeBucket)
 	r.Get("/api/services/essthree/activity", srv.handleEssThreeActivity)
+	r.Get("/api/services/ess-queue-ess/activity", srv.handleEssQueueEssActivity)
 	r.Get("/api/services/cloudfauxnt/summary", srv.handleCloudfauxntSummary)
+	r.Get("/api/services/cloudfauxnt/activity", srv.handleCloudfauxntActivity)
 	r.Post("/api/services/cloudfauxnt/actions/set-signing", srv.handleCloudfauxntSetSigning)
 	r.Post("/api/services/cloudfauxnt/actions/update-signing-config", srv.handleCloudfauxntUpdateSigningConfig)
 	r.Post("/api/services/cloudfauxnt/actions/create-origin", srv.handleCloudfauxntCreateOrigin)
@@ -760,6 +770,36 @@ func (s *Server) handleEssThreeActivity(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, activityData)
+}
+
+func (s *Server) handleEssQueueEssActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := strings.TrimSpace(r.URL.Query().Get("maxResults"))
+	if maxResults == "" {
+		maxResults = "25"
+	}
+
+	data, err := s.fetchServiceActivity("http://ess-queue-ess:9320", "ess-queue-ess", maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleCloudfauxntActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := strings.TrimSpace(r.URL.Query().Get("maxResults"))
+	if maxResults == "" {
+		maxResults = "25"
+	}
+
+	data, err := s.fetchServiceActivity("http://cloudfauxnt:9310", "cloudfauxnt", maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, data)
 }
 
 func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request) {
@@ -2326,6 +2366,30 @@ func (s *Server) fetchKayVeeSummary() (KayVeeSummaryResponse, error) {
 	}
 
 	return summary, nil
+}
+
+func (s *Server) fetchServiceActivity(baseURL, serviceName, maxResults, nextToken string) (ServiceActivityResponse, error) {
+	activityURL := baseURL + "/admin/api/activity?maxResults=" + url.QueryEscape(maxResults)
+	if nextToken != "" {
+		activityURL += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+
+	resp, err := s.client.Get(activityURL)
+	if err != nil {
+		return ServiceActivityResponse{}, fmt.Errorf("failed to fetch %s activity: %w", serviceName, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return ServiceActivityResponse{}, fmt.Errorf("%s admin activity status %d: %s", serviceName, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var result ServiceActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ServiceActivityResponse{}, err
+	}
+
+	return result, nil
 }
 
 func (s *Server) fetchKayVeeActivity(maxResults, nextToken string) (KayVeeActivityResponse, error) {
