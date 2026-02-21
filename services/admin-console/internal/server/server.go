@@ -570,19 +570,19 @@ func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request
 func (s *Server) handleCloudfauxntSetSigning(w http.ResponseWriter, r *http.Request) {
 	var request CloudfauxntSetSigningRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
 	payload, err := json.Marshal(request)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
 		return
 	}
 
 	resp, err := s.client.Post("http://cloudfauxnt:9310/admin/api/signing", "application/json", bytes.NewReader(payload))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("failed to update cloudfauxnt signing: %w", err))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to update cloudfauxnt signing: %w", err))
 		return
 	}
 	defer resp.Body.Close()
@@ -593,13 +593,13 @@ func (s *Server) handleCloudfauxntSetSigning(w http.ResponseWriter, r *http.Requ
 		if message == "" {
 			message = http.StatusText(resp.StatusCode)
 		}
-		writeError(w, http.StatusBadGateway, fmt.Errorf("cloudfauxnt signing update failed (%d): %s", resp.StatusCode, message))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("cloudfauxnt signing update failed (%d): %s", resp.StatusCode, message))
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -609,7 +609,7 @@ func (s *Server) handleCloudfauxntSetSigning(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleCloudfauxntUpdateSigningConfig(w http.ResponseWriter, r *http.Request) {
 	var request CloudfauxntUpdateSigningConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
@@ -625,13 +625,13 @@ func (s *Server) handleCloudfauxntUpdateSigningConfig(w http.ResponseWriter, r *
 	}
 
 	if err := s.callCloudfauxntAdminJSON(http.MethodPut, "/admin/api/signing/config", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -641,7 +641,7 @@ func (s *Server) handleCloudfauxntUpdateSigningConfig(w http.ResponseWriter, r *
 func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Request) {
 	var req CloudfauxntOriginUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
@@ -656,13 +656,13 @@ func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := s.callCloudfauxntAdminJSON(http.MethodPost, "/admin/api/origins", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -672,13 +672,13 @@ func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Re
 func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Request) {
 	var req CloudfauxntOriginUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
 	currentName := strings.TrimSpace(req.CurrentName)
 	if currentName == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("current_name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("current_name is required"))
 		return
 	}
 
@@ -694,13 +694,13 @@ func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Re
 
 	path := "/admin/api/origins/" + url.PathEscape(currentName)
 	if err := s.callCloudfauxntAdminJSON(http.MethodPut, path, payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 

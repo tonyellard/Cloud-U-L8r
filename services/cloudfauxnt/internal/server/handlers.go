@@ -76,7 +76,7 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Validate signature if required
 	if requireSignature {
 		if ph.validator == nil {
-			ph.writeCloudFrontError(w, "AccessDenied", "signature validation is enabled but no validator is configured", http.StatusForbidden)
+			awserrors.WriteCloudFrontXML(w, "AccessDenied", "signature validation is enabled but no validator is configured", generateCloudFrontID(), http.StatusForbidden)
 			return
 		}
 		if err := ph.validator.ValidateRequest(r); err != nil {
