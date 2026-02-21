@@ -617,18 +617,28 @@ func (s *Server) handleEssThreeCreateBucket(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	payload, _ := json.Marshal(req)
-	resp, err := s.client.Post("http://essthree:9300/admin/api/buckets", "application/json", bytes.NewReader(payload))
+	// Use the S3 API (PUT /{bucket}/) so the operation is recorded in the activity log.
+	s3URL := fmt.Sprintf("http://essthree:9300/%s/", url.PathEscape(req.Name))
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPut, s3URL, nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
 	if err != nil {
 		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to create bucket: %w", err))
 		return
 	}
 	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
 
-	body, _ := io.ReadAll(resp.Body)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	if resp.StatusCode <= 299 {
+		writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name})
+		return
+	}
+
+	awserrors.WriteJSONGeneric(w, resp.StatusCode, fmt.Errorf("failed to create bucket %q (status %d)", req.Name, resp.StatusCode))
 }
 
 func (s *Server) handleEssThreeDeleteBucket(w http.ResponseWriter, r *http.Request) {
@@ -640,7 +650,9 @@ func (s *Server) handleEssThreeDeleteBucket(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, "http://essthree:9300/admin/api/buckets/"+url.PathEscape(req.Name), nil)
+	// Use the S3 API (DELETE /{bucket}/) so the operation is recorded in the activity log.
+	s3URL := fmt.Sprintf("http://essthree:9300/%s/", url.PathEscape(req.Name))
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, s3URL, nil)
 	if err != nil {
 		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
 		return
@@ -652,16 +664,22 @@ func (s *Server) handleEssThreeDeleteBucket(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	// S3 returns XML errors; translate to a JSON error for the admin console.
+	message := strings.TrimSpace(string(body))
+	if strings.Contains(message, "BucketNotEmpty") {
+		awserrors.WriteJSONGeneric(w, http.StatusConflict, fmt.Errorf("bucket is not empty"))
+	} else if resp.StatusCode == http.StatusNotFound {
+		awserrors.WriteJSONGeneric(w, http.StatusNotFound, fmt.Errorf("bucket does not exist"))
+	} else {
+		awserrors.WriteJSONGeneric(w, resp.StatusCode, fmt.Errorf("delete failed (status %d)", resp.StatusCode))
+	}
 }
 
 func (s *Server) handleEssThreeDeleteObject(w http.ResponseWriter, r *http.Request) {
@@ -674,9 +692,10 @@ func (s *Server) handleEssThreeDeleteObject(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	deleteURL := fmt.Sprintf("http://essthree:9300/admin/api/buckets/%s/objects?key=%s",
-		url.PathEscape(req.Bucket), url.QueryEscape(req.Key))
-	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, deleteURL, nil)
+	// Use the S3 API (DELETE /{bucket}/{key}) so the operation is recorded in the activity log.
+	s3URL := fmt.Sprintf("http://essthree:9300/%s/%s",
+		url.PathEscape(req.Bucket), req.Key)
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, s3URL, nil)
 	if err != nil {
 		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
 		return
@@ -688,16 +707,14 @@ func (s *Server) handleEssThreeDeleteObject(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
 
-	if resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	awserrors.WriteJSONGeneric(w, resp.StatusCode, fmt.Errorf("delete failed (status %d)", resp.StatusCode))
 }
 
 func (s *Server) handleEssThreeActivity(w http.ResponseWriter, r *http.Request) {
