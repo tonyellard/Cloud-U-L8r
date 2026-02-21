@@ -3,7 +3,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tonyellard/cloud-u-l8r/pkg/activity"
+	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 	"github.com/tonyellard/essthree/internal/storage"
 )
@@ -51,6 +54,7 @@ func (s *Server) Router() http.Handler {
 	r.Post("/admin/api/buckets", s.handleAdminCreateBucket)
 	r.Delete("/admin/api/buckets/{bucket}", s.handleAdminDeleteBucket)
 	r.Delete("/admin/api/buckets/{bucket}/objects", s.handleAdminDeleteObject)
+	r.Post("/admin/api/buckets/{bucket}/purge", s.handleAdminPurgeBucket)
 	r.Get("/admin/api/activity", s.handleAdminActivity)
 
 	// S3 API routes
@@ -126,20 +130,31 @@ func (s *Server) activityMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		action := describeS3Action(r)
-		s.activity.Record(activity.Entry{
+		entry := activity.Entry{
 			Method:     r.Method,
 			Path:       r.URL.Path,
 			Action:     action,
 			StatusCode: rec.status,
-		})
+		}
+
+		if rec.status >= 400 {
+			if errCode, errMsg := parseXMLError(rec.errBody.Bytes()); errCode != "" {
+				entry.ErrorType = errCode
+				entry.Detail = errMsg
+			}
+		}
+
+		s.activity.Record(entry)
 	})
 }
 
-// statusRecorder captures the HTTP status code written by handlers.
+// statusRecorder captures the HTTP status code and, for error responses,
+// the response body so the middleware can extract error details.
 type statusRecorder struct {
 	http.ResponseWriter
 	status      int
 	wroteHeader bool
+	errBody     bytes.Buffer
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
@@ -154,7 +169,22 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	if !r.wroteHeader {
 		r.wroteHeader = true
 	}
+	if r.status >= 400 {
+		r.errBody.Write(b)
+	}
 	return r.ResponseWriter.Write(b)
+}
+
+// parseXMLError extracts the Code and Message from an S3-style XML error body.
+func parseXMLError(body []byte) (string, string) {
+	if len(body) == 0 {
+		return "", ""
+	}
+	var xmlErr awserrors.XMLError
+	if err := xml.Unmarshal(body, &xmlErr); err != nil {
+		return "", ""
+	}
+	return xmlErr.Code, xmlErr.Message
 }
 
 // describeS3Action returns a human-readable label for S3 API operations.
@@ -333,6 +363,36 @@ func (s *Server) handleAdminDeleteObject(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleAdminPurgeBucket(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+
+	if !s.storage.BucketExists(bucket) {
+		writeAdminError(w, http.StatusNotFound, fmt.Sprintf("bucket %q does not exist", bucket))
+		return
+	}
+
+	// List all objects (unpaginated) and delete them.
+	result, err := s.storage.ListObjectsV2(bucket, "", "", 0)
+	if err != nil {
+		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	keys := make([]string, 0, len(result.Objects))
+	for _, obj := range result.Objects {
+		keys = append(keys, obj.Key)
+	}
+
+	if len(keys) > 0 {
+		s.storage.DeleteObjects(bucket, keys)
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"bucket":  bucket,
+		"deleted": len(keys),
+	})
 }
 
 func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {

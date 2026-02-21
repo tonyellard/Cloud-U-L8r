@@ -1327,7 +1327,8 @@ function renderEssThreeSummary(data) {
           <button class="text-left font-medium hover:underline" title="Browse bucket contents" aria-label="Browse bucket ${escapeHTML(bucket.name)}" onclick="toggleEssThreeBucket('${escapeHTML(bucket.name)}')">${isExpanded ? '▾' : '▸'} ${escapeHTML(bucket.name || '')}</button>
         </td>
         <td class="py-2 pr-2 text-sm text-right">${Number(bucket.object_count || 0)}</td>
-        <td class="py-2 text-right">
+        <td class="py-2 text-right whitespace-nowrap">
+          <button class="px-2 py-0.5 rounded bg-amber-600 text-white text-xs" title="Delete all objects in bucket" aria-label="Purge bucket ${escapeHTML(bucket.name || '')}" onclick="purgeEssThreeBucket('${escapeHTML(bucket.name)}')">Purge</button>
           <button class="px-2 py-0.5 rounded bg-red-600 text-white text-xs" title="Delete bucket" aria-label="Delete bucket ${escapeHTML(bucket.name || '')}" onclick="deleteEssThreeBucket('${escapeHTML(bucket.name)}')">Delete</button>
         </td>
       </tr>
@@ -1490,6 +1491,18 @@ async function deleteEssThreeBucket(bucketName) {
   }
 }
 
+async function purgeEssThreeBucket(bucketName) {
+  if (!window.confirm(`Purge ALL objects from bucket "${bucketName}"? This cannot be undone.`)) return;
+
+  try {
+    await apiPost('/api/services/essthree/actions/purge-bucket', { name: bucketName });
+    essThreeObjectCache.delete(bucketName);
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to purge bucket: ${error.message}`);
+  }
+}
+
 async function deleteEssThreeObject(bucketName, key) {
   if (!window.confirm(`Delete object "${key}" from bucket "${bucketName}"?`)) return;
 
@@ -1530,7 +1543,8 @@ function renderEssThreeActivityModalContent() {
       <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
       <td class="py-2 pr-2 text-xs">${escapeHTML(entry.action || '-')}</td>
       <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
-      <td class="py-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
     </tr>
   `).join('');
 
@@ -1544,11 +1558,12 @@ function renderEssThreeActivityModalContent() {
             <th class="text-left py-1 pr-2">Path</th>
             <th class="text-left py-1 pr-2">Action</th>
             <th class="text-left py-1 pr-2">Status</th>
-            <th class="text-left py-1">Error Type</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
         </tbody>
       </table>
     </div>

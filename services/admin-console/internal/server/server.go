@@ -442,6 +442,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/essthree/actions/create-bucket", srv.handleEssThreeCreateBucket)
 	r.Post("/api/services/essthree/actions/delete-bucket", srv.handleEssThreeDeleteBucket)
 	r.Post("/api/services/essthree/actions/delete-object", srv.handleEssThreeDeleteObject)
+	r.Post("/api/services/essthree/actions/purge-bucket", srv.handleEssThreePurgeBucket)
 	r.Get("/api/services/essthree/activity", srv.handleEssThreeActivity)
 	r.Get("/api/services/cloudfauxnt/summary", srv.handleCloudfauxntSummary)
 	r.Post("/api/services/cloudfauxnt/actions/set-signing", srv.handleCloudfauxntSetSigning)
@@ -715,6 +716,35 @@ func (s *Server) handleEssThreeDeleteObject(w http.ResponseWriter, r *http.Reque
 	}
 
 	awserrors.WriteJSONGeneric(w, resp.StatusCode, fmt.Errorf("delete failed (status %d)", resp.StatusCode))
+}
+
+func (s *Server) handleEssThreePurgeBucket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	purgeURL := fmt.Sprintf("http://essthree:9300/admin/api/buckets/%s/purge", url.PathEscape(req.Name))
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, purgeURL, nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to purge bucket: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
 }
 
 func (s *Server) handleEssThreeActivity(w http.ResponseWriter, r *http.Request) {
