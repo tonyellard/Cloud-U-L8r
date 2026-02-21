@@ -40,8 +40,17 @@ func (s *Server) Router() http.Handler {
 	// S3 API routes
 	// Bucket operations
 	r.Route("/{bucket}", func(r chi.Router) {
-		// List objects (supports both V1 and V2)
-		r.Get("/", s.handleListObjects)
+		// Bucket-level GET: dispatch on query params for bucket properties
+		r.Get("/", s.handleBucketGet)
+
+		// CreateBucket
+		r.Put("/", s.handleCreateBucket)
+
+		// HeadBucket
+		r.Head("/", s.handleHeadBucket)
+
+		// DeleteBucket
+		r.Delete("/", s.handleDeleteBucket)
 
 		// Batch delete
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {

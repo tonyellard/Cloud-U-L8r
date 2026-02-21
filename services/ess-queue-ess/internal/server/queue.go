@@ -105,7 +105,7 @@ func (qm *QueueManager) CreateQueue(name string, attributes map[string]string) (
 
 	queue := &Queue{
 		Name:                   name,
-		URL:                    "/" + name,
+		URL:                    "/000000000000/" + name,
 		Attributes:             attributes,
 		Messages:               make([]*Message, 0),
 		VisibilityTimeout:      30,     // default 30 seconds

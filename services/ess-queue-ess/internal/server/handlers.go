@@ -107,6 +107,17 @@ func sqsHandler(w http.ResponseWriter, r *http.Request) {
 		handleChangeMessageVisibilityBatch(w, r)
 	case "GetQueueUrl":
 		handleGetQueueUrl(w, r)
+	case "ListQueueTags":
+		handleListQueueTags(w, r)
+	case "TagQueue", "UntagQueue":
+		// Stub: accept and return success
+		if r.Header.Get("X-Amz-Target") != "" {
+			sendJSONResponse(w, map[string]interface{}{})
+		} else {
+			sendXMLResponse(w, struct {
+				XMLName xml.Name `xml:"TagQueueResponse"`
+			}{})
+		}
 	default:
 		awserrors.WriteXMLWrapped(w, "InvalidAction", "Unknown action: "+action, http.StatusBadRequest)
 	}
@@ -255,7 +266,7 @@ func handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
 		}
 		sendXMLResponse(w, DeleteQueueResponse{})
 	} else {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 	}
 }
 
@@ -363,7 +374,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -444,7 +455,7 @@ func handleReceiveMessage(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -513,7 +524,7 @@ func handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -559,7 +570,7 @@ func handleGetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -647,7 +658,7 @@ func handleSetQueueAttributes(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -694,7 +705,7 @@ func handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
 
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -713,7 +724,12 @@ func extractQueueName(queueURL string) string {
 	if err != nil {
 		return strings.TrimPrefix(queueURL, "/")
 	}
-	return strings.TrimPrefix(parsedURL.Path, "/")
+	// Extract last path segment (queue name) from URLs like /000000000000/queue-name
+	path := strings.TrimPrefix(parsedURL.Path, "/")
+	if idx := strings.LastIndex(path, "/"); idx >= 0 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 func parseAttributes(form url.Values, prefix string) map[string]string {
@@ -801,6 +817,19 @@ func sendResponse(w http.ResponseWriter, r *http.Request, xmlData interface{}, j
 		sendJSONResponse(w, jsonData)
 	} else {
 		sendXMLResponse(w, xmlData)
+	}
+}
+
+func sendErrorResponse(w http.ResponseWriter, r *http.Request, errorType, message string, statusCode int) {
+	if r.Header.Get("X-Amz-Target") != "" {
+		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(map[string]string{
+			"__type":  errorType,
+			"message": message,
+		})
+	} else {
+		awserrors.WriteXMLWrapped(w, errorType, message, statusCode)
 	}
 }
 
@@ -1302,7 +1331,7 @@ func handleSendMessageBatch(w http.ResponseWriter, r *http.Request) {
 	queueName := extractQueueName(queueURL)
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -1401,7 +1430,7 @@ func handleDeleteMessageBatch(w http.ResponseWriter, r *http.Request) {
 	queueName := extractQueueName(queueURL)
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -1487,7 +1516,7 @@ func handleChangeMessageVisibility(w http.ResponseWriter, r *http.Request) {
 	queueName := extractQueueName(queueURL)
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -1566,7 +1595,7 @@ func handleChangeMessageVisibilityBatch(w http.ResponseWriter, r *http.Request) 
 	queueName := extractQueueName(queueURL)
 	queue, exists := queueManager.GetQueue(queueName)
 	if !exists {
-		awserrors.WriteXMLWrapped(w, "NonExistentQueue", "Queue does not exist", http.StatusBadRequest)
+		sendErrorResponse(w, r, "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest)
 		return
 	}
 
@@ -1668,5 +1697,17 @@ func handleGetQueueUrl(w http.ResponseWriter, r *http.Request) {
 		resp := GetQueueUrlResponse{}
 		resp.Result.QueueUrl = queueUrl
 		sendXMLResponse(w, resp)
+	}
+}
+
+func handleListQueueTags(w http.ResponseWriter, r *http.Request) {
+	isJSON := r.Header.Get("X-Amz-Target") != ""
+	if isJSON {
+		sendJSONResponse(w, map[string]interface{}{"Tags": map[string]string{}})
+	} else {
+		type ListQueueTagsResponse struct {
+			XMLName xml.Name `xml:"ListQueueTagsResponse"`
+		}
+		sendXMLResponse(w, ListQueueTagsResponse{})
 	}
 }

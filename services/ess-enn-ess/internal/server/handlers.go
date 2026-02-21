@@ -191,7 +191,9 @@ func (s *Server) handleGetSubscriptionAttributes(w http.ResponseWriter, r *http.
 	sub := s.subscriptionStore.GetByArn(subscriptionArn)
 	if sub == nil {
 		s.activityLogger.LogError(activity.EventType("get_subscription_attributes"), "", "", "subscription not found", nil)
-		http.Error(w, "NotFound: Subscription not found", http.StatusNotFound)
+		w.Header().Set("Content-Type", "text/xml")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, `<?xml version="1.0"?><ErrorResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><Error><Type>Sender</Type><Code>NotFound</Code><Message>Subscription does not exist</Message></Error><RequestId>%s</RequestId></ErrorResponse>`, generateRequestId())
 		return
 	}
 
@@ -226,7 +228,15 @@ func (s *Server) handleGetSubscriptionAttributes(w http.ResponseWriter, r *http.
 			<entry>
 				<key>Status</key>
 				<value>%s</value>
-			</entry>`, sub.TopicArn, sub.Protocol, sub.SubscriptionArn, s.config.AWS.AccountId, sub.Endpoint, sub.Status)
+			</entry>
+			<entry>
+				<key>PendingConfirmation</key>
+				<value>%s</value>
+			</entry>
+			<entry>
+				<key>ConfirmationWasAuthenticated</key>
+				<value>true</value>
+			</entry>`, sub.TopicArn, sub.Protocol, sub.SubscriptionArn, s.config.AWS.AccountId, sub.Endpoint, sub.Status, fmt.Sprintf("%t", sub.Status != subscription.StatusConfirmed))
 
 	for k, v := range attrs {
 		fmt.Fprintf(w, `

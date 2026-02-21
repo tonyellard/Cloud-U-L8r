@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
@@ -104,6 +105,13 @@ func (s *Server) handleSNSRequest(w http.ResponseWriter, r *http.Request) {
 		s.handleSetSubscriptionAttributes(w, r, start)
 	case "Publish":
 		s.handlePublish(w, r, start)
+	case "ListTagsForResource":
+		// Return empty tags
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprintf(w, `<?xml version="1.0"?><ListTagsForResourceResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><ListTagsForResourceResult><Tags/></ListTagsForResourceResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListTagsForResourceResponse>`, generateRequestId())
+	case "TagResource", "UntagResource":
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprintf(w, `<?xml version="1.0"?><TagResourceResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></TagResourceResponse>`, generateRequestId())
 	default:
 		s.activityLogger.Log(activity.EventType("unknown_action"), "", activity.StatusFailed, map[string]interface{}{"action": action})
 		http.Error(w, fmt.Sprintf("Unknown action: %s", action), http.StatusBadRequest)
@@ -192,16 +200,26 @@ func (s *Server) handleGetTopicAttributes(w http.ResponseWriter, r *http.Request
 	duration := time.Since(start)
 	s.activityLogger.LogWithDuration(activity.EventTypeGetAttributes, topicArn, activity.StatusSuccess, duration, nil)
 
+	// Extract topic name from ARN for policy document
+	topicName := topicArn
+	if parts := strings.Split(topicArn, ":"); len(parts) > 0 {
+		topicName = parts[len(parts)-1]
+	}
+
 	// Build attribute entries XML
 	attrsXML := ""
 	// Standard SNS topic attributes
 	attrsXML += fmt.Sprintf("<entry><key>TopicArn</key><value>%s</value></entry>", topicArn)
+	attrsXML += fmt.Sprintf("<entry><key>Owner</key><value>%s</value></entry>", s.config.AWS.AccountId)
+	attrsXML += fmt.Sprintf(`<entry><key>Policy</key><value>{"Version":"2012-10-17","Id":"__default_policy_ID","Statement":[{"Sid":"__default_statement_ID","Effect":"Allow","Principal":{"AWS":"*"},"Action":"SNS:Publish","Resource":"%s"}]}</value></entry>`, topicArn)
+	attrsXML += fmt.Sprintf(`<entry><key>EffectiveDeliveryPolicy</key><value>{"http":{"defaultHealthyRetryPolicy":{"minDelayTarget":20,"maxDelayTarget":20,"numRetries":3,"numMaxDelayRetries":0,"numNoDelayRetries":0,"numMinDelayRetries":0,"backoffFunction":"linear"},"disableSubscriptionOverrides":false}}</value></entry>`)
 	if topic != nil {
 		attrsXML += fmt.Sprintf("<entry><key>DisplayName</key><value>%s</value></entry>", topic.DisplayName)
 		attrsXML += fmt.Sprintf("<entry><key>SubscriptionsConfirmed</key><value>%d</value></entry>", topic.SubscriptionCount)
 		attrsXML += "<entry><key>SubscriptionsPending</key><value>0</value></entry>"
 		attrsXML += "<entry><key>SubscriptionsDeleted</key><value>0</value></entry>"
 	}
+	_ = topicName
 	// Custom attributes
 	for k, v := range attrs {
 		attrsXML += fmt.Sprintf("<entry><key>%s</key><value>%s</value></entry>", k, v)

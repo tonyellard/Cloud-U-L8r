@@ -83,6 +83,12 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handleGetParameters(recorder, body)
 	case "AmazonSSM.GetParametersByPath":
 		s.handleGetParametersByPath(recorder, body)
+	case "AmazonSSM.ListTagsForResource":
+		s.handleSSMListTagsForResource(recorder, body)
+	case "AmazonSSM.AddTagsToResource":
+		s.handleSSMAddTagsToResource(recorder, body)
+	case "AmazonSSM.RemoveTagsFromResource":
+		s.handleSSMRemoveTagsFromResource(recorder, body)
 	case "secretsmanager.CreateSecret":
 		s.handleCreateSecret(recorder, body)
 	case "secretsmanager.GetSecretValue":
@@ -101,6 +107,12 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handleRestoreSecret(recorder, body)
 	case "secretsmanager.UpdateSecretVersionStage":
 		s.handleUpdateSecretVersionStage(recorder, body)
+	case "secretsmanager.GetResourcePolicy":
+		s.handleGetResourcePolicy(recorder, body)
+	case "secretsmanager.TagResource":
+		s.handleSecretsTagResource(recorder, body)
+	case "secretsmanager.UntagResource":
+		s.handleSecretsUntagResource(recorder, body)
 	default:
 		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
 	}
@@ -575,6 +587,32 @@ func (s *Server) handleUpdateSecretVersionStage(w http.ResponseWriter, body []by
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleSSMListTagsForResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"TagList": []interface{}{},
+	})
+}
+
+func (s *Server) handleSSMAddTagsToResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleSSMRemoveTagsFromResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleGetResourcePolicy(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleSecretsTagResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleSecretsUntagResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
