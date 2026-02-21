@@ -24,7 +24,7 @@ WORKDIR /build/services/ess-enn-ess
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o ess-enn-ess ./cmd/ess-enn-ess
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.21
 
 WORKDIR /app
 

@@ -23,7 +23,7 @@ WORKDIR /build/services/admin-console
 RUN CGO_ENABLED=0 GOOS=linux GOFLAGS='-p=1' go build -o admin-console ./cmd/admin-console
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.21
 
 RUN apk --no-cache add ca-certificates
 

@@ -21,7 +21,7 @@ WORKDIR /build/services/ess-queue-ess
 RUN CGO_ENABLED=0 GOOS=linux go build -o ess-queue-ess ./cmd/ess-queue-ess
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.21
 
 RUN apk --no-cache add ca-certificates
 

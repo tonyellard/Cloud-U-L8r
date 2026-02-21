@@ -21,7 +21,7 @@ WORKDIR /build/services/kay-vee
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o kay-vee ./cmd/kay-vee
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.21
 
 WORKDIR /app
 
