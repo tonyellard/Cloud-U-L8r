@@ -63,11 +63,16 @@ status:
 
 # Run tests in all services
 test:
+	@echo "Running shared package tests..."
+	@go test ./pkg/awserrors/... ./pkg/health/... || true
+	@echo ""
 	@echo "Running unit tests..."
-	@cd services/essthree && go test ./... || true
-	@cd services/cloudfauxnt && go test ./... || true
-	@cd services/ess-queue-ess && go test ./... || true
-	@cd services/admin-console && go test ./... || true
+	@go test ./services/essthree/... || true
+	@go test ./services/cloudfauxnt/... || true
+	@go test ./services/ess-queue-ess/... || true
+	@go test ./services/ess-enn-ess/... || true
+	@go test ./services/kay-vee/... || true
+	@go test ./services/admin-console/... || true
 	@echo ""
 	@echo "Running integration tests..."
 	@./tests/integration/test_cross_service.sh

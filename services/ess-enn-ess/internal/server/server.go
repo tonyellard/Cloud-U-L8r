@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 	"github.com/tonyellard/ess-enn-ess/internal/activity"
 	"github.com/tonyellard/ess-enn-ess/internal/config"
 	"github.com/tonyellard/ess-enn-ess/internal/delivery"
@@ -45,26 +47,14 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *Server {
 // registerRoutes registers all SNS API routes
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/", s.handleSNSRequest)
-	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/health", health.Handler("ess-enn-ess"))
 }
 
-// RegisterAdminRoutes registers the admin dashboard routes on the same server
-func (s *Server) RegisterAdminRoutes(dashboardHandler http.HandlerFunc, apiHandlers map[string]http.HandlerFunc) {
-	s.mux.HandleFunc("/admin", dashboardHandler)
+// RegisterAdminRoutes registers the admin API routes on the same server
+func (s *Server) RegisterAdminRoutes(apiHandlers map[string]http.HandlerFunc) {
 	for path, handler := range apiHandlers {
 		s.mux.HandleFunc(path, handler)
 	}
-}
-
-// handleHealth handles health check requests
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "OK")
 }
 
 // handleSNSRequest handles SNS API requests
@@ -115,6 +105,13 @@ func (s *Server) handleSNSRequest(w http.ResponseWriter, r *http.Request) {
 		s.handleSetSubscriptionAttributes(w, r, start)
 	case "Publish":
 		s.handlePublish(w, r, start)
+	case "ListTagsForResource":
+		// Return empty tags
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprintf(w, `<?xml version="1.0"?><ListTagsForResourceResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><ListTagsForResourceResult><Tags/></ListTagsForResourceResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></ListTagsForResourceResponse>`, generateRequestId())
+	case "TagResource", "UntagResource":
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprintf(w, `<?xml version="1.0"?><TagResourceResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></TagResourceResponse>`, generateRequestId())
 	default:
 		s.activityLogger.Log(activity.EventType("unknown_action"), "", activity.StatusFailed, map[string]interface{}{"action": action})
 		http.Error(w, fmt.Sprintf("Unknown action: %s", action), http.StatusBadRequest)
@@ -186,21 +183,50 @@ func (s *Server) handleGetTopicAttributes(w http.ResponseWriter, r *http.Request
 	topicArn := r.FormValue("TopicArn")
 	if topicArn == "" {
 		s.activityLogger.LogError(activity.EventTypeGetAttributes, "", "", "topic arn is required", nil)
+		http.Error(w, "TopicArn is required", http.StatusBadRequest)
 		return
 	}
 
-	_, err := s.topicStore.GetAttributes(topicArn)
+	attrs, err := s.topicStore.GetAttributes(topicArn)
 	if err != nil {
 		s.activityLogger.LogError(activity.EventTypeGetAttributes, topicArn, "", err.Error(), nil)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
+	// Get the topic for additional built-in attributes
+	topic, _ := s.topicStore.GetTopic(topicArn)
+
 	duration := time.Since(start)
 	s.activityLogger.LogWithDuration(activity.EventTypeGetAttributes, topicArn, activity.StatusSuccess, duration, nil)
 
-	w.Header().Set("Content-Type", "application/x-www-form-urlencoded")
-	fmt.Fprint(w, "<?xml version=\"1.0\"?><GetTopicAttributesResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\"><GetTopicAttributesResult><Attributes></Attributes></GetTopicAttributesResult><ResponseMetadata></ResponseMetadata></GetTopicAttributesResponse>")
+	// Extract topic name from ARN for policy document
+	topicName := topicArn
+	if parts := strings.Split(topicArn, ":"); len(parts) > 0 {
+		topicName = parts[len(parts)-1]
+	}
+
+	// Build attribute entries XML
+	attrsXML := ""
+	// Standard SNS topic attributes
+	attrsXML += fmt.Sprintf("<entry><key>TopicArn</key><value>%s</value></entry>", topicArn)
+	attrsXML += fmt.Sprintf("<entry><key>Owner</key><value>%s</value></entry>", s.config.AWS.AccountId)
+	attrsXML += fmt.Sprintf(`<entry><key>Policy</key><value>{"Version":"2012-10-17","Id":"__default_policy_ID","Statement":[{"Sid":"__default_statement_ID","Effect":"Allow","Principal":{"AWS":"*"},"Action":"SNS:Publish","Resource":"%s"}]}</value></entry>`, topicArn)
+	attrsXML += fmt.Sprintf(`<entry><key>EffectiveDeliveryPolicy</key><value>{"http":{"defaultHealthyRetryPolicy":{"minDelayTarget":20,"maxDelayTarget":20,"numRetries":3,"numMaxDelayRetries":0,"numNoDelayRetries":0,"numMinDelayRetries":0,"backoffFunction":"linear"},"disableSubscriptionOverrides":false}}</value></entry>`)
+	if topic != nil {
+		attrsXML += fmt.Sprintf("<entry><key>DisplayName</key><value>%s</value></entry>", topic.DisplayName)
+		attrsXML += fmt.Sprintf("<entry><key>SubscriptionsConfirmed</key><value>%d</value></entry>", topic.SubscriptionCount)
+		attrsXML += "<entry><key>SubscriptionsPending</key><value>0</value></entry>"
+		attrsXML += "<entry><key>SubscriptionsDeleted</key><value>0</value></entry>"
+	}
+	_ = topicName
+	// Custom attributes
+	for k, v := range attrs {
+		attrsXML += fmt.Sprintf("<entry><key>%s</key><value>%s</value></entry>", k, v)
+	}
+
+	w.Header().Set("Content-Type", "text/xml")
+	fmt.Fprintf(w, `<?xml version="1.0"?><GetTopicAttributesResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><GetTopicAttributesResult><Attributes>%s</Attributes></GetTopicAttributesResult><ResponseMetadata><RequestId>%s</RequestId></ResponseMetadata></GetTopicAttributesResponse>`, attrsXML, generateRequestId())
 }
 
 // handleSetTopicAttributes sets a topic attribute

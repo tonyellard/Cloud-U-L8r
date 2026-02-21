@@ -89,23 +89,23 @@ func TestFileSystemStorage(t *testing.T) {
 		storage.PutObject(bucket, "file2.txt", bytes.NewReader([]byte("test2")), nil, "text/plain")
 		storage.PutObject(bucket, "dir/file3.txt", bytes.NewReader([]byte("test3")), nil, "text/plain")
 
-		objects, err := storage.ListObjects(bucket, "", 10)
+		result, err := storage.ListObjects(bucket, "", "", 10)
 		if err != nil {
 			t.Fatalf("ListObjects failed: %v", err)
 		}
 
-		if len(objects) < 4 {
-			t.Errorf("Expected at least 4 objects, got %d", len(objects))
+		if len(result.Objects) < 4 {
+			t.Errorf("Expected at least 4 objects, got %d", len(result.Objects))
 		}
 
 		// Test with prefix
-		objects, err = storage.ListObjects(bucket, "file", 10)
+		result, err = storage.ListObjects(bucket, "file", "", 10)
 		if err != nil {
 			t.Fatalf("ListObjects with prefix failed: %v", err)
 		}
 
-		if len(objects) < 2 {
-			t.Errorf("Expected at least 2 objects with prefix 'file', got %d", len(objects))
+		if len(result.Objects) < 2 {
+			t.Errorf("Expected at least 2 objects with prefix 'file', got %d", len(result.Objects))
 		}
 	})
 

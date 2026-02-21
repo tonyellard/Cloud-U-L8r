@@ -8,7 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/tony/ess-three/internal/storage"
+	"github.com/tonyellard/essthree/internal/storage"
+	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 )
 
 // Server represents the S3 API server
@@ -33,14 +34,23 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.RequestID)
 
 	// Health check
-	r.Get("/health", s.handleHealth)
+	r.Get("/health", health.Handler("essthree"))
 	r.Get("/admin/api/buckets", s.handleAdminBuckets)
 
 	// S3 API routes
 	// Bucket operations
 	r.Route("/{bucket}", func(r chi.Router) {
-		// List objects (supports both V1 and V2)
-		r.Get("/", s.handleListObjects)
+		// Bucket-level GET: dispatch on query params for bucket properties
+		r.Get("/", s.handleBucketGet)
+
+		// CreateBucket
+		r.Put("/", s.handleCreateBucket)
+
+		// HeadBucket
+		r.Head("/", s.handleHeadBucket)
+
+		// DeleteBucket
+		r.Delete("/", s.handleDeleteBucket)
 
 		// Batch delete
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
@@ -91,11 +101,6 @@ func (s *Server) Router() http.Handler {
 	})
 
 	return r
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
 }
 
 func (s *Server) handleAdminBuckets(w http.ResponseWriter, r *http.Request) {

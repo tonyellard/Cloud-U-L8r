@@ -170,7 +170,7 @@ func (s *Store) GetParameter(name string, withDecryption bool) (model.Parameter,
 		Value:            value,
 		Version:          version,
 		ARN:              fmt.Sprintf("arn:aws:ssm:%s:%s:parameter%s", s.region, s.accountID, record.Name),
-		LastModifiedDate: record.LastModifiedAt,
+		LastModifiedDate: model.NewAWSTime(record.LastModifiedAt),
 	}, nil
 }
 
@@ -238,7 +238,7 @@ func (s *Store) GetParametersByPath(path string, recursive, withDecryption bool,
 			Value:            value,
 			Version:          version,
 			ARN:              fmt.Sprintf("arn:aws:ssm:%s:%s:parameter%s", s.region, s.accountID, record.Name),
-			LastModifiedDate: record.LastModifiedAt,
+			LastModifiedDate: model.NewAWSTime(record.LastModifiedAt),
 		})
 	}
 
@@ -276,7 +276,7 @@ func (s *Store) DescribeParameters(maxResults int, nextToken string, filters []m
 			Type:             record.Type,
 			Version:          record.CurrentVersion,
 			ARN:              fmt.Sprintf("arn:aws:ssm:%s:%s:parameter%s", s.region, s.accountID, record.Name),
-			LastModifiedDate: record.LastModifiedAt,
+			LastModifiedDate: model.NewAWSTime(record.LastModifiedAt),
 		})
 	}
 
@@ -325,7 +325,7 @@ func (s *Store) GetParameterHistory(name string, withDecryption bool, maxResults
 			Value:            value,
 			Version:          version,
 			ARN:              fmt.Sprintf("arn:aws:ssm:%s:%s:parameter%s", s.region, s.accountID, record.Name),
-			LastModifiedDate: v.CreatedAt,
+			LastModifiedDate: model.NewAWSTime(v.CreatedAt),
 		})
 	}
 
@@ -405,9 +405,6 @@ func (s *Store) CreateSecret(req model.CreateSecretRequest) (model.CreateSecretR
 	if req.Name == "" {
 		return model.CreateSecretResponse{}, fmt.Errorf("ValidationException: Name is required")
 	}
-	if req.SecretString == nil && req.SecretBinary == "" {
-		return model.CreateSecretResponse{}, fmt.Errorf("ValidationException: SecretString or SecretBinary is required")
-	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -417,7 +414,6 @@ func (s *Store) CreateSecret(req model.CreateSecretRequest) (model.CreateSecretR
 	}
 
 	arn := fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s", s.region, s.accountID, req.Name, randomSuffix(6))
-	versionID := randomVersionID()
 	now := time.Now().UTC()
 
 	record := &SecretRecord{
@@ -430,14 +426,20 @@ func (s *Store) CreateSecret(req model.CreateSecretRequest) (model.CreateSecretR
 		CreatedAt:     now,
 		LastChangedAt: now,
 	}
-	record.Versions[versionID] = SecretVersion{
-		VersionID:    versionID,
-		SecretString: req.SecretString,
-		SecretBinary: req.SecretBinary,
-		CreatedAt:    now,
+
+	// If a secret value is provided, create the initial version
+	versionID := ""
+	if req.SecretString != nil || req.SecretBinary != "" {
+		versionID = randomVersionID()
+		record.Versions[versionID] = SecretVersion{
+			VersionID:    versionID,
+			SecretString: req.SecretString,
+			SecretBinary: req.SecretBinary,
+			CreatedAt:    now,
+		}
+		record.StageToID["AWSCURRENT"] = versionID
+		record.VersionStages[versionID] = map[string]struct{}{"AWSCURRENT": {}}
 	}
-	record.StageToID["AWSCURRENT"] = versionID
-	record.VersionStages[versionID] = map[string]struct{}{"AWSCURRENT": {}}
 
 	s.secrets[req.Name] = record
 	s.secretByARN[arn] = req.Name
@@ -569,38 +571,48 @@ func (s *Store) GetSecretValue(req model.GetSecretValueRequest) (model.SecretVal
 		SecretString: v.SecretString,
 		SecretBinary: v.SecretBinary,
 		VersionStage: stages,
-		CreatedDate:  v.CreatedAt,
+		CreatedDate:  model.NewAWSTime(v.CreatedAt),
 	}, nil
 }
 
 func (s *Store) DescribeSecret(secretID string) (model.DescribeSecretResponse, error) {
+	if secretID == "" {
+		return model.DescribeSecretResponse{}, fmt.Errorf("ValidationException: SecretId is required")
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	record, err := s.resolveSecretReadLocked(secretID)
+	// DescribeSecret should work on deleted secrets too (returns DeletedDate)
+	record, err := s.resolveSecretAnyLocked(secretID)
 	if err != nil {
 		return model.DescribeSecretResponse{}, err
 	}
 
-	versions := make([]model.SecretVersionStages, 0, len(record.VersionStages))
+	versionMap := make(map[string][]string, len(record.VersionStages))
 	for versionID, stageSet := range record.VersionStages {
 		stages := make([]string, 0, len(stageSet))
 		for stage := range stageSet {
 			stages = append(stages, stage)
 		}
 		sort.Strings(stages)
-		versions = append(versions, model.SecretVersionStages{VersionID: versionID, Stages: stages})
+		versionMap[versionID] = stages
 	}
-	sort.Slice(versions, func(i, j int) bool { return versions[i].VersionID < versions[j].VersionID })
+
+	var deletedDate *model.AWSTime
+	if record.DeletedAt != nil {
+		t := model.NewAWSTime(*record.DeletedAt)
+		deletedDate = &t
+	}
 
 	return model.DescribeSecretResponse{
 		ARN:                record.ARN,
 		Name:               record.Name,
 		Description:        record.Description,
-		CreatedDate:        record.CreatedAt,
-		LastChangedDate:    record.LastChangedAt,
-		DeletedDate:        record.DeletedAt,
-		VersionIDsToStages: versions,
+		CreatedDate:        model.NewAWSTime(record.CreatedAt),
+		LastChangedDate:    model.NewAWSTime(record.LastChangedAt),
+		DeletedDate:        deletedDate,
+		VersionIDsToStages: versionMap,
 	}, nil
 }
 
@@ -625,13 +637,19 @@ func (s *Store) ListSecrets(maxResults int, nextToken string, filters []model.Se
 			continue
 		}
 
+		var deletedDate *model.AWSTime
+		if record.DeletedAt != nil {
+			t := model.NewAWSTime(*record.DeletedAt)
+			deletedDate = &t
+		}
+
 		items = append(items, model.SecretListEntry{
 			ARN:             record.ARN,
 			Name:            record.Name,
 			Description:     record.Description,
-			CreatedDate:     record.CreatedAt,
-			LastChangedDate: record.LastChangedAt,
-			DeletedDate:     record.DeletedAt,
+			CreatedDate:     model.NewAWSTime(record.CreatedAt),
+			LastChangedDate: model.NewAWSTime(record.LastChangedAt),
+			DeletedDate:     deletedDate,
 		})
 	}
 
@@ -663,7 +681,7 @@ func (s *Store) DeleteSecret(req model.DeleteSecretRequest) (model.DeleteSecretR
 	record.DeletedAt = &deletionDate
 	record.LastChangedAt = deletionDate
 
-	return model.DeleteSecretResponse{ARN: record.ARN, Name: record.Name, DeletionDate: deletionDate}, nil
+	return model.DeleteSecretResponse{ARN: record.ARN, Name: record.Name, DeletionDate: model.NewAWSTime(deletionDate)}, nil
 }
 
 func (s *Store) RestoreSecret(secretID string) (model.RestoreSecretResponse, error) {

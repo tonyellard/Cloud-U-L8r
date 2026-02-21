@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 services:
   essthree:
-    build: 
-      context: ./services/essthree
+    build:
+      context: .
+      dockerfile: services/essthree/Dockerfile
     container_name: essthree
     ports:
       - "9300:9300"
@@ -16,8 +17,9 @@ services:
       - shared-network
 
   cloudfauxnt:
-    build: 
-      context: ./services/cloudfauxnt
+    build:
+      context: .
+      dockerfile: services/cloudfauxnt/Dockerfile
     container_name: cloudfauxnt
     ports:
       - "9310:9310"
@@ -34,8 +36,9 @@ services:
       - shared-network
 
   ess-queue-ess:
-    build: 
-      context: ./services/ess-queue-ess
+    build:
+      context: .
+      dockerfile: services/ess-queue-ess/Dockerfile
     container_name: ess-queue-ess
     ports:
       - "9320:9320"
@@ -49,8 +52,9 @@ services:
       - shared-network
 
   ess-enn-ess:
-    build: 
-      context: ./services/ess-enn-ess
+    build:
+      context: .
+      dockerfile: services/ess-enn-ess/Dockerfile
     container_name: ess-enn-ess
     ports:
       - "9330:9330"
@@ -65,7 +69,8 @@ services:
 
   kay-vee:
     build:
-      context: ./services/kay-vee
+      context: .
+      dockerfile: services/kay-vee/Dockerfile
     container_name: kay-vee
     ports:
       - "9350:9350"
@@ -76,7 +81,8 @@ services:
 
   admin-console:
     build:
-      context: ./services/admin-console
+      context: .
+      dockerfile: services/admin-console/Dockerfile
     container_name: admin-console
     ports:
       - "9999:9999"

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
+	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 	"github.com/tonyellard/kay-vee/internal/model"
 	"github.com/tonyellard/kay-vee/internal/storage"
 )
@@ -23,7 +25,7 @@ type Server struct {
 func NewRouter(logger *slog.Logger) http.Handler {
 	srv := &Server{logger: logger, store: storage.NewStore("us-east-1", "000000000000")}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", srv.handleHealth)
+	mux.HandleFunc("/health", health.Handler("kay-vee"))
 	mux.HandleFunc("/admin/api/summary", srv.handleAdminSummary)
 	mux.HandleFunc("/admin/api/resources", srv.handleAdminResources)
 	mux.HandleFunc("/admin/api/activity", srv.handleAdminActivity)
@@ -31,14 +33,6 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	mux.HandleFunc("/admin/api/import", srv.handleAdminImport)
 	mux.HandleFunc("/", srv.handleAWSJSON)
 	return mux
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "kay-vee"})
 }
 
 func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
@@ -60,13 +54,13 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if target == "" {
-		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "X-Amz-Target header is required")
+		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "X-Amz-Target header is required")
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "failed to read request body")
+		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "failed to read request body")
 		return
 	}
 
@@ -89,6 +83,12 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handleGetParameters(recorder, body)
 	case "AmazonSSM.GetParametersByPath":
 		s.handleGetParametersByPath(recorder, body)
+	case "AmazonSSM.ListTagsForResource":
+		s.handleSSMListTagsForResource(recorder, body)
+	case "AmazonSSM.AddTagsToResource":
+		s.handleSSMAddTagsToResource(recorder, body)
+	case "AmazonSSM.RemoveTagsFromResource":
+		s.handleSSMRemoveTagsFromResource(recorder, body)
 	case "secretsmanager.CreateSecret":
 		s.handleCreateSecret(recorder, body)
 	case "secretsmanager.GetSecretValue":
@@ -107,8 +107,14 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handleRestoreSecret(recorder, body)
 	case "secretsmanager.UpdateSecretVersionStage":
 		s.handleUpdateSecretVersionStage(recorder, body)
+	case "secretsmanager.GetResourcePolicy":
+		s.handleGetResourcePolicy(recorder, body)
+	case "secretsmanager.TagResource":
+		s.handleSecretsTagResource(recorder, body)
+	case "secretsmanager.UntagResource":
+		s.handleSecretsUntagResource(recorder, body)
 	default:
-		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
+		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
 	}
 }
 
@@ -143,7 +149,7 @@ func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {
 	if maxStr := r.URL.Query().Get("maxResults"); maxStr != "" {
 		parsed, err := strconv.Atoi(maxStr)
 		if err != nil {
-			writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid maxResults query parameter")
+			awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid maxResults query parameter")
 			return
 		}
 		maxResults = parsed
@@ -151,7 +157,7 @@ func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {
 
 	entries, token, err := s.store.ListActivity(maxResults, r.URL.Query().Get("nextToken"))
 	if err != nil {
-		writeFromError(recorder, err)
+		awserrors.MapGoErrorToAWS(recorder, err)
 		return
 	}
 	writeJSON(recorder, http.StatusOK, model.AdminActivityResponse{Activity: entries, NextToken: token})
@@ -169,7 +175,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("includeParameters")); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid includeParameters query parameter")
+			awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid includeParameters query parameter")
 			return
 		}
 		includeParameters = parsed
@@ -179,7 +185,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("includeSecrets")); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid includeSecrets query parameter")
+			awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid includeSecrets query parameter")
 			return
 		}
 		includeSecrets = parsed
@@ -197,7 +203,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("recursive")); raw != "" {
 			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
-				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid recursive query parameter")
+				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid recursive query parameter")
 				return
 			}
 			recursive = parsed
@@ -207,7 +213,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("withDecryption")); raw != "" {
 			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
-				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid withDecryption query parameter")
+				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid withDecryption query parameter")
 				return
 			}
 			withDecryption = parsed
@@ -217,7 +223,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("parameterMaxResults")); raw != "" {
 			parsed, err := strconv.Atoi(raw)
 			if err != nil {
-				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid parameterMaxResults query parameter")
+				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid parameterMaxResults query parameter")
 				return
 			}
 			parameterMaxResults = parsed
@@ -233,7 +239,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 
 		params, nextToken, err := s.store.GetParametersByPath(parameterPath, recursive, withDecryption, parameterMaxResults, strings.TrimSpace(r.URL.Query().Get("parametersNextToken")), parameterFilters)
 		if err != nil {
-			writeFromError(recorder, err)
+			awserrors.MapGoErrorToAWS(recorder, err)
 			return
 		}
 
@@ -246,7 +252,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("secretMaxResults")); raw != "" {
 			parsed, err := strconv.Atoi(raw)
 			if err != nil {
-				writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid secretMaxResults query parameter")
+				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid secretMaxResults query parameter")
 				return
 			}
 			secretMaxResults = parsed
@@ -259,7 +265,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 
 		secrets, err := s.store.ListSecrets(secretMaxResults, strings.TrimSpace(r.URL.Query().Get("secretsNextToken")), secretFilters)
 		if err != nil {
-			writeFromError(recorder, err)
+			awserrors.MapGoErrorToAWS(recorder, err)
 			return
 		}
 
@@ -308,13 +314,13 @@ func (s *Server) handleAdminImport(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "failed to read request body")
+		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "failed to read request body")
 		return
 	}
 
 	var req model.AdminImportRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(recorder, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
@@ -325,13 +331,13 @@ func (s *Server) handleAdminImport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {
 	var req model.PutParameterRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.PutParameter(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -340,13 +346,13 @@ func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {
 func (s *Server) handleLabelParameterVersion(w http.ResponseWriter, body []byte) {
 	var req model.LabelParameterVersionRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.LabelParameterVersion(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -355,13 +361,13 @@ func (s *Server) handleLabelParameterVersion(w http.ResponseWriter, body []byte)
 func (s *Server) handleDescribeParameters(w http.ResponseWriter, body []byte) {
 	var req model.DescribeParametersRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	params, token, err := s.store.DescribeParameters(req.MaxResults, req.NextToken, req.ParameterFilters)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, model.DescribeParametersResponse{Parameters: params, NextToken: token})
@@ -370,12 +376,12 @@ func (s *Server) handleDescribeParameters(w http.ResponseWriter, body []byte) {
 func (s *Server) handleDeleteParameter(w http.ResponseWriter, body []byte) {
 	var req model.DeleteParameterRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	if err := s.store.DeleteParameter(req.Name); err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, model.DeleteParameterResponse{})
@@ -384,7 +390,7 @@ func (s *Server) handleDeleteParameter(w http.ResponseWriter, body []byte) {
 func (s *Server) handleDeleteParameters(w http.ResponseWriter, body []byte) {
 	var req model.DeleteParametersRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
@@ -395,13 +401,13 @@ func (s *Server) handleDeleteParameters(w http.ResponseWriter, body []byte) {
 func (s *Server) handleGetParameter(w http.ResponseWriter, body []byte) {
 	var req model.GetParameterRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	param, err := s.store.GetParameter(req.Name, req.WithDecryption)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, model.GetParameterResponse{Parameter: param})
@@ -410,13 +416,13 @@ func (s *Server) handleGetParameter(w http.ResponseWriter, body []byte) {
 func (s *Server) handleGetParameterHistory(w http.ResponseWriter, body []byte) {
 	var req model.GetParameterHistoryRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	history, token, err := s.store.GetParameterHistory(req.Name, req.WithDecryption, req.MaxResults, req.NextToken)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, model.GetParameterHistoryResponse{Parameters: history, NextToken: token})
@@ -425,7 +431,7 @@ func (s *Server) handleGetParameterHistory(w http.ResponseWriter, body []byte) {
 func (s *Server) handleGetParameters(w http.ResponseWriter, body []byte) {
 	var req model.GetParametersRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
@@ -436,13 +442,13 @@ func (s *Server) handleGetParameters(w http.ResponseWriter, body []byte) {
 func (s *Server) handleGetParametersByPath(w http.ResponseWriter, body []byte) {
 	var req model.GetParametersByPathRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	params, token, err := s.store.GetParametersByPath(req.Path, req.Recursive, req.WithDecryption, req.MaxResults, req.NextToken, req.ParameterFilters)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, model.GetParametersByPathResponse{Parameters: params, NextToken: token})
@@ -451,13 +457,13 @@ func (s *Server) handleGetParametersByPath(w http.ResponseWriter, body []byte) {
 func (s *Server) handleCreateSecret(w http.ResponseWriter, body []byte) {
 	var req model.CreateSecretRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.CreateSecret(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -466,13 +472,13 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, body []byte) {
 func (s *Server) handleGetSecretValue(w http.ResponseWriter, body []byte) {
 	var req model.GetSecretValueRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.GetSecretValue(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -481,13 +487,13 @@ func (s *Server) handleGetSecretValue(w http.ResponseWriter, body []byte) {
 func (s *Server) handlePutSecretValue(w http.ResponseWriter, body []byte) {
 	var req model.PutSecretValueRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.PutSecretValue(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -496,13 +502,13 @@ func (s *Server) handlePutSecretValue(w http.ResponseWriter, body []byte) {
 func (s *Server) handleUpdateSecret(w http.ResponseWriter, body []byte) {
 	var req model.UpdateSecretRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.UpdateSecret(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -511,13 +517,13 @@ func (s *Server) handleUpdateSecret(w http.ResponseWriter, body []byte) {
 func (s *Server) handleDescribeSecret(w http.ResponseWriter, body []byte) {
 	var req model.DescribeSecretRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.DescribeSecret(req.SecretID)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -526,13 +532,13 @@ func (s *Server) handleDescribeSecret(w http.ResponseWriter, body []byte) {
 func (s *Server) handleListSecrets(w http.ResponseWriter, body []byte) {
 	var req model.ListSecretsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.ListSecrets(req.MaxResults, req.NextToken, req.Filters)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -541,13 +547,13 @@ func (s *Server) handleListSecrets(w http.ResponseWriter, body []byte) {
 func (s *Server) handleDeleteSecret(w http.ResponseWriter, body []byte) {
 	var req model.DeleteSecretRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.DeleteSecret(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -556,13 +562,13 @@ func (s *Server) handleDeleteSecret(w http.ResponseWriter, body []byte) {
 func (s *Server) handleRestoreSecret(w http.ResponseWriter, body []byte) {
 	var req model.RestoreSecretRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.RestoreSecret(req.SecretID)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -571,51 +577,48 @@ func (s *Server) handleRestoreSecret(w http.ResponseWriter, body []byte) {
 func (s *Server) handleUpdateSecretVersionStage(w http.ResponseWriter, body []byte) {
 	var req model.UpdateSecretVersionStageRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeAWSError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res, err := s.store.UpdateSecretVersionStage(req)
 	if err != nil {
-		writeFromError(w, err)
+		awserrors.MapGoErrorToAWS(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleSSMListTagsForResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"TagList": []interface{}{},
+	})
+}
+
+func (s *Server) handleSSMAddTagsToResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleSSMRemoveTagsFromResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleGetResourcePolicy(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleSecretsTagResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
+}
+
+func (s *Server) handleSecretsUntagResource(w http.ResponseWriter, body []byte) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func writeAWSError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, model.AWSJSONError{Type: code, Message: message})
-}
-
-func writeFromError(w http.ResponseWriter, err error) {
-	if err == nil {
-		writeAWSError(w, http.StatusInternalServerError, "InternalFailure", "unknown error")
-		return
-	}
-	msg := err.Error()
-	typeName := "InternalFailure"
-	status := http.StatusInternalServerError
-
-	if strings.Contains(msg, ":") {
-		parts := strings.SplitN(msg, ":", 2)
-		typeName = strings.TrimSpace(parts[0])
-		msg = strings.TrimSpace(parts[1])
-	}
-
-	switch typeName {
-	case "ValidationException", "ParameterAlreadyExists", "InvalidParameterException", "InvalidRequestException", "ResourceExistsException":
-		status = http.StatusBadRequest
-	case "ParameterNotFound", "ResourceNotFoundException":
-		status = http.StatusNotFound
-	}
-
-	writeAWSError(w, status, typeName, msg)
 }
 
 func IsValidation(err error) bool {

@@ -58,6 +58,11 @@ type BucketSummary struct {
 
 // Storage interface defines operations for object storage
 type Storage interface {
+	// Bucket operations
+	CreateBucket(bucket string) error
+	DeleteBucket(bucket string) error
+	BucketExists(bucket string) bool
+
 	PutObject(bucket, key string, data io.Reader, metadata map[string]string, contentType string) (*ObjectMetadata, error)
 	GetObject(bucket, key string) (io.ReadCloser, *ObjectMetadata, error)
 	GetObjectRange(bucket, key string, rangeStart, rangeEnd int64) (io.ReadCloser, *ObjectMetadata, int64, int64, error)
@@ -139,6 +144,41 @@ func NewFileSystemStorage(baseDir string) (*FileSystemStorage, error) {
 	return &FileSystemStorage{
 		baseDir: baseDir,
 	}, nil
+}
+
+// CreateBucket creates a new bucket directory
+func (fs *FileSystemStorage) CreateBucket(bucket string) error {
+	bucketPath := filepath.Join(fs.baseDir, bucket)
+	if _, err := os.Stat(bucketPath); err == nil {
+		return fmt.Errorf("bucket already exists: %s", bucket)
+	}
+	return os.MkdirAll(bucketPath, 0755)
+}
+
+// DeleteBucket removes a bucket directory (must be empty)
+func (fs *FileSystemStorage) DeleteBucket(bucket string) error {
+	bucketPath := filepath.Join(fs.baseDir, bucket)
+	if _, err := os.Stat(bucketPath); os.IsNotExist(err) {
+		return fmt.Errorf("bucket not found: %s", bucket)
+	}
+
+	// Check if bucket has objects
+	objectsDir := filepath.Join(bucketPath, "objects")
+	if _, err := os.Stat(objectsDir); err == nil {
+		entries, err := os.ReadDir(objectsDir)
+		if err == nil && len(entries) > 0 {
+			return fmt.Errorf("bucket not empty: %s", bucket)
+		}
+	}
+
+	return os.RemoveAll(bucketPath)
+}
+
+// BucketExists checks if a bucket directory exists
+func (fs *FileSystemStorage) BucketExists(bucket string) bool {
+	bucketPath := filepath.Join(fs.baseDir, bucket)
+	info, err := os.Stat(bucketPath)
+	return err == nil && info.IsDir()
 }
 
 // objectPath returns the filesystem path for an object

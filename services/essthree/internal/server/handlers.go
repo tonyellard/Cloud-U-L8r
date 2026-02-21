@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tony/ess-three/internal/storage"
+	"github.com/tonyellard/essthree/internal/storage"
+	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 )
 
 // S3 XML response structures
@@ -45,14 +46,6 @@ type Contents struct {
 	ETag         string    `xml:"ETag"`
 	Size         int64     `xml:"Size"`
 	StorageClass string    `xml:"StorageClass"`
-}
-
-type Error struct {
-	XMLName   xml.Name `xml:"Error"`
-	Code      string   `xml:"Code"`
-	Message   string   `xml:"Message"`
-	Resource  string   `xml:"Resource"`
-	RequestId string   `xml:"RequestId"`
 }
 
 type InitiateMultipartUploadResult struct {
@@ -109,6 +102,174 @@ type DeleteError struct {
 	Message string `xml:"Message"`
 }
 
+// handleCreateBucket handles PUT /{bucket} - CreateBucket
+func (s *Server) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+
+	if err := s.storage.CreateBucket(bucket); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			// S3 returns 200 OK for CreateBucket on existing bucket owned by you
+			w.Header().Set("Location", "/"+bucket)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Location", "/"+bucket)
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleHeadBucket handles HEAD /{bucket} - HeadBucket
+func (s *Server) handleHeadBucket(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+
+	if !s.storage.BucketExists(bucket) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("x-amz-bucket-region", "us-east-1")
+	w.Header().Set("Server", "ess-three")
+	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleDeleteBucket handles DELETE /{bucket} - DeleteBucket
+func (s *Server) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+
+	if err := s.storage.DeleteBucket(bucket); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			awserrors.WriteXML(w, r, "NoSuchBucket", "The specified bucket does not exist", http.StatusNotFound)
+		} else if strings.Contains(err.Error(), "not empty") {
+			awserrors.WriteXML(w, r, "BucketNotEmpty", "The bucket you tried to delete is not empty", http.StatusConflict)
+		} else {
+			awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleBucketGet dispatches GET /{bucket}/ based on query params
+func (s *Server) handleBucketGet(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	q := r.URL.Query()
+
+	// ListObjectVersions
+	if _, ok := q["versions"]; ok {
+		s.handleListObjectVersions(w, r)
+		return
+	}
+
+	// Bucket property queries — return appropriate "not configured" responses
+	if _, ok := q["versioning"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`)
+		return
+	}
+	if _, ok := q["accelerate"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><AccelerateConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`)
+		return
+	}
+	if _, ok := q["requestPayment"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><RequestPaymentConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Payer>BucketOwner</Payer></RequestPaymentConfiguration>`)
+		return
+	}
+	if _, ok := q["location"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`)
+		return
+	}
+	if _, ok := q["tagging"]; ok {
+		awserrors.WriteXML(w, r, "NoSuchTagSet", "The TagSet does not exist", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["cors"]; ok {
+		awserrors.WriteXML(w, r, "NoSuchCORSConfiguration", "The CORS configuration does not exist", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["encryption"]; ok {
+		awserrors.WriteXML(w, r, "ServerSideEncryptionConfigurationNotFoundError", "The server side encryption configuration was not found", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["lifecycle"]; ok {
+		awserrors.WriteXML(w, r, "NoSuchLifecycleConfiguration", "The lifecycle configuration does not exist", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["logging"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`)
+		return
+	}
+	if _, ok := q["policy"]; ok {
+		awserrors.WriteXML(w, r, "NoSuchBucketPolicy", "The bucket policy does not exist", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["replication"]; ok {
+		awserrors.WriteXML(w, r, "ReplicationConfigurationNotFoundError", "The replication configuration was not found", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["acl"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>%s</ID><DisplayName>%s</DisplayName></Owner><AccessControlList><Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser"><ID>%s</ID><DisplayName>%s</DisplayName></Grantee><Permission>FULL_CONTROL</Permission></Grant></AccessControlList></AccessControlPolicy>`,
+			"000000000000", bucket, "000000000000", bucket)
+		return
+	}
+	if _, ok := q["object-lock"]; ok {
+		awserrors.WriteXML(w, r, "ObjectLockConfigurationNotFoundError", "Object Lock configuration does not exist for this bucket", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["policyStatus"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><PolicyStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsPublic>FALSE</IsPublic></PolicyStatus>`)
+		return
+	}
+	if _, ok := q["ownershipControls"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><OwnershipControls xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Rule><ObjectOwnership>BucketOwnerEnforced</ObjectOwnership></Rule></OwnershipControls>`)
+		return
+	}
+	if _, ok := q["website"]; ok {
+		awserrors.WriteXML(w, r, "NoSuchWebsiteConfiguration", "The specified bucket does not have a website configuration", http.StatusNotFound)
+		return
+	}
+	if _, ok := q["publicAccessBlock"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><PublicAccessBlockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><BlockPublicAcls>false</BlockPublicAcls><IgnorePublicAcls>false</IgnorePublicAcls><BlockPublicPolicy>false</BlockPublicPolicy><RestrictPublicBuckets>false</RestrictPublicBuckets></PublicAccessBlockConfiguration>`)
+		return
+	}
+
+	// Default: list objects
+	s.handleListObjects(w, r)
+}
+
+// handleListObjectVersions handles GET /{bucket}?versions - ListObjectVersions
+func (s *Server) handleListObjectVersions(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	prefix := r.URL.Query().Get("prefix")
+
+	result, err := s.storage.ListObjectsV2(bucket, prefix, "", 1000)
+	if err != nil {
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build ListVersionsResult XML (versioning disabled = each object has a "null" version)
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>%s</Name><Prefix>%s</Prefix><MaxKeys>1000</MaxKeys><IsTruncated>false</IsTruncated>`, bucket, prefix)
+	for _, obj := range result.Objects {
+		fmt.Fprintf(w, `<Version><Key>%s</Key><VersionId>null</VersionId><IsLatest>true</IsLatest><LastModified>%s</LastModified><ETag>%s</ETag><Size>%d</Size><StorageClass>STANDARD</StorageClass></Version>`,
+			obj.Key, obj.LastModified.Format(time.RFC3339), obj.ETag, obj.Size)
+	}
+	fmt.Fprint(w, `</ListVersionsResult>`)
+}
+
 // handleListObjects handles GET /{bucket} - ListObjects V1 and V2
 func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
@@ -141,7 +302,7 @@ func (s *Server) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -246,6 +407,13 @@ func collapseByDelimiter(objects []storage.ObjectMetadata, prefix, delimiter str
 }
 
 func (s *Server) handleGetObjectOrListPrefix(w http.ResponseWriter, r *http.Request) {
+	// Handle object-level query parameter APIs
+	if _, ok := r.URL.Query()["tagging"]; ok {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet/></Tagging>`)
+		return
+	}
+
 	bucket := chi.URLParam(r, "bucket")
 	key := s.objectKey(r)
 
@@ -311,16 +479,16 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		// Parse range header
 		rangeStart, rangeEnd, err := parseRangeHeader(rangeHeader)
 		if err != nil {
-			s.sendError(w, r, "InvalidRange", err.Error(), http.StatusRequestedRangeNotSatisfiable)
+			awserrors.WriteXML(w, r, "InvalidRange", err.Error(), http.StatusRequestedRangeNotSatisfiable)
 			return
 		}
 
 		reader, metadata, start, end, err := s.storage.GetObjectRange(bucket, key, rangeStart, rangeEnd)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				s.sendError(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
+				awserrors.WriteXML(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
 			} else {
-				s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+				awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -349,9 +517,9 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		reader, metadata, err := s.storage.GetObject(bucket, key)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				s.sendError(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
+				awserrors.WriteXML(w, r, "NoSuchKey", "The specified key does not exist", http.StatusNotFound)
 			} else {
-				s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+				awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -437,7 +605,7 @@ func (s *Server) handlePutObject(w http.ResponseWriter, r *http.Request) {
 
 	objMetadata, err := s.storage.PutObject(bucket, key, r.Body, metadata, contentType)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -491,7 +659,7 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 
 	err := s.storage.DeleteObject(bucket, key)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -505,7 +673,7 @@ func (s *Server) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 	// Parse delete request
 	var deleteReq DeleteRequest
 	if err := xml.NewDecoder(r.Body).Decode(&deleteReq); err != nil {
-		s.sendError(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
+		awserrors.WriteXML(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
 		return
 	}
 
@@ -565,7 +733,7 @@ func (s *Server) handleCreateMultipartUpload(w http.ResponseWriter, r *http.Requ
 
 	upload, err := s.storage.CreateMultipartUpload(bucket, key, contentType, metadata)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -590,13 +758,13 @@ func (s *Server) handleUploadPart(w http.ResponseWriter, r *http.Request) {
 
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil {
-		s.sendError(w, r, "InvalidArgument", "Invalid part number", http.StatusBadRequest)
+		awserrors.WriteXML(w, r, "InvalidArgument", "Invalid part number", http.StatusBadRequest)
 		return
 	}
 
 	part, err := s.storage.UploadPart(bucket, key, uploadID, partNumber, r.Body)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -613,7 +781,7 @@ func (s *Server) handleCompleteMultipartUpload(w http.ResponseWriter, r *http.Re
 	// Parse complete request
 	var completeReq CompleteMultipartUploadRequest
 	if err := xml.NewDecoder(r.Body).Decode(&completeReq); err != nil {
-		s.sendError(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
+		awserrors.WriteXML(w, r, "MalformedXML", "Invalid XML", http.StatusBadRequest)
 		return
 	}
 
@@ -629,7 +797,7 @@ func (s *Server) handleCompleteMultipartUpload(w http.ResponseWriter, r *http.Re
 	// Complete the upload
 	objMeta, err := s.storage.CompleteMultipartUpload(bucket, key, uploadID, parts)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -654,27 +822,11 @@ func (s *Server) handleAbortMultipartUpload(w http.ResponseWriter, r *http.Reque
 
 	err := s.storage.AbortMultipartUpload(bucket, key, uploadID)
 	if err != nil {
-		s.sendError(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
+		awserrors.WriteXML(w, r, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// sendError sends an S3-formatted error response
-func (s *Server) sendError(w http.ResponseWriter, r *http.Request, code, message string, statusCode int) {
-	errorResp := Error{
-		Code:      code,
-		Message:   message,
-		Resource:  r.URL.Path,
-		RequestId: r.Header.Get("X-Request-ID"),
-	}
-
-	w.Header().Set("Content-Type", "application/xml")
-	w.Header().Set("Server", "ess-three")
-	w.Header().Set("Date", time.Now().UTC().Format(http.TimeFormat))
-	w.WriteHeader(statusCode)
-	xml.NewEncoder(w).Encode(errorResp)
 }
 
 func (s *Server) objectKey(r *http.Request) string {

@@ -1,33 +1,37 @@
-FROM golang:1.23-bookworm AS builder
+# SPDX-License-Identifier: Apache-2.0
+# Build stage
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /build
 
-# Copy go mod files
-COPY go.mod go.sum* ./
+# Copy shared packages
+COPY pkg/ ./pkg/
+
+# Copy service module files and download deps
+COPY services/cloudfauxnt/go.mod services/cloudfauxnt/go.sum* ./services/cloudfauxnt/
+WORKDIR /build/services/cloudfauxnt
 RUN go mod download
 
-# Copy source code
-COPY *.go ./
-
-# Copy license files to builder stage
-COPY LICENSE NOTICE ./
+# Copy service source code
+WORKDIR /build
+COPY services/cloudfauxnt/ ./services/cloudfauxnt/
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o cloudfauxnt .
+WORKDIR /build/services/cloudfauxnt
+RUN CGO_ENABLED=0 GOOS=linux go build -o cloudfauxnt ./cmd/cloudfauxnt
 
 # Final stage
-FROM debian:bookworm-slim
+FROM alpine:3.21
 
-# Install ca-certificates for HTTPS requests to origins
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /build/cloudfauxnt .
+COPY --from=builder /build/services/cloudfauxnt/cloudfauxnt .
 
 # Copy license files
-COPY --from=builder /build/LICENSE /build/NOTICE ./
+COPY services/cloudfauxnt/LICENSE services/cloudfauxnt/NOTICE ./
 
 # Create directories for config and keys
 RUN mkdir -p /app/config /app/keys

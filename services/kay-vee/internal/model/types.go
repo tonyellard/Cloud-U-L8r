@@ -1,7 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
+
+// AWSTime wraps time.Time to marshal as a Unix epoch float (seconds.millis)
+// which is the format expected by the AWS SDK for SSM/SecretsManager DateTime fields.
+type AWSTime struct {
+	time.Time
+}
+
+func NewAWSTime(t time.Time) AWSTime {
+	return AWSTime{Time: t}
+}
+
+func (t AWSTime) MarshalJSON() ([]byte, error) {
+	secs := float64(t.UnixMilli()) / 1000.0
+	return json.Marshal(secs)
+}
+
+func (t *AWSTime) UnmarshalJSON(data []byte) error {
+	var secs float64
+	if err := json.Unmarshal(data, &secs); err != nil {
+		// Fall back to string format
+		var s string
+		if err2 := json.Unmarshal(data, &s); err2 != nil {
+			return err
+		}
+		parsed, err3 := time.Parse(time.RFC3339Nano, s)
+		if err3 != nil {
+			return err3
+		}
+		t.Time = parsed
+		return nil
+	}
+	t.Time = time.UnixMilli(int64(secs * 1000))
+	return nil
+}
 
 type PutParameterRequest struct {
 	Name      string `json:"Name"`
@@ -36,12 +73,12 @@ type GetParametersByPathRequest struct {
 }
 
 type Parameter struct {
-	Name             string    `json:"Name"`
-	Type             string    `json:"Type"`
-	Value            string    `json:"Value"`
-	Version          int64     `json:"Version"`
-	ARN              string    `json:"ARN,omitempty"`
-	LastModifiedDate time.Time `json:"LastModifiedDate,omitempty"`
+	Name             string  `json:"Name"`
+	Type             string  `json:"Type"`
+	Value            string  `json:"Value"`
+	Version          int64   `json:"Version"`
+	ARN              string  `json:"ARN,omitempty"`
+	LastModifiedDate AWSTime `json:"LastModifiedDate,omitempty"`
 }
 
 type GetParameterResponse struct {
@@ -71,11 +108,11 @@ type ParameterStringFilter struct {
 }
 
 type ParameterMetadata struct {
-	Name             string    `json:"Name"`
-	Type             string    `json:"Type"`
-	Version          int64     `json:"Version"`
-	ARN              string    `json:"ARN,omitempty"`
-	LastModifiedDate time.Time `json:"LastModifiedDate,omitempty"`
+	Name             string  `json:"Name"`
+	Type             string  `json:"Type"`
+	Version          int64   `json:"Version"`
+	ARN              string  `json:"ARN,omitempty"`
+	LastModifiedDate AWSTime `json:"LastModifiedDate,omitempty"`
 }
 
 type DescribeParametersResponse struct {
@@ -155,32 +192,27 @@ type GetSecretValueRequest struct {
 }
 
 type SecretValueResponse struct {
-	ARN          string    `json:"ARN"`
-	Name         string    `json:"Name"`
-	VersionID    string    `json:"VersionId"`
-	SecretString *string   `json:"SecretString,omitempty"`
-	SecretBinary string    `json:"SecretBinary,omitempty"`
-	VersionStage []string  `json:"VersionStages"`
-	CreatedDate  time.Time `json:"CreatedDate"`
+	ARN          string   `json:"ARN"`
+	Name         string   `json:"Name"`
+	VersionID    string   `json:"VersionId"`
+	SecretString *string  `json:"SecretString,omitempty"`
+	SecretBinary string   `json:"SecretBinary,omitempty"`
+	VersionStage []string `json:"VersionStages"`
+	CreatedDate  AWSTime  `json:"CreatedDate"`
 }
 
 type DescribeSecretRequest struct {
 	SecretID string `json:"SecretId"`
 }
 
-type SecretVersionStages struct {
-	VersionID string   `json:"VersionId"`
-	Stages    []string `json:"VersionStages"`
-}
-
 type DescribeSecretResponse struct {
-	ARN                string                `json:"ARN"`
-	Name               string                `json:"Name"`
-	Description        string                `json:"Description,omitempty"`
-	CreatedDate        time.Time             `json:"CreatedDate"`
-	LastChangedDate    time.Time             `json:"LastChangedDate"`
-	DeletedDate        *time.Time            `json:"DeletedDate,omitempty"`
-	VersionIDsToStages []SecretVersionStages `json:"VersionIdsToStages,omitempty"`
+	ARN                string              `json:"ARN"`
+	Name               string              `json:"Name"`
+	Description        string              `json:"Description,omitempty"`
+	CreatedDate        AWSTime             `json:"CreatedDate"`
+	LastChangedDate    AWSTime             `json:"LastChangedDate"`
+	DeletedDate        *AWSTime            `json:"DeletedDate,omitempty"`
+	VersionIDsToStages map[string][]string `json:"VersionIdsToStages,omitempty"`
 }
 
 type ListSecretsRequest struct {
@@ -195,12 +227,12 @@ type SecretFilter struct {
 }
 
 type SecretListEntry struct {
-	ARN             string     `json:"ARN"`
-	Name            string     `json:"Name"`
-	Description     string     `json:"Description,omitempty"`
-	CreatedDate     time.Time  `json:"CreatedDate"`
-	LastChangedDate time.Time  `json:"LastChangedDate"`
-	DeletedDate     *time.Time `json:"DeletedDate,omitempty"`
+	ARN             string   `json:"ARN"`
+	Name            string   `json:"Name"`
+	Description     string   `json:"Description,omitempty"`
+	CreatedDate     AWSTime  `json:"CreatedDate"`
+	LastChangedDate AWSTime  `json:"LastChangedDate"`
+	DeletedDate     *AWSTime `json:"DeletedDate,omitempty"`
 }
 
 type ListSecretsResponse struct {
@@ -215,9 +247,9 @@ type DeleteSecretRequest struct {
 }
 
 type DeleteSecretResponse struct {
-	ARN          string    `json:"ARN"`
-	Name         string    `json:"Name"`
-	DeletionDate time.Time `json:"DeletionDate"`
+	ARN          string  `json:"ARN"`
+	Name         string  `json:"Name"`
+	DeletionDate AWSTime `json:"DeletionDate"`
 }
 
 type RestoreSecretRequest struct {

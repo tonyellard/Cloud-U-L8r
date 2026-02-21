@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
+	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 )
 
 type Server struct {
@@ -397,7 +399,7 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	}
 
 	r := chi.NewRouter()
-	r.Get("/health", srv.handleHealth)
+	r.Get("/health", health.Handler("admin-console"))
 	r.Get("/api/dashboard/summary", srv.handleDashboardSummary)
 	r.Get("/api/services/ess-queue-ess/queues", srv.handleQueueList)
 	r.Get("/api/services/ess-queue-ess/queues/{queueID}/messages/peek", srv.handleQueuePeek)
@@ -448,10 +450,6 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	return r
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "admin-console"})
-}
-
 func (s *Server) handleDashboardSummary(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.buildDashboardSummary())
 }
@@ -472,13 +470,13 @@ func (s *Server) handleServiceConfigExport(w http.ResponseWriter, r *http.Reques
 		upstreamURL = "http://kay-vee:9350/admin/api/export"
 		fallbackFilename = "kay-vee-export.json"
 	default:
-		writeError(w, http.StatusBadRequest, fmt.Errorf("unsupported service"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("unsupported service"))
 		return
 	}
 
 	resp, err := s.client.Get(upstreamURL)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("failed to fetch export: %w", err))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to fetch export: %w", err))
 		return
 	}
 	defer resp.Body.Close()
@@ -489,7 +487,7 @@ func (s *Server) handleServiceConfigExport(w http.ResponseWriter, r *http.Reques
 		if message == "" {
 			message = http.StatusText(resp.StatusCode)
 		}
-		writeError(w, http.StatusBadGateway, fmt.Errorf("export failed for %s (%d): %s", service, resp.StatusCode, message))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("export failed for %s (%d): %s", service, resp.StatusCode, message))
 		return
 	}
 
@@ -512,7 +510,7 @@ func (s *Server) handleServiceConfigExport(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleQueueList(w http.ResponseWriter, _ *http.Request) {
 	queues, err := s.fetchQueues()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -522,7 +520,7 @@ func (s *Server) handleQueueList(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handlePubSubState(w http.ResponseWriter, _ *http.Request) {
 	state, err := s.fetchPubSubState()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -532,14 +530,14 @@ func (s *Server) handlePubSubState(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleTopicActivities(w http.ResponseWriter, r *http.Request) {
 	topicARN := strings.TrimSpace(normalizeQueueIDParam(chi.URLParam(r, "topicARN")))
 	if topicARN == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
 		return
 	}
 
 	var activities []TopicActivityEntry
 	path := "/api/activities?topic=" + url.QueryEscape(topicARN)
 	if err := s.callSNSAdminJSON(http.MethodGet, path, nil, &activities); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -552,7 +550,7 @@ func (s *Server) handleTopicActivities(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEssThreeSummary(w http.ResponseWriter, _ *http.Request) {
 	summary, err := s.fetchEssThreeSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -562,7 +560,7 @@ func (s *Server) handleEssThreeSummary(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request) {
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -572,19 +570,19 @@ func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request
 func (s *Server) handleCloudfauxntSetSigning(w http.ResponseWriter, r *http.Request) {
 	var request CloudfauxntSetSigningRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
 	payload, err := json.Marshal(request)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
 		return
 	}
 
 	resp, err := s.client.Post("http://cloudfauxnt:9310/admin/api/signing", "application/json", bytes.NewReader(payload))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("failed to update cloudfauxnt signing: %w", err))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to update cloudfauxnt signing: %w", err))
 		return
 	}
 	defer resp.Body.Close()
@@ -595,13 +593,13 @@ func (s *Server) handleCloudfauxntSetSigning(w http.ResponseWriter, r *http.Requ
 		if message == "" {
 			message = http.StatusText(resp.StatusCode)
 		}
-		writeError(w, http.StatusBadGateway, fmt.Errorf("cloudfauxnt signing update failed (%d): %s", resp.StatusCode, message))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("cloudfauxnt signing update failed (%d): %s", resp.StatusCode, message))
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -611,7 +609,7 @@ func (s *Server) handleCloudfauxntSetSigning(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleCloudfauxntUpdateSigningConfig(w http.ResponseWriter, r *http.Request) {
 	var request CloudfauxntUpdateSigningConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
@@ -627,13 +625,13 @@ func (s *Server) handleCloudfauxntUpdateSigningConfig(w http.ResponseWriter, r *
 	}
 
 	if err := s.callCloudfauxntAdminJSON(http.MethodPut, "/admin/api/signing/config", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -643,7 +641,7 @@ func (s *Server) handleCloudfauxntUpdateSigningConfig(w http.ResponseWriter, r *
 func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Request) {
 	var req CloudfauxntOriginUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
@@ -658,13 +656,13 @@ func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := s.callCloudfauxntAdminJSON(http.MethodPost, "/admin/api/origins", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -674,13 +672,13 @@ func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Re
 func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Request) {
 	var req CloudfauxntOriginUpsertRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid JSON payload"))
 		return
 	}
 
 	currentName := strings.TrimSpace(req.CurrentName)
 	if currentName == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("current_name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("current_name is required"))
 		return
 	}
 
@@ -696,13 +694,13 @@ func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Re
 
 	path := "/admin/api/origins/" + url.PathEscape(currentName)
 	if err := s.callCloudfauxntAdminJSON(http.MethodPut, path, payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	summary, err := s.fetchCloudfauxntSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -712,7 +710,7 @@ func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Re
 func (s *Server) handleKayVeeSummary(w http.ResponseWriter, _ *http.Request) {
 	summary, err := s.fetchKayVeeSummary()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -727,7 +725,7 @@ func (s *Server) handleKayVeeActivity(w http.ResponseWriter, r *http.Request) {
 
 	activity, err := s.fetchKayVeeActivity(maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -737,7 +735,7 @@ func (s *Server) handleKayVeeActivity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleKayVeeExport(w http.ResponseWriter, _ *http.Request) {
 	resp, err := s.client.Get("http://kay-vee:9350/admin/api/export")
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("failed to fetch kay-vee export: %w", err))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to fetch kay-vee export: %w", err))
 		return
 	}
 	defer resp.Body.Close()
@@ -748,7 +746,7 @@ func (s *Server) handleKayVeeExport(w http.ResponseWriter, _ *http.Request) {
 		if message == "" {
 			message = http.StatusText(resp.StatusCode)
 		}
-		writeError(w, http.StatusBadGateway, fmt.Errorf("kay-vee export failed (%d): %s", resp.StatusCode, message))
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("kay-vee export failed (%d): %s", resp.StatusCode, message))
 		return
 	}
 
@@ -769,7 +767,7 @@ func (s *Server) handleKayVeeParametersByPath(w http.ResponseWriter, r *http.Req
 	if raw := strings.TrimSpace(r.URL.Query().Get("recursive")); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("recursive must be a boolean"))
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("recursive must be a boolean"))
 			return
 		}
 		recursive = parsed
@@ -779,7 +777,7 @@ func (s *Server) handleKayVeeParametersByPath(w http.ResponseWriter, r *http.Req
 	if raw := strings.TrimSpace(r.URL.Query().Get("withDecryption")); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("withDecryption must be a boolean"))
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("withDecryption must be a boolean"))
 			return
 		}
 		withDecryption = parsed
@@ -789,7 +787,7 @@ func (s *Server) handleKayVeeParametersByPath(w http.ResponseWriter, r *http.Req
 	if raw := strings.TrimSpace(r.URL.Query().Get("maxResults")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 0 {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("maxResults must be a non-negative integer"))
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("maxResults must be a non-negative integer"))
 			return
 		}
 		if parsed > 10 {
@@ -808,7 +806,7 @@ func (s *Server) handleKayVeeParametersByPath(w http.ResponseWriter, r *http.Req
 		strings.TrimSpace(r.URL.Query().Get("label")),
 	)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -818,16 +816,16 @@ func (s *Server) handleKayVeeParametersByPath(w http.ResponseWriter, r *http.Req
 func (s *Server) handleKayVeePutParameter(w http.ResponseWriter, r *http.Request) {
 	var req KayVeePutParameterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	parameterName := normalizeKayVeeParameterName(req.Name)
 	if parameterName == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
 		return
 	}
 	if strings.TrimSpace(req.Value) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("value is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("value is required"))
 		return
 	}
 
@@ -842,7 +840,7 @@ func (s *Server) handleKayVeePutParameter(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.callKayVeeTarget("AmazonSSM.PutParameter", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -852,17 +850,17 @@ func (s *Server) handleKayVeePutParameter(w http.ResponseWriter, r *http.Request
 func (s *Server) handleKayVeeDeleteParameter(w http.ResponseWriter, r *http.Request) {
 	var req KayVeeDeleteParameterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	parameterName := normalizeKayVeeParameterName(req.Name)
 	if parameterName == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
 		return
 	}
 
 	if err := s.callKayVeeTarget("AmazonSSM.DeleteParameter", map[string]any{"Name": parameterName}, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -872,20 +870,20 @@ func (s *Server) handleKayVeeDeleteParameter(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleKayVeeLabelParameterVersion(w http.ResponseWriter, r *http.Request) {
 	var req KayVeeLabelParameterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	parameterName := normalizeKayVeeParameterName(req.Name)
 	if parameterName == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
 		return
 	}
 	if strings.TrimSpace(req.Label) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("label is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("label is required"))
 		return
 	}
 	if req.ParameterVersion <= 0 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("parameter_version must be > 0"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("parameter_version must be > 0"))
 		return
 	}
 
@@ -896,7 +894,7 @@ func (s *Server) handleKayVeeLabelParameterVersion(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.callKayVeeTarget("AmazonSSM.LabelParameterVersion", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -919,7 +917,7 @@ func (s *Server) handleKayVeeSecrets(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("maxResults")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 0 {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("maxResults must be a non-negative integer"))
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("maxResults must be a non-negative integer"))
 			return
 		}
 		maxResults = parsed
@@ -927,7 +925,7 @@ func (s *Server) handleKayVeeSecrets(w http.ResponseWriter, r *http.Request) {
 
 	secrets, err := s.fetchKayVeeSecrets(maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")), strings.TrimSpace(r.URL.Query().Get("nameFilter")))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -937,7 +935,7 @@ func (s *Server) handleKayVeeSecrets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleKayVeeSecretValue(w http.ResponseWriter, r *http.Request) {
 	secretID := strings.TrimSpace(r.URL.Query().Get("secretId"))
 	if secretID == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secretId is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secretId is required"))
 		return
 	}
 
@@ -954,7 +952,7 @@ func (s *Server) handleKayVeeSecretValue(w http.ResponseWriter, r *http.Request)
 		SecretBinary string  `json:"SecretBinary,omitempty"`
 	}
 	if err := s.callKayVeeTarget("secretsmanager.GetSecretValue", payload, &upstream); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -975,15 +973,15 @@ func (s *Server) handleKayVeeSecretValue(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleKayVeeCreateSecret(w http.ResponseWriter, r *http.Request) {
 	var req KayVeeCreateSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
 		return
 	}
 	if strings.TrimSpace(req.SecretString) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_string is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secret_string is required"))
 		return
 	}
 
@@ -994,7 +992,7 @@ func (s *Server) handleKayVeeCreateSecret(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.callKayVeeTarget("secretsmanager.CreateSecret", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1004,16 +1002,16 @@ func (s *Server) handleKayVeeCreateSecret(w http.ResponseWriter, r *http.Request
 func (s *Server) handleKayVeeDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	var req KayVeeDeleteSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.SecretID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
 		return
 	}
 
 	if err := s.callKayVeeTarget("secretsmanager.DeleteSecret", map[string]any{"SecretId": strings.TrimSpace(req.SecretID)}, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1023,16 +1021,16 @@ func (s *Server) handleKayVeeDeleteSecret(w http.ResponseWriter, r *http.Request
 func (s *Server) handleKayVeeRestoreSecret(w http.ResponseWriter, r *http.Request) {
 	var req KayVeeRestoreSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.SecretID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
 		return
 	}
 
 	if err := s.callKayVeeTarget("secretsmanager.RestoreSecret", map[string]any{"SecretId": strings.TrimSpace(req.SecretID)}, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1042,15 +1040,15 @@ func (s *Server) handleKayVeeRestoreSecret(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleKayVeePutSecretValue(w http.ResponseWriter, r *http.Request) {
 	var req KayVeePutSecretValueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.SecretID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
 		return
 	}
 	if strings.TrimSpace(req.SecretString) == "" && strings.TrimSpace(req.SecretBinary) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_string or secret_binary is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secret_string or secret_binary is required"))
 		return
 	}
 
@@ -1063,7 +1061,7 @@ func (s *Server) handleKayVeePutSecretValue(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := s.callKayVeeTarget("secretsmanager.PutSecretValue", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1073,15 +1071,15 @@ func (s *Server) handleKayVeePutSecretValue(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleKayVeeUpdateSecret(w http.ResponseWriter, r *http.Request) {
 	var req KayVeeUpdateSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.SecretID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
 		return
 	}
 	if strings.TrimSpace(req.Description) == "" && strings.TrimSpace(req.SecretString) == "" && strings.TrimSpace(req.SecretBinary) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("description, secret_string, or secret_binary is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("description, secret_string, or secret_binary is required"))
 		return
 	}
 
@@ -1097,7 +1095,7 @@ func (s *Server) handleKayVeeUpdateSecret(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.callKayVeeTarget("secretsmanager.UpdateSecret", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1107,19 +1105,19 @@ func (s *Server) handleKayVeeUpdateSecret(w http.ResponseWriter, r *http.Request
 func (s *Server) handleKayVeeUpdateSecretVersionStage(w http.ResponseWriter, r *http.Request) {
 	var req KayVeeUpdateSecretVersionStageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.SecretID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("secret_id is required"))
 		return
 	}
 	if strings.TrimSpace(req.VersionStage) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("version_stage is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("version_stage is required"))
 		return
 	}
 	if strings.TrimSpace(req.MoveToVersionID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("move_to_version_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("move_to_version_id is required"))
 		return
 	}
 
@@ -1133,7 +1131,7 @@ func (s *Server) handleKayVeeUpdateSecretVersionStage(w http.ResponseWriter, r *
 	}
 
 	if err := s.callKayVeeTarget("secretsmanager.UpdateSecretVersionStage", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1143,18 +1141,18 @@ func (s *Server) handleKayVeeUpdateSecretVersionStage(w http.ResponseWriter, r *
 func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	var req CreateTopicRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
 		return
 	}
 
 	if err := s.callSNSAdminJSON(http.MethodPost, "/api/topics", map[string]any{
 		"name": strings.TrimSpace(req.Name),
 	}, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1164,18 +1162,18 @@ func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 	var req DeleteTopicRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.TopicARN) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
 		return
 	}
 
 	if err := s.callSNSAdminJSON(http.MethodPost, "/api/topics/delete", map[string]any{
 		"topic_arn": strings.TrimSpace(req.TopicARN),
 	}, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1185,25 +1183,25 @@ func (s *Server) handleDeleteTopic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	var req CreateSubscriptionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.TopicARN) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
 		return
 	}
 	protocol := strings.TrimSpace(req.Protocol)
 	if protocol == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("protocol is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("protocol is required"))
 		return
 	}
 	if strings.TrimSpace(req.Endpoint) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("endpoint is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("endpoint is required"))
 		return
 	}
 
 	if protocol != "http" && protocol != "ess-queue-ess" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("protocol must be http or ess-queue-ess"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("protocol must be http or ess-queue-ess"))
 		return
 	}
 
@@ -1218,7 +1216,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		"endpoint":     strings.TrimSpace(req.Endpoint),
 		"auto_confirm": req.AutoConfirm,
 	}, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1228,18 +1226,18 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 func (s *Server) handleDeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	var req DeleteSubscriptionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.SubscriptionARN) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("subscription_arn is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("subscription_arn is required"))
 		return
 	}
 
 	if err := s.callSNSAdminJSON(http.MethodPost, "/api/subscriptions/delete", map[string]any{
 		"subscription_arn": strings.TrimSpace(req.SubscriptionARN),
 	}, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1249,15 +1247,15 @@ func (s *Server) handleDeleteSubscription(w http.ResponseWriter, r *http.Request
 func (s *Server) handlePublishTopicMessage(w http.ResponseWriter, r *http.Request) {
 	var req PublishTopicMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.TopicARN) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("topic_arn is required"))
 		return
 	}
 	if strings.TrimSpace(req.Message) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("message is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("message is required"))
 		return
 	}
 
@@ -1270,7 +1268,7 @@ func (s *Server) handlePublishTopicMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.callSNSAction(form); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1280,7 +1278,7 @@ func (s *Server) handlePublishTopicMessage(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleQueuePeek(w http.ResponseWriter, r *http.Request) {
 	queueID := normalizeQueueIDParam(chi.URLParam(r, "queueID"))
 	if strings.TrimSpace(queueID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_id is required"))
 		return
 	}
 
@@ -1288,7 +1286,7 @@ func (s *Server) handleQueuePeek(w http.ResponseWriter, r *http.Request) {
 	if limitParam := r.URL.Query().Get("limit"); strings.TrimSpace(limitParam) != "" {
 		parsedLimit, err := strconv.Atoi(limitParam)
 		if err != nil || parsedLimit < 1 {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("limit must be a positive integer"))
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("limit must be a positive integer"))
 			return
 		}
 		if parsedLimit > 100 {
@@ -1299,13 +1297,13 @@ func (s *Server) handleQueuePeek(w http.ResponseWriter, r *http.Request) {
 
 	queues, err := s.fetchQueues()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	selected := findQueueByID(queues, queueID)
 	if selected == nil {
-		writeError(w, http.StatusNotFound, fmt.Errorf("queue not found"))
+		awserrors.WriteJSONGeneric(w, http.StatusNotFound, fmt.Errorf("queue not found"))
 		return
 	}
 
@@ -1325,11 +1323,11 @@ func (s *Server) handleQueuePeek(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 	var req CreateQueueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.QueueName) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_name is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_name is required"))
 		return
 	}
 
@@ -1354,7 +1352,7 @@ func (s *Server) handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 	receiveWait := req.ReceiveMessageWaitTime
 
 	if visibilityTimeout < 0 || messageRetention < 0 || maximumMessageSize <= 0 || delaySeconds < 0 || receiveWait < 0 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid create queue attribute values"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid create queue attribute values"))
 		return
 	}
 
@@ -1363,7 +1361,7 @@ func (s *Server) handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 		dlqMaxReceiveCount = 3
 	}
 	if req.CreateDLQ && dlqMaxReceiveCount <= 0 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("dlq_max_receive_count must be greater than zero"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("dlq_max_receive_count must be greater than zero"))
 		return
 	}
 
@@ -1393,7 +1391,7 @@ func (s *Server) handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := s.callSQSAction(dlqForm); err != nil {
-			writeError(w, http.StatusBadGateway, fmt.Errorf("failed to create DLQ: %w", err))
+			awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to create DLQ: %w", err))
 			return
 		}
 	}
@@ -1429,7 +1427,7 @@ func (s *Server) handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.callSQSAction(form); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1445,19 +1443,19 @@ func (s *Server) handleCreateQueue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	var req SendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.QueueURL) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
 		return
 	}
 	if strings.TrimSpace(req.MessageBody) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("message_body is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("message_body is required"))
 		return
 	}
 	if strings.HasSuffix(req.QueueURL, ".fifo") && strings.TrimSpace(req.MessageGroupID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("message_group_id is required for FIFO queues"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("message_group_id is required for FIFO queues"))
 		return
 	}
 
@@ -1476,7 +1474,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.callSQSAction(form); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1486,11 +1484,11 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
 	var req QueueActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.QueueURL) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
 		return
 	}
 
@@ -1499,7 +1497,7 @@ func (s *Server) handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
 	form.Set("QueueUrl", strings.TrimSpace(req.QueueURL))
 
 	if err := s.callSQSAction(form); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1509,16 +1507,16 @@ func (s *Server) handlePurgeQueue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	var req UpdateQueueAttributesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 
 	if strings.TrimSpace(req.QueueURL) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
 		return
 	}
 	if req.VisibilityTimeout < 0 || req.MessageRetentionPeriod < 0 || req.MaximumMessageSize <= 0 || req.DelaySeconds < 0 || req.ReceiveMessageWaitTimeSeconds < 0 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid attribute values"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid attribute values"))
 		return
 	}
 
@@ -1534,7 +1532,7 @@ func (s *Server) handleUpdateQueueAttributes(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := s.callSQSJSONAction("SetQueueAttributes", payload, nil); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1544,11 +1542,11 @@ func (s *Server) handleUpdateQueueAttributes(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
 	var req QueueActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.QueueURL) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
 		return
 	}
 
@@ -1557,7 +1555,7 @@ func (s *Server) handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
 	form.Set("QueueUrl", strings.TrimSpace(req.QueueURL))
 
 	if err := s.callSQSAction(form); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1567,19 +1565,19 @@ func (s *Server) handleDeleteQueue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQueueAttributes(w http.ResponseWriter, r *http.Request) {
 	queueID := normalizeQueueIDParam(chi.URLParam(r, "queueID"))
 	if strings.TrimSpace(queueID) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_id is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_id is required"))
 		return
 	}
 
 	queues, err := s.fetchQueues()
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
 	selected := findQueueByID(queues, queueID)
 	if selected == nil {
-		writeError(w, http.StatusNotFound, fmt.Errorf("queue not found"))
+		awserrors.WriteJSONGeneric(w, http.StatusNotFound, fmt.Errorf("queue not found"))
 		return
 	}
 
@@ -1590,7 +1588,7 @@ func (s *Server) handleQueueAttributes(w http.ResponseWriter, r *http.Request) {
 		"QueueUrl":       selected.QueueURL,
 		"AttributeNames": []string{"All"},
 	}, &sqsResp); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -1609,17 +1607,17 @@ func (s *Server) handleQueueAttributes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStartRedrive(w http.ResponseWriter, r *http.Request) {
 	var req QueueRedriveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
 		return
 	}
 	if strings.TrimSpace(req.QueueURL) == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("queue_url is required"))
 		return
 	}
 
 	sourceArn, err := queueURLToARN(req.QueueURL)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, err)
 		return
 	}
 
@@ -1627,7 +1625,7 @@ func (s *Server) handleStartRedrive(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.DestinationQueueURL) != "" {
 		destinationArn, destinationErr := queueURLToARN(req.DestinationQueueURL)
 		if destinationErr != nil {
-			writeError(w, http.StatusBadRequest, destinationErr)
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, destinationErr)
 			return
 		}
 		payload["DestinationArn"] = destinationArn
@@ -1640,7 +1638,7 @@ func (s *Server) handleStartRedrive(w http.ResponseWriter, r *http.Request) {
 		TaskHandle string `json:"TaskHandle"`
 	}
 	if err := s.callSQSJSONAction("StartMessageMoveTask", payload, &sqsResp); err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
 		return
 	}
 
@@ -2535,10 +2533,6 @@ func (s *Server) checkService(healthURL string) string {
 		return "offline"
 	}
 	return "online"
-}
-
-func writeError(w http.ResponseWriter, code int, err error) {
-	writeJSON(w, code, map[string]string{"error": err.Error()})
 }
 
 func writeJSON(w http.ResponseWriter, code int, payload any) {

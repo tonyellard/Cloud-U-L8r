@@ -1,4 +1,4 @@
-package main
+package server
 
 // SPDX-License-Identifier: Apache-2.0
 
