@@ -21,6 +21,10 @@ let kayVeeSecretNextToken = '';
 const kayVeeSecretValues = new Map();
 let kayVeeLabelParameterTarget = '';
 let kayVeeUpdateParameterTarget = null;
+let essThreeActivityRows = [];
+let essThreeActivityNextToken = '';
+let essThreeExpandedBucket = '';
+let essThreeObjectCache = new Map();
 let cloudfauxntSummary = null;
 let cloudfauxntEditingOriginName = '';
 
@@ -194,7 +198,7 @@ function switchView(view, options = {}) {
     loadKayVeeOverview();
   } else if (nextView === 'essthree') {
     title.textContent = 'ess-three';
-    subtitle.textContent = 'Informational ess-three surface summary (more admin actions coming soon)';
+    subtitle.textContent = 'S3-compatible object storage emulator admin surface';
     loadEssThreeSummary();
   } else {
     title.textContent = 'cloudfauxnt';
@@ -318,6 +322,8 @@ async function loadPubSubState() {
 async function loadEssThreeSummary() {
   try {
     const data = await apiGet('/api/services/essthree/summary');
+    essThreeActivityRows = data.activity || [];
+    essThreeActivityNextToken = data.activityNextToken || '';
     renderEssThreeSummary(data);
   } catch (error) {
     setAlert(error.message);
@@ -1253,15 +1259,83 @@ function renderFutureBanner(text) {
 
 function renderEssThreeSummary(data) {
   const buckets = data.buckets || [];
-  const rows = buckets.map((bucket) => `
-    <tr class="border-b">
-      <td class="py-2 pr-2 text-sm">${escapeHTML(bucket.name || '')}</td>
-      <td class="py-2 text-sm text-right">${Number(bucket.object_count || 0)}</td>
-    </tr>
-  `).join('');
+  const rows = buckets.map((bucket) => {
+    const isExpanded = essThreeExpandedBucket === bucket.name;
+    const cached = essThreeObjectCache.get(bucket.name);
+    let objectRows = '';
+    let objectSection = '';
+
+    if (isExpanded) {
+      if (cached && cached.objects) {
+        objectRows = cached.objects.map((obj) => `
+          <tr class="border-b">
+            <td class="py-1 pr-2 text-xs break-all">${escapeHTML(obj.key || '')}</td>
+            <td class="py-1 pr-2 text-xs text-right">${formatObjectSize(obj.size)}</td>
+            <td class="py-1 pr-2 text-xs">${escapeHTML(obj.contentType || '-')}</td>
+            <td class="py-1 pr-2 text-xs whitespace-nowrap">${escapeHTML(obj.lastModified ? new Date(obj.lastModified).toLocaleString() : '-')}</td>
+            <td class="py-1 text-right">
+              <button class="px-2 py-0.5 rounded bg-red-600 text-white text-xs" title="Delete object" aria-label="Delete object ${escapeHTML(obj.key || '')}" onclick="deleteEssThreeObject('${escapeHTML(bucket.name)}', '${escapeAttr(obj.key)}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+
+        const loadMoreBtn = cached.isTruncated
+          ? `<button class="px-3 py-1 rounded bg-indigo-700 text-white text-xs" title="Load more objects" aria-label="Load more objects" onclick="loadMoreEssThreeObjects('${escapeHTML(bucket.name)}')">Load More</button>`
+          : '';
+
+        objectSection = `
+          <tr>
+            <td colspan="3" class="p-0">
+              <div class="bg-slate-50 border-t p-3">
+                <div class="overflow-x-auto">
+                  <table class="w-full">
+                    <thead>
+                      <tr class="text-xs text-slate-500 border-b">
+                        <th class="text-left py-1 pr-2">Key</th>
+                        <th class="text-right py-1 pr-2">Size</th>
+                        <th class="text-left py-1 pr-2">Content Type</th>
+                        <th class="text-left py-1 pr-2">Last Modified</th>
+                        <th class="text-right py-1">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${objectRows || '<tr><td colspan="5" class="py-2 text-xs text-slate-500">No objects in this bucket.</td></tr>'}
+                    </tbody>
+                  </table>
+                </div>
+                <div class="flex justify-end mt-2 gap-2">
+                  ${loadMoreBtn}
+                </div>
+              </div>
+            </td>
+          </tr>
+        `;
+      } else {
+        objectSection = `
+          <tr>
+            <td colspan="3" class="p-0">
+              <div class="bg-slate-50 border-t p-3 text-sm text-slate-500">Loading objects...</div>
+            </td>
+          </tr>
+        `;
+      }
+    }
+
+    return `
+      <tr class="border-b">
+        <td class="py-2 pr-2 text-sm">
+          <button class="text-left font-medium hover:underline" title="Browse bucket contents" aria-label="Browse bucket ${escapeHTML(bucket.name)}" onclick="toggleEssThreeBucket('${escapeHTML(bucket.name)}')">${isExpanded ? '▾' : '▸'} ${escapeHTML(bucket.name || '')}</button>
+        </td>
+        <td class="py-2 pr-2 text-sm text-right">${Number(bucket.object_count || 0)}</td>
+        <td class="py-2 text-right">
+          <button class="px-2 py-0.5 rounded bg-red-600 text-white text-xs" title="Delete bucket" aria-label="Delete bucket ${escapeHTML(bucket.name || '')}" onclick="deleteEssThreeBucket('${escapeHTML(bucket.name)}')">Delete</button>
+        </td>
+      </tr>
+      ${objectSection}
+    `;
+  }).join('');
 
   document.getElementById('view-content').innerHTML = `
-    ${renderFutureBanner('ess-three admin is currently informational. Additional admin actions will be added in a future update.')}
     <div class="grid grid-cols-2 gap-4">
       <div class="bg-white rounded border p-4">
         <div class="text-sm text-slate-500">Buckets</div>
@@ -1272,6 +1346,28 @@ function renderEssThreeSummary(data) {
         <div class="text-2xl font-semibold">${Number(data.stats?.objects || 0)}</div>
       </div>
     </div>
+
+    <div class="bg-white rounded border p-4">
+      <div class="flex items-center justify-end gap-2 mb-3">
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="View activity log" aria-label="View activity log" onclick="openEssThreeActivityModal()">Activity Log</button>
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh view" aria-label="Refresh ess-three view" onclick="loadEssThreeSummary()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="bg-slate-900 text-white rounded border border-slate-900 px-4 py-2 text-sm font-semibold tracking-wide uppercase">Buckets</div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <div class="bg-white rounded border p-4">
+        <h3 class="font-semibold mb-2">Create Bucket</h3>
+        <div class="grid gap-2">
+          <input id="s3-create-bucket-name" class="border rounded px-2 py-1 text-sm" placeholder="my-bucket-name" />
+          <div class="flex justify-end">
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create bucket" aria-label="Create bucket" onclick="createEssThreeBucket()">Create Bucket</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="bg-white rounded border p-4">
       <div class="flex items-center justify-between mb-2">
         <h3 class="font-semibold">Bucket Overview</h3>
@@ -1282,16 +1378,198 @@ function renderEssThreeSummary(data) {
           <thead>
             <tr class="text-xs text-slate-500 border-b">
               <th class="text-left py-1 pr-2">Bucket</th>
-              <th class="text-right py-1">Object Count</th>
+              <th class="text-right py-1 pr-2">Object Count</th>
+              <th class="text-right py-1">Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${rows || '<tr><td colspan="2" class="py-2 text-sm text-slate-500">No buckets found.</td></tr>'}
+            ${rows || '<tr><td colspan="3" class="py-2 text-sm text-slate-500">No buckets found.</td></tr>'}
           </tbody>
         </table>
       </div>
     </div>
+
+    <div id="essthree-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeEssThreeActivityModal()">
+      <div class="bg-white w-full max-w-5xl rounded border shadow-lg">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+          <h3 class="font-semibold">ess-three Activity Log</h3>
+          <div class="flex items-center gap-2">
+            <button id="essthree-activity-load-more" class="hidden px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more activity" aria-label="Load more activity" onclick="loadMoreEssThreeActivity()">Load More</button>
+            <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity log" aria-label="Close activity log" onclick="closeEssThreeActivityModal()">✕</button>
+          </div>
+        </div>
+        <div class="p-4 max-h-[70vh] overflow-auto" id="essthree-activity-body">
+          <p class="text-sm text-slate-500">No activity entries.</p>
+        </div>
+      </div>
+    </div>
   `;
+}
+
+function formatObjectSize(bytes) {
+  if (bytes == null) return '-';
+  const b = Number(bytes);
+  if (b === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1);
+  const val = b / Math.pow(1024, i);
+  return `${i === 0 ? val : val.toFixed(1)} ${units[i]}`;
+}
+
+function escapeAttr(str) {
+  return (str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+async function toggleEssThreeBucket(bucketName) {
+  if (essThreeExpandedBucket === bucketName) {
+    essThreeExpandedBucket = '';
+    loadEssThreeSummary();
+    return;
+  }
+
+  essThreeExpandedBucket = bucketName;
+  essThreeObjectCache.delete(bucketName);
+  loadEssThreeSummary();
+
+  try {
+    const data = await apiGet(`/api/services/essthree/buckets/${encodeURIComponent(bucketName)}/objects?maxKeys=50`);
+    essThreeObjectCache.set(bucketName, data);
+    if (essThreeExpandedBucket === bucketName) {
+      loadEssThreeSummary();
+    }
+  } catch (error) {
+    setAlert(`Failed to list objects: ${error.message}`);
+  }
+}
+
+async function loadMoreEssThreeObjects(bucketName) {
+  const cached = essThreeObjectCache.get(bucketName);
+  if (!cached || !cached.nextContinuationToken) return;
+
+  try {
+    const data = await apiGet(`/api/services/essthree/buckets/${encodeURIComponent(bucketName)}/objects?maxKeys=50&continuationToken=${encodeURIComponent(cached.nextContinuationToken)}`);
+    cached.objects = (cached.objects || []).concat(data.objects || []);
+    cached.isTruncated = data.isTruncated;
+    cached.nextContinuationToken = data.nextContinuationToken;
+    essThreeObjectCache.set(bucketName, cached);
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to load more objects: ${error.message}`);
+  }
+}
+
+async function createEssThreeBucket() {
+  const nameInput = document.getElementById('s3-create-bucket-name');
+  const name = (nameInput?.value || '').trim();
+  if (!name) {
+    setAlert('Bucket name is required');
+    return;
+  }
+
+  try {
+    await apiPost('/api/services/essthree/actions/create-bucket', { name });
+    nameInput.value = '';
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to create bucket: ${error.message}`);
+  }
+}
+
+async function deleteEssThreeBucket(bucketName) {
+  if (!window.confirm(`Delete bucket "${bucketName}"? The bucket must be empty.`)) return;
+
+  try {
+    await apiPost('/api/services/essthree/actions/delete-bucket', { name: bucketName });
+    if (essThreeExpandedBucket === bucketName) {
+      essThreeExpandedBucket = '';
+      essThreeObjectCache.delete(bucketName);
+    }
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to delete bucket: ${error.message}`);
+  }
+}
+
+async function deleteEssThreeObject(bucketName, key) {
+  if (!window.confirm(`Delete object "${key}" from bucket "${bucketName}"?`)) return;
+
+  try {
+    await apiPost('/api/services/essthree/actions/delete-object', { bucket: bucketName, key });
+    const cached = essThreeObjectCache.get(bucketName);
+    if (cached && cached.objects) {
+      cached.objects = cached.objects.filter((o) => o.key !== key);
+      essThreeObjectCache.set(bucketName, cached);
+    }
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to delete object: ${error.message}`);
+  }
+}
+
+function openEssThreeActivityModal() {
+  const modal = document.getElementById('essthree-activity-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderEssThreeActivityModalContent();
+}
+
+function closeEssThreeActivityModal() {
+  const modal = document.getElementById('essthree-activity-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function renderEssThreeActivityModalContent() {
+  const body = document.getElementById('essthree-activity-body');
+  if (!body) return;
+
+  const rows = (essThreeActivityRows || []).map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.action || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Method</th>
+            <th class="text-left py-1 pr-2">Path</th>
+            <th class="text-left py-1 pr-2">Action</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1">Error Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const loadMore = document.getElementById('essthree-activity-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !essThreeActivityNextToken);
+  }
+}
+
+async function loadMoreEssThreeActivity() {
+  if (!essThreeActivityNextToken) return;
+  try {
+    const activityData = await apiGet(`/api/services/essthree/activity?maxResults=25&nextToken=${encodeURIComponent(essThreeActivityNextToken)}`);
+    essThreeActivityRows = essThreeActivityRows.concat(activityData.activity || []);
+    essThreeActivityNextToken = activityData.nextToken || '';
+    renderEssThreeActivityModalContent();
+  } catch (error) {
+    setAlert(`Failed to load activity: ${error.message}`);
+  }
 }
 
 function getCloudfauxntDistributionURL(data) {
@@ -2700,6 +2978,8 @@ function connectSSE(view) {
         kayVeeSecretNextToken = payload.secretsNextToken || kayVeeSecretNextToken;
         renderKayVeeOverview(payload);
       } else if (view === 'essthree') {
+        essThreeActivityRows = payload.activity || [];
+        essThreeActivityNextToken = payload.activityNextToken || '';
         renderEssThreeSummary(payload);
       } else {
         renderCloudfauxntSummary(payload);

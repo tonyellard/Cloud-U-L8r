@@ -172,6 +172,37 @@ type EssThreeSummaryResponse struct {
 	} `json:"stats"`
 }
 
+type EssThreeActivityEntry struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Action     string    `json:"action,omitempty"`
+	StatusCode int       `json:"statusCode"`
+	ErrorType  string    `json:"errorType,omitempty"`
+	Detail     string    `json:"detail,omitempty"`
+}
+
+type EssThreeActivityResponse struct {
+	Activity  []EssThreeActivityEntry `json:"activity"`
+	NextToken string                  `json:"nextToken,omitempty"`
+}
+
+type EssThreeObjectEntry struct {
+	Key          string `json:"key"`
+	Size         int64  `json:"size"`
+	LastModified string `json:"lastModified"`
+	ETag         string `json:"etag"`
+	ContentType  string `json:"contentType"`
+}
+
+type EssThreeObjectListResponse struct {
+	Bucket                string                `json:"bucket"`
+	Prefix                string                `json:"prefix"`
+	Objects               []EssThreeObjectEntry `json:"objects"`
+	IsTruncated           bool                  `json:"isTruncated"`
+	NextContinuationToken string                `json:"nextContinuationToken,omitempty"`
+}
+
 type CloudfauxntOriginOverview struct {
 	Name              string   `json:"name"`
 	URL               string   `json:"url"`
@@ -407,6 +438,11 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-enn-ess/state", srv.handlePubSubState)
 	r.Get("/api/services/ess-enn-ess/topics/{topicARN}/activities", srv.handleTopicActivities)
 	r.Get("/api/services/essthree/summary", srv.handleEssThreeSummary)
+	r.Get("/api/services/essthree/buckets/{bucket}/objects", srv.handleEssThreeListObjects)
+	r.Post("/api/services/essthree/actions/create-bucket", srv.handleEssThreeCreateBucket)
+	r.Post("/api/services/essthree/actions/delete-bucket", srv.handleEssThreeDeleteBucket)
+	r.Post("/api/services/essthree/actions/delete-object", srv.handleEssThreeDeleteObject)
+	r.Get("/api/services/essthree/activity", srv.handleEssThreeActivity)
 	r.Get("/api/services/cloudfauxnt/summary", srv.handleCloudfauxntSummary)
 	r.Post("/api/services/cloudfauxnt/actions/set-signing", srv.handleCloudfauxntSetSigning)
 	r.Post("/api/services/cloudfauxnt/actions/update-signing-config", srv.handleCloudfauxntUpdateSigningConfig)
@@ -555,6 +591,128 @@ func (s *Server) handleEssThreeSummary(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleEssThreeListObjects(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	prefix := strings.TrimSpace(r.URL.Query().Get("prefix"))
+	maxKeys := strings.TrimSpace(r.URL.Query().Get("maxKeys"))
+	continuationToken := strings.TrimSpace(r.URL.Query().Get("continuationToken"))
+
+	objectList, err := s.fetchEssThreeObjectList(bucket, prefix, maxKeys, continuationToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, objectList)
+}
+
+func (s *Server) handleEssThreeCreateBucket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload, _ := json.Marshal(req)
+	resp, err := s.client.Post("http://essthree:9300/admin/api/buckets", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to create bucket: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+func (s *Server) handleEssThreeDeleteBucket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, "http://essthree:9300/admin/api/buckets/"+url.PathEscape(req.Name), nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to delete bucket: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent {
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+func (s *Server) handleEssThreeDeleteObject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Bucket string `json:"bucket"`
+		Key    string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Bucket == "" || req.Key == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("bucket and key are required"))
+		return
+	}
+
+	deleteURL := fmt.Sprintf("http://essthree:9300/admin/api/buckets/%s/objects?key=%s",
+		url.PathEscape(req.Bucket), url.QueryEscape(req.Key))
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, deleteURL, nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to delete object: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent {
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+func (s *Server) handleEssThreeActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := strings.TrimSpace(r.URL.Query().Get("maxResults"))
+	if maxResults == "" {
+		maxResults = "25"
+	}
+
+	activityData, err := s.fetchEssThreeActivity(maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, activityData)
 }
 
 func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request) {
@@ -1728,7 +1886,14 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(summary)
+		activityData, _ := s.fetchEssThreeActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":           summary.Service,
+			"buckets":           summary.Buckets,
+			"stats":             summary.Stats,
+			"activity":          activityData.Activity,
+			"activityNextToken": activityData.NextToken,
+		})
 	}
 	if view == "cloudfauxnt" {
 		summary, err := s.fetchCloudfauxntSummary()
@@ -1970,6 +2135,62 @@ func (s *Server) fetchEssThreeSummary() (EssThreeSummaryResponse, error) {
 	}
 
 	return summary, nil
+}
+
+func (s *Server) fetchEssThreeObjectList(bucket, prefix, maxKeys, continuationToken string) (EssThreeObjectListResponse, error) {
+	objectURL := fmt.Sprintf("http://essthree:9300/admin/api/buckets/%s/objects", url.PathEscape(bucket))
+	q := url.Values{}
+	if prefix != "" {
+		q.Set("prefix", prefix)
+	}
+	if maxKeys != "" {
+		q.Set("maxKeys", maxKeys)
+	}
+	if continuationToken != "" {
+		q.Set("continuationToken", continuationToken)
+	}
+	if len(q) > 0 {
+		objectURL += "?" + q.Encode()
+	}
+
+	resp, err := s.client.Get(objectURL)
+	if err != nil {
+		return EssThreeObjectListResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return EssThreeObjectListResponse{}, fmt.Errorf("essthree object list status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var objectList EssThreeObjectListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&objectList); err != nil {
+		return EssThreeObjectListResponse{}, err
+	}
+	return objectList, nil
+}
+
+func (s *Server) fetchEssThreeActivity(maxResults, nextToken string) (EssThreeActivityResponse, error) {
+	activityURL := "http://essthree:9300/admin/api/activity?maxResults=" + url.QueryEscape(maxResults)
+	if nextToken != "" {
+		activityURL += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+
+	resp, err := s.client.Get(activityURL)
+	if err != nil {
+		return EssThreeActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return EssThreeActivityResponse{}, fmt.Errorf("essthree activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var activity EssThreeActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return EssThreeActivityResponse{}, err
+	}
+	return activity, nil
 }
 
 func (s *Server) fetchCloudfauxntSummary() (CloudfauxntSummaryResponse, error) {
