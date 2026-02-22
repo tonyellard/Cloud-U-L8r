@@ -449,11 +449,12 @@ type DrawbridgeBusDetail struct {
 }
 
 type DrawbridgeRuleDetail struct {
-	Name         string                  `json:"name"`
-	State        string                  `json:"state"`
-	EventPattern string                  `json:"eventPattern,omitempty"`
-	TargetCount  int                     `json:"targetCount"`
-	Targets      []DrawbridgeTarget      `json:"targets"`
+	Name               string                  `json:"name"`
+	State              string                  `json:"state"`
+	EventPattern       string                  `json:"eventPattern,omitempty"`
+	ScheduleExpression string                  `json:"scheduleExpression,omitempty"`
+	TargetCount        int                     `json:"targetCount"`
+	Targets            []DrawbridgeTarget      `json:"targets"`
 }
 
 type DrawbridgeTarget struct {
@@ -476,11 +477,12 @@ type DrawbridgeDeleteEventBusRequest struct {
 }
 
 type DrawbridgePutRuleRequest struct {
-	Name         string `json:"name"`
-	EventBusName string `json:"event_bus_name,omitempty"`
-	EventPattern string `json:"event_pattern,omitempty"`
-	State        string `json:"state,omitempty"`
-	Description  string `json:"description,omitempty"`
+	Name               string `json:"name"`
+	EventBusName       string `json:"event_bus_name,omitempty"`
+	EventPattern       string `json:"event_pattern,omitempty"`
+	ScheduleExpression string `json:"schedule_expression,omitempty"`
+	State              string `json:"state,omitempty"`
+	Description        string `json:"description,omitempty"`
 }
 
 type DrawbridgeDeleteRuleRequest struct {
@@ -517,6 +519,59 @@ type DrawbridgePutEventRequest struct {
 type DrawbridgeTestEventPatternRequest struct {
 	EventPattern string `json:"event_pattern"`
 	Event        string `json:"event"`
+}
+
+// --- Scheduler types ---
+
+type SchedulerSummaryResponse struct {
+	Service        string `json:"service"`
+	ScheduleGroups int    `json:"scheduleGroups"`
+	Schedules      int    `json:"schedules"`
+}
+
+type SchedulerGroupDetail struct {
+	Name      string                   `json:"name"`
+	Arn       string                   `json:"arn"`
+	State     string                   `json:"state"`
+	Schedules []SchedulerScheduleDetail `json:"schedules"`
+}
+
+type SchedulerScheduleDetail struct {
+	Name               string `json:"name"`
+	Arn                string `json:"arn"`
+	State              string `json:"state"`
+	ScheduleExpression string `json:"scheduleExpression"`
+	TargetArn          string `json:"targetArn,omitempty"`
+	Description        string `json:"description,omitempty"`
+}
+
+type SchedulerActivityResponse struct {
+	Activity  []KayVeeActivityEntry `json:"activity"`
+	NextToken string                `json:"nextToken,omitempty"`
+}
+
+type SchedulerCreateGroupRequest struct {
+	Name string `json:"name"`
+}
+
+type SchedulerDeleteGroupRequest struct {
+	Name string `json:"name"`
+}
+
+type SchedulerCreateScheduleRequest struct {
+	Name               string `json:"name"`
+	GroupName          string `json:"group_name,omitempty"`
+	ScheduleExpression string `json:"schedule_expression"`
+	TargetArn          string `json:"target_arn,omitempty"`
+	TargetInput        string `json:"target_input,omitempty"`
+	State              string `json:"state,omitempty"`
+	Description        string `json:"description,omitempty"`
+	ActionAfterCompletion string `json:"action_after_completion,omitempty"`
+}
+
+type SchedulerDeleteScheduleRequest struct {
+	Name      string `json:"name"`
+	GroupName string `json:"group_name,omitempty"`
 }
 
 func NewRouter(logger *slog.Logger) http.Handler {
@@ -587,6 +642,13 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/drawbridge/actions/remove-target", srv.handleDrawbridgeRemoveTarget)
 	r.Post("/api/services/drawbridge/actions/put-event", srv.handleDrawbridgePutEvent)
 	r.Post("/api/services/drawbridge/actions/test-event-pattern", srv.handleDrawbridgeTestEventPattern)
+	r.Get("/api/services/scheduler/summary", srv.handleSchedulerSummary)
+	r.Get("/api/services/scheduler/resources", srv.handleSchedulerResources)
+	r.Get("/api/services/scheduler/activity", srv.handleSchedulerActivity)
+	r.Post("/api/services/scheduler/actions/create-group", srv.handleSchedulerCreateGroup)
+	r.Post("/api/services/scheduler/actions/delete-group", srv.handleSchedulerDeleteGroup)
+	r.Post("/api/services/scheduler/actions/create-schedule", srv.handleSchedulerCreateSchedule)
+	r.Post("/api/services/scheduler/actions/delete-schedule", srv.handleSchedulerDeleteSchedule)
 	r.Get("/api/events", srv.handleEvents)
 
 	fs := http.FileServer(http.Dir("./web"))
@@ -1639,6 +1701,9 @@ func (s *Server) handleDrawbridgePutRule(w http.ResponseWriter, r *http.Request)
 	if ep := strings.TrimSpace(req.EventPattern); ep != "" {
 		payload["EventPattern"] = ep
 	}
+	if se := strings.TrimSpace(req.ScheduleExpression); se != "" {
+		payload["ScheduleExpression"] = se
+	}
 	if desc := strings.TrimSpace(req.Description); desc != "" {
 		payload["Description"] = desc
 	}
@@ -2433,7 +2498,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "dashboard"
 	}
-	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" && view != "drawbridge" {
+	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" && view != "drawbridge" && view != "scheduler" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
 		return
 	}
@@ -2561,6 +2626,22 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		activity, _ := s.fetchDrawbridgeActivity("25", "")
 		return json.Marshal(map[string]any{
 			"service":   "drawbridge",
+			"summary":   summary,
+			"resources": resources,
+			"activity":  activity.Activity,
+			"nextToken": activity.NextToken,
+		})
+	}
+
+	if view == "scheduler" {
+		summary, err := s.fetchSchedulerSummary()
+		if err != nil {
+			return nil, err
+		}
+		resources, _ := s.fetchSchedulerResources()
+		activity, _ := s.fetchSchedulerActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":   "scheduler",
 			"summary":   summary,
 			"resources": resources,
 			"activity":  activity.Activity,
@@ -2696,6 +2777,24 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 		}
 	}
 	services = append(services, drawbridgeService)
+
+	schedulerService := DashboardService{
+		Name:   "scheduler",
+		Status: s.checkService("http://scheduler:9360/health"),
+		Stats: []DashboardStat{
+			{Label: "Groups", Value: 0},
+			{Label: "Schedules", Value: 0},
+		},
+	}
+	if schedulerService.Status == "online" {
+		if schSummary, err := s.fetchSchedulerSummary(); err == nil {
+			schedulerService.Stats[0].Value = schSummary.ScheduleGroups
+			schedulerService.Stats[1].Value = schSummary.Schedules
+		} else {
+			s.logger.Warn("failed to fetch scheduler dashboard stats", "error", err)
+		}
+	}
+	services = append(services, schedulerService)
 
 	summary.Services = services
 	return summary
@@ -3202,6 +3301,258 @@ func (s *Server) callKayVeeTarget(targetName string, payload any, target any) er
 			message = http.StatusText(response.StatusCode)
 		}
 		return fmt.Errorf("kay-vee target %s failed (%d): %s", targetName, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// --- Scheduler handlers ---
+
+func (s *Server) handleSchedulerSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchSchedulerSummary()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleSchedulerResources(w http.ResponseWriter, _ *http.Request) {
+	resources, err := s.fetchSchedulerResources()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resources)
+}
+
+func (s *Server) handleSchedulerActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := r.URL.Query().Get("maxResults")
+	if maxResults == "" {
+		maxResults = "50"
+	}
+	nextToken := r.URL.Query().Get("nextToken")
+	activity, err := s.fetchSchedulerActivity(maxResults, nextToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, activity)
+}
+
+func (s *Server) fetchSchedulerSummary() (SchedulerSummaryResponse, error) {
+	resp, err := s.client.Get("http://scheduler:9360/admin/api/summary")
+	if err != nil {
+		return SchedulerSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return SchedulerSummaryResponse{}, fmt.Errorf("scheduler summary status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var summary SchedulerSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return SchedulerSummaryResponse{}, err
+	}
+	return summary, nil
+}
+
+func (s *Server) fetchSchedulerResources() ([]SchedulerGroupDetail, error) {
+	resp, err := s.client.Get("http://scheduler:9360/admin/api/resources")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("scheduler resources status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var resources []SchedulerGroupDetail
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+func (s *Server) fetchSchedulerActivity(maxResults, nextToken string) (SchedulerActivityResponse, error) {
+	u := fmt.Sprintf("http://scheduler:9360/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	if nextToken != "" {
+		u += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+	resp, err := s.client.Get(u)
+	if err != nil {
+		return SchedulerActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return SchedulerActivityResponse{}, fmt.Errorf("scheduler activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var activity SchedulerActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return SchedulerActivityResponse{}, err
+	}
+	return activity, nil
+}
+
+func (s *Server) handleSchedulerCreateGroup(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerCreateGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.CreateScheduleGroup", map[string]any{"Name": name}, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleSchedulerDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerDeleteGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if name == "default" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("cannot delete the default schedule group"))
+		return
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.DeleteScheduleGroup", map[string]any{"Name": name}, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleSchedulerCreateSchedule(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerCreateScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	schedExpr := strings.TrimSpace(req.ScheduleExpression)
+	if schedExpr == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("schedule_expression is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"Name":               name,
+		"ScheduleExpression": schedExpr,
+	}
+	if group := strings.TrimSpace(req.GroupName); group != "" {
+		payload["GroupName"] = group
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	state := strings.TrimSpace(req.State)
+	if state == "" {
+		state = "ENABLED"
+	}
+	payload["State"] = state
+	if aac := strings.TrimSpace(req.ActionAfterCompletion); aac != "" {
+		payload["ActionAfterCompletion"] = aac
+	}
+
+	targetArn := strings.TrimSpace(req.TargetArn)
+	if targetArn != "" {
+		target := map[string]any{"Arn": targetArn}
+		if input := strings.TrimSpace(req.TargetInput); input != "" {
+			target["Input"] = input
+		}
+		payload["Target"] = target
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.CreateSchedule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleSchedulerDeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerDeleteScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if group := strings.TrimSpace(req.GroupName); group != "" {
+		payload["GroupName"] = group
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.DeleteSchedule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) callSchedulerTarget(targetName string, payload any, target any) error {
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "http://scheduler:9360/", bytes.NewReader(encodedPayload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	request.Header.Set("X-Amz-Target", targetName)
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		var awsErr struct {
+			Type    string `json:"__type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(responseBody, &awsErr); err == nil && strings.TrimSpace(awsErr.Type) != "" {
+			return fmt.Errorf("%s: %s", awsErr.Type, awsErr.Message)
+		}
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("scheduler target %s failed (%d): %s", targetName, response.StatusCode, message)
 	}
 
 	if target == nil {

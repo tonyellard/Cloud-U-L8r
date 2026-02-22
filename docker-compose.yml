@@ -98,6 +98,25 @@ services:
     networks:
       - shared-network
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: services/scheduler/Dockerfile
+    container_name: scheduler
+    ports:
+      - "9360:9360"
+    environment:
+      - PORT=9360
+      - REGION=us-east-1
+      - ACCOUNT_ID=000000000000
+      - SQS_ENDPOINT=http://ess-queue-ess:9320
+      - SNS_ENDPOINT=http://ess-enn-ess:9330
+    depends_on:
+      - ess-queue-ess
+      - ess-enn-ess
+    networks:
+      - shared-network
+
   admin-console:
     build:
       context: .
@@ -112,6 +131,7 @@ services:
       - ess-enn-ess
       - kay-vee
       - drawbridge
+      - scheduler
     networks:
       - shared-network
 

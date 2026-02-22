@@ -3,6 +3,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -15,9 +16,11 @@ import (
 	"github.com/tonyellard/cloud-u-l8r/pkg/activity"
 	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
+	"github.com/tonyellard/cloud-u-l8r/pkg/schedule"
 	"github.com/tonyellard/drawbridge/internal/delivery"
 	"github.com/tonyellard/drawbridge/internal/matching"
 	"github.com/tonyellard/drawbridge/internal/model"
+	dbschedule "github.com/tonyellard/drawbridge/internal/schedule"
 	"github.com/tonyellard/drawbridge/internal/store"
 )
 
@@ -35,18 +38,24 @@ type Server struct {
 	store       *store.Store
 	deliverer   *delivery.Deliverer
 	activityLog *activity.Logger
+	scheduler   *dbschedule.Scheduler
 }
 
 // NewRouter creates an http.Handler for the drawbridge service.
 func NewRouter(logger *slog.Logger, cfg Config) http.Handler {
+	st := store.NewStore(cfg.Region, cfg.AccountID)
+	del := delivery.NewDeliverer(logger, cfg.SQSEndpoint, cfg.SNSEndpoint)
 	srv := &Server{
 		logger:    logger,
-		store:     store.NewStore(cfg.Region, cfg.AccountID),
-		deliverer: delivery.NewDeliverer(logger, cfg.SQSEndpoint, cfg.SNSEndpoint),
+		store:     st,
+		deliverer: del,
 		activityLog: activity.NewLogger(activity.WithExcludeFunc(func(e activity.Entry) bool {
 			return strings.HasPrefix(e.Path, "/admin/") || e.Path == "/health"
 		})),
+		scheduler: dbschedule.NewScheduler(logger, st, del, cfg.Region, cfg.AccountID),
 	}
+
+	go srv.scheduler.Start(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health.Handler("drawbridge"))
@@ -204,6 +213,13 @@ func (s *Server) handlePutRule(w http.ResponseWriter, body []byte) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
+	}
+	if req.ScheduleExpression != "" {
+		if _, err := schedule.Parse(req.ScheduleExpression); err != nil {
+			awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException",
+				"invalid ScheduleExpression: "+err.Error())
+			return
+		}
 	}
 	res, err := s.store.PutRule(req)
 	if err != nil {

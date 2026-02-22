@@ -37,6 +37,12 @@ let drawbridgeActivityRows = [];
 let drawbridgeActivityNextToken = '';
 const expandedDrawbridgeBuses = new Set();
 
+let schedulerSummary = null;
+let schedulerResources = [];
+let schedulerActivityRows = [];
+let schedulerActivityNextToken = '';
+const expandedSchedulerGroups = new Set();
+
 const validViews = new Set([
   'dashboard',
   'ess-queue-ess',
@@ -45,6 +51,7 @@ const validViews = new Set([
   'essthree',
   'cloudfauxnt',
   'drawbridge',
+  'scheduler',
 ]);
 
 function displayServiceName(name) {
@@ -220,6 +227,10 @@ function switchView(view, options = {}) {
     title.textContent = 'drawbridge';
     subtitle.textContent = 'EventBridge emulator — event buses, rules, and targets';
     loadDrawbridgeOverview();
+  } else if (nextView === 'scheduler') {
+    title.textContent = 'scheduler';
+    subtitle.textContent = 'EventBridge Scheduler emulator — schedule groups and schedules';
+    loadSchedulerOverview();
   }
 
     connectSSE(nextView);
@@ -3233,8 +3244,10 @@ async function putDrawbridgeRuleForBus(encodedBusName) {
   const bus = decodeURIComponent(encodedBusName);
   const name = (document.getElementById(`db-rule-name-${busKey}`)?.value || '').trim();
   const pattern = (document.getElementById(`db-rule-pattern-${busKey}`)?.value || '').trim();
+  const scheduleExpr = (document.getElementById(`db-rule-schedule-${busKey}`)?.value || '').trim();
   const desc = (document.getElementById(`db-rule-desc-${busKey}`)?.value || '').trim();
   if (!name) { setAlert('Rule name is required.'); return; }
+  if (!pattern && !scheduleExpr) { setAlert('Either Event Pattern or Schedule Expression is required.'); return; }
   if (pattern) {
     try { JSON.parse(pattern); } catch { setAlert('Event pattern must be valid JSON.'); return; }
   }
@@ -3243,13 +3256,16 @@ async function putDrawbridgeRuleForBus(encodedBusName) {
       name,
       event_bus_name: bus,
       event_pattern: pattern,
+      schedule_expression: scheduleExpr,
       description: desc,
     });
     const nameEl = document.getElementById(`db-rule-name-${busKey}`);
     const patternEl = document.getElementById(`db-rule-pattern-${busKey}`);
+    const schedEl = document.getElementById(`db-rule-schedule-${busKey}`);
     const descEl = document.getElementById(`db-rule-desc-${busKey}`);
     if (nameEl) nameEl.value = '';
     if (patternEl) patternEl.value = '';
+    if (schedEl) schedEl.value = '';
     if (descEl) descEl.value = '';
     setAlert(`Rule "${name}" saved on bus "${bus}".`, 'info');
     await loadDrawbridgeOverview();
@@ -3498,8 +3514,12 @@ function renderDrawbridgeOverview(data) {
             </div>
           </div>
           <div class="mb-2">
-            <label class="text-xs text-slate-500" for="db-rule-pattern-${busNameEnc}">Event Pattern (JSON)</label>
+            <label class="text-xs text-slate-500" for="db-rule-pattern-${busNameEnc}">Event Pattern (JSON) — or use Schedule Expression below</label>
             <textarea id="db-rule-pattern-${busNameEnc}" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="2" placeholder='{"source": ["myapp"]}'></textarea>
+          </div>
+          <div class="mb-2">
+            <label class="text-xs text-slate-500" for="db-rule-schedule-${busNameEnc}">Schedule Expression (alternative to Event Pattern)</label>
+            <input id="db-rule-schedule-${busNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="rate(5 minutes) or cron(0 12 * * ? *)">
           </div>
           <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="putDrawbridgeRuleForBus('${busNameEnc}')">Save Rule</button>
         </div>`;
@@ -3511,14 +3531,21 @@ function renderDrawbridgeOverview(data) {
             const toggleLabel = rule.state === 'ENABLED' ? 'Disable' : 'Enable';
             const ruleNameEnc = encodeURIComponent(rule.name);
             const ruleKey = drawbridgeRuleKey(bus.name, rule.name);
+            const ruleTypeBadge = rule.scheduleExpression
+              ? '<span class="px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800">Schedule</span>'
+              : rule.eventPattern ? '<span class="px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-800">Pattern</span>' : '';
             html += `<div class="border-l-2 border-slate-200 pl-3 mb-3">
               <div class="flex items-center gap-2">
                 <span class="font-medium text-sm">${escapeHtml(rule.name)}</span>
+                ${ruleTypeBadge}
                 <span class="text-xs ${stateColor}">${rule.state}</span>
                 <span class="text-xs text-slate-400">${rule.targetCount || 0} targets</span>
                 <button class="ml-2 px-2 py-0.5 rounded border border-slate-300 text-slate-600 text-xs hover:bg-slate-50" onclick="toggleDrawbridgeRule(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'), '${rule.state}')">${toggleLabel}</button>
                 <button class="px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="deleteDrawbridgeRule(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'))">Delete</button>
               </div>`;
+            if (rule.scheduleExpression) {
+              html += `<div class="text-xs text-slate-500 mt-1 font-mono bg-purple-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(rule.scheduleExpression)}</div>`;
+            }
             if (rule.eventPattern) {
               html += `<div class="text-xs text-slate-500 mt-1 font-mono bg-slate-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(rule.eventPattern)}</div>`;
             }
@@ -3594,6 +3621,253 @@ function renderDrawbridgeActivity(rows) {
   return html;
 }
 
+// --- Scheduler (EventBridge Scheduler) ---
+
+async function loadSchedulerOverview() {
+  const container = document.getElementById('view-content');
+  container.innerHTML = '<p class="text-slate-400">Loading scheduler overview...</p>';
+  try {
+    const [summary, resources, activityData] = await Promise.all([
+      apiGet('/api/services/scheduler/summary'),
+      apiGet('/api/services/scheduler/resources'),
+      apiGet('/api/services/scheduler/activity?maxResults=25'),
+    ]);
+    schedulerSummary = summary;
+    schedulerResources = resources;
+    schedulerActivityRows = activityData.activity || [];
+    schedulerActivityNextToken = activityData.nextToken || '';
+    renderSchedulerOverview({ summary, resources, activity: schedulerActivityRows, nextToken: schedulerActivityNextToken });
+  } catch (err) {
+    container.innerHTML = `<p class="text-red-600">Failed to load scheduler: ${err.message}</p>`;
+  }
+}
+
+function toggleSchedulerGroup(encodedGroupName) {
+  if (expandedSchedulerGroups.has(encodedGroupName)) {
+    expandedSchedulerGroups.delete(encodedGroupName);
+  } else {
+    expandedSchedulerGroups.add(encodedGroupName);
+  }
+  renderSchedulerOverview({
+    summary: schedulerSummary,
+    resources: schedulerResources,
+    activity: schedulerActivityRows,
+    nextToken: schedulerActivityNextToken,
+  });
+}
+
+async function createSchedulerGroup() {
+  const nameInput = document.getElementById('sch-create-group-name');
+  const name = (nameInput?.value || '').trim();
+  if (!name) { setAlert('Group name is required.'); return; }
+  try {
+    await apiPost('/api/services/scheduler/actions/create-group', { name });
+    if (nameInput) nameInput.value = '';
+    setAlert(`Schedule group "${name}" created.`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteSchedulerGroup(name) {
+  if (!confirm(`Delete schedule group "${name}"? This will delete all schedules in it.`)) return;
+  try {
+    expandedSchedulerGroups.delete(encodeURIComponent(name));
+    await apiPost('/api/services/scheduler/actions/delete-group', { name });
+    setAlert(`Schedule group "${name}" deleted.`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function createSchedulerSchedule(encodedGroupName) {
+  const groupKey = encodedGroupName;
+  const group = decodeURIComponent(encodedGroupName);
+  const name = (document.getElementById(`sch-sched-name-${groupKey}`)?.value || '').trim();
+  const expr = (document.getElementById(`sch-sched-expr-${groupKey}`)?.value || '').trim();
+  const targetArn = (document.getElementById(`sch-sched-target-${groupKey}`)?.value || '').trim();
+  const targetInput = (document.getElementById(`sch-sched-input-${groupKey}`)?.value || '').trim();
+  const desc = (document.getElementById(`sch-sched-desc-${groupKey}`)?.value || '').trim();
+  if (!name) { setAlert('Schedule name is required.'); return; }
+  if (!expr) { setAlert('Schedule expression is required.'); return; }
+  if (targetInput) {
+    try { JSON.parse(targetInput); } catch { setAlert('Target input must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/scheduler/actions/create-schedule', {
+      name,
+      group_name: group,
+      schedule_expression: expr,
+      target_arn: targetArn,
+      target_input: targetInput,
+      description: desc,
+    });
+    const nameEl = document.getElementById(`sch-sched-name-${groupKey}`);
+    const exprEl = document.getElementById(`sch-sched-expr-${groupKey}`);
+    const targetEl = document.getElementById(`sch-sched-target-${groupKey}`);
+    const inputEl = document.getElementById(`sch-sched-input-${groupKey}`);
+    const descEl = document.getElementById(`sch-sched-desc-${groupKey}`);
+    if (nameEl) nameEl.value = '';
+    if (exprEl) exprEl.value = '';
+    if (targetEl) targetEl.value = '';
+    if (inputEl) inputEl.value = '';
+    if (descEl) descEl.value = '';
+    setAlert(`Schedule "${name}" created in group "${group}".`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteSchedulerSchedule(name, group) {
+  if (!confirm(`Delete schedule "${name}" in group "${group}"?`)) return;
+  try {
+    await apiPost('/api/services/scheduler/actions/delete-schedule', { name, group_name: group });
+    setAlert(`Schedule "${name}" deleted.`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+function renderSchedulerOverview({ summary, resources, activity, nextToken }) {
+  const container = document.getElementById('view-content');
+  let html = '';
+
+  // Summary cards
+  html += '<div class="flex gap-4 mb-4">';
+  if (summary) {
+    html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${summary.scheduleGroups ?? 0}</div><div class="text-xs text-slate-500">Groups</div></div>`;
+    html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${summary.schedules ?? 0}</div><div class="text-xs text-slate-500">Schedules</div></div>`;
+  }
+  html += `<button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh scheduler view" aria-label="Refresh scheduler view" onclick="loadSchedulerOverview()">Refresh</button>`;
+  html += '</div>';
+
+  // Create group form
+  html += `<div class="bg-white rounded shadow p-4 mb-4">
+    <h3 class="font-semibold text-sm mb-2">Create Schedule Group</h3>
+    <div class="flex gap-2 items-end">
+      <div>
+        <label class="text-xs text-slate-500" for="sch-create-group-name">Group Name</label>
+        <input id="sch-create-group-name" type="text" class="border rounded px-2 py-1 text-sm" placeholder="my-group">
+      </div>
+      <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="createSchedulerGroup()">Create Group</button>
+    </div>
+  </div>`;
+
+  // Groups as expandable cards
+  if (resources && resources.length > 0) {
+    for (const group of resources) {
+      const groupNameEnc = encodeURIComponent(group.name);
+      const isExpanded = expandedSchedulerGroups.has(groupNameEnc);
+      const chevron = isExpanded ? '&#9660;' : '&#9654;';
+      const schedCount = group.schedules ? group.schedules.length : 0;
+      const isDefault = group.name === 'default';
+
+      html += `<div class="bg-white rounded shadow mb-3">
+        <div class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50" onclick="toggleSchedulerGroup('${groupNameEnc}')">
+          <span class="text-slate-400">${chevron}</span>
+          <span class="font-semibold">${escapeHtml(group.name)}</span>
+          <span class="text-xs text-slate-400">${schedCount} schedules</span>
+          <span class="text-xs px-1.5 py-0.5 rounded ${group.state === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'}">${group.state}</span>
+          ${!isDefault ? `<button class="ml-auto px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="event.stopPropagation(); deleteSchedulerGroup(decodeURIComponent('${groupNameEnc}'))">Delete Group</button>` : ''}
+        </div>`;
+
+      if (isExpanded) {
+        // Create schedule form inside group
+        html += `<div class="border-t px-4 py-3 bg-slate-50">
+          <h4 class="text-sm font-medium mb-2">Create Schedule in "${escapeHtml(group.name)}"</h4>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-name-${groupNameEnc}">Schedule Name</label>
+              <input id="sch-sched-name-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-schedule">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-expr-${groupNameEnc}">Schedule Expression</label>
+              <input id="sch-sched-expr-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="rate(5 minutes) or cron(...) or at(...)">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-target-${groupNameEnc}">Target ARN (optional)</label>
+              <input id="sch-sched-target-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="arn:aws:sqs:us-east-1:000000000000:queue-name">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-desc-${groupNameEnc}">Description (optional)</label>
+              <input id="sch-sched-desc-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="text-xs text-slate-500" for="sch-sched-input-${groupNameEnc}">Target Input JSON (optional)</label>
+            <textarea id="sch-sched-input-${groupNameEnc}" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="1" placeholder='{"key": "value"}'></textarea>
+          </div>
+          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="createSchedulerSchedule('${groupNameEnc}')">Create Schedule</button>
+        </div>`;
+
+        // Schedules listing
+        if (group.schedules && group.schedules.length > 0) {
+          html += '<div class="border-t px-4 py-3">';
+          for (const sched of group.schedules) {
+            const schedNameEnc = encodeURIComponent(sched.name);
+            const stateColor = sched.state === 'ENABLED' ? 'text-green-600' : 'text-red-500';
+            const exprType = sched.scheduleExpression.startsWith('at(') ? 'at'
+              : sched.scheduleExpression.startsWith('cron(') ? 'cron' : 'rate';
+            const typeBadgeColor = exprType === 'at' ? 'bg-amber-100 text-amber-800'
+              : exprType === 'cron' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
+
+            html += `<div class="border-l-2 border-slate-200 pl-3 mb-3">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-sm">${escapeHtml(sched.name)}</span>
+                <span class="px-1.5 py-0.5 rounded text-xs ${typeBadgeColor}">${exprType}</span>
+                <span class="text-xs ${stateColor}">${sched.state}</span>
+                <button class="ml-2 px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="deleteSchedulerSchedule(decodeURIComponent('${schedNameEnc}'), decodeURIComponent('${groupNameEnc}'))">Delete</button>
+              </div>
+              <div class="text-xs text-slate-500 mt-1 font-mono bg-slate-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(sched.scheduleExpression)}</div>`;
+            if (sched.targetArn) {
+              html += `<div class="text-xs text-slate-400 mt-1">Target: <span class="font-mono">${escapeHtml(sched.targetArn)}</span></div>`;
+            }
+            if (sched.description) {
+              html += `<div class="text-xs text-slate-400 mt-0.5">${escapeHtml(sched.description)}</div>`;
+            }
+            html += '</div>';
+          }
+          html += '</div>';
+        } else {
+          html += '<div class="border-t px-4 py-3 text-sm text-slate-400">No schedules in this group.</div>';
+        }
+      }
+
+      html += '</div>';
+    }
+  }
+
+  // Activity log
+  html += '<div class="bg-white rounded shadow p-4 mt-4"><h3 class="font-semibold text-sm mb-2">Recent Activity</h3>';
+  html += renderSchedulerActivity(activity || []);
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function renderSchedulerActivity(rows) {
+  if (!rows || rows.length === 0) {
+    return '<p class="text-slate-400 text-sm">No recent activity.</p>';
+  }
+  let html = `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">
+    <thead class="bg-slate-50"><tr>
+      <th class="text-left px-3 py-1 border-b">Time</th>
+      <th class="text-left px-3 py-1 border-b">Action</th>
+      <th class="text-left px-3 py-1 border-b">Status</th>
+      <th class="text-left px-3 py-1 border-b">Error</th>
+    </tr></thead><tbody>`;
+  for (const row of rows) {
+    const ts = row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '';
+    const statusColor = row.statusCode < 400 ? 'text-green-600' : 'text-red-600';
+    html += `<tr class="border-b border-slate-100">
+      <td class="px-3 py-1 whitespace-nowrap">${ts}</td>
+      <td class="px-3 py-1 font-mono text-xs">${escapeHtml(row.action || row.path || '')}</td>
+      <td class="px-3 py-1 ${statusColor}">${row.statusCode || ''}</td>
+      <td class="px-3 py-1 text-xs text-red-500">${escapeHtml(row.errorType || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -3641,6 +3915,12 @@ function connectSSE(view) {
         drawbridgeActivityRows = payload.activity || [];
         drawbridgeActivityNextToken = payload.nextToken || '';
         renderDrawbridgeOverview(payload);
+      } else if (view === 'scheduler') {
+        schedulerSummary = payload.summary || null;
+        schedulerResources = payload.resources || [];
+        schedulerActivityRows = payload.activity || [];
+        schedulerActivityNextToken = payload.nextToken || '';
+        renderSchedulerOverview(payload);
       }
     } catch (error) {
       setAlert(`Failed to parse stream data: ${error.message}`);
@@ -3659,6 +3939,7 @@ document.getElementById('menu-kay-vee').addEventListener('click', () => switchVi
 document.getElementById('menu-essthree').addEventListener('click', () => switchView('essthree'));
 document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
 document.getElementById('menu-drawbridge').addEventListener('click', () => switchView('drawbridge'));
+document.getElementById('menu-scheduler').addEventListener('click', () => switchView('scheduler'));
 
 window.addEventListener('popstate', (event) => {
   const stateView = event.state?.view;

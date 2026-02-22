@@ -1,9 +1,8 @@
-module github.com/tonyellard/drawbridge
+module github.com/tonyellard/scheduler
 
 go 1.23
 
 require (
-	github.com/google/uuid v1.6.0
 	github.com/tonyellard/cloud-u-l8r/pkg/activity v0.0.0
 	github.com/tonyellard/cloud-u-l8r/pkg/awserrors v0.0.0
 	github.com/tonyellard/cloud-u-l8r/pkg/health v0.0.0

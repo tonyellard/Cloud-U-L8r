@@ -4,6 +4,7 @@ use (
 	./pkg/activity
 	./pkg/awserrors
 	./pkg/health
+	./pkg/schedule
 	./services/admin-console
 	./services/cloudfauxnt
 	./services/drawbridge
@@ -11,4 +12,5 @@ use (
 	./services/ess-enn-ess
 	./services/essthree
 	./services/kay-vee
+	./services/scheduler
 )

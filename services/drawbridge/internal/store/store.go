@@ -454,6 +454,31 @@ func (s *Store) EnabledRulesForBus(busName string) ([]RuleWithTargets, error) {
 	return result, nil
 }
 
+// EnabledScheduleRules returns all enabled rules with a ScheduleExpression and their targets.
+func (s *Store) EnabledScheduleRules() []RuleWithTargets {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []RuleWithTargets
+	for _, br := range s.buses {
+		for _, rr := range br.rules {
+			if rr.rule.State != "ENABLED" {
+				continue
+			}
+			if rr.rule.ScheduleExpression == "" {
+				continue
+			}
+			targets := make([]model.Target, 0, len(rr.targets))
+			for _, t := range rr.targets {
+				targets = append(targets, t)
+			}
+			result = append(result, RuleWithTargets{Rule: rr.rule, Targets: targets})
+		}
+	}
+
+	return result
+}
+
 // --- Admin helpers ---
 
 func (s *Store) Summary() model.AdminSummaryResponse {
@@ -493,11 +518,12 @@ func (s *Store) BusDetails() []model.AdminBusDetail {
 				targets = append(targets, t)
 			}
 			rd := model.AdminRuleDetail{
-				Name:         rr.rule.Name,
-				State:        rr.rule.State,
-				EventPattern: rr.rule.EventPattern,
-				TargetCount:  len(rr.targets),
-				Targets:      targets,
+				Name:               rr.rule.Name,
+				State:              rr.rule.State,
+				EventPattern:       rr.rule.EventPattern,
+				ScheduleExpression: rr.rule.ScheduleExpression,
+				TargetCount:        len(rr.targets),
+				Targets:            targets,
 			}
 			bd.Rules = append(bd.Rules, rd)
 			bd.RuleCount++

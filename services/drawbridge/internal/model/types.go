@@ -223,11 +223,12 @@ type AdminBusDetail struct {
 }
 
 type AdminRuleDetail struct {
-	Name         string   `json:"name"`
-	State        string   `json:"state"`
-	EventPattern string   `json:"eventPattern,omitempty"`
-	TargetCount  int      `json:"targetCount"`
-	Targets      []Target `json:"targets"`
+	Name               string   `json:"name"`
+	State              string   `json:"state"`
+	EventPattern       string   `json:"eventPattern,omitempty"`
+	ScheduleExpression string   `json:"scheduleExpression,omitempty"`
+	TargetCount        int      `json:"targetCount"`
+	Targets            []Target `json:"targets"`
 }
 
 type AdminExportResponse struct {
