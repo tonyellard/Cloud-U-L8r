@@ -79,6 +79,25 @@ services:
     networks:
       - shared-network
 
+  drawbridge:
+    build:
+      context: .
+      dockerfile: services/drawbridge/Dockerfile
+    container_name: drawbridge
+    ports:
+      - "9340:9340"
+    environment:
+      - PORT=9340
+      - REGION=us-east-1
+      - ACCOUNT_ID=000000000000
+      - SQS_ENDPOINT=http://ess-queue-ess:9320
+      - SNS_ENDPOINT=http://ess-enn-ess:9330
+    depends_on:
+      - ess-queue-ess
+      - ess-enn-ess
+    networks:
+      - shared-network
+
   admin-console:
     build:
       context: .
@@ -92,6 +111,7 @@ services:
       - ess-queue-ess
       - ess-enn-ess
       - kay-vee
+      - drawbridge
     networks:
       - shared-network
 

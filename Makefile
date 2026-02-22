@@ -46,11 +46,11 @@ down:
 	@echo "Stopping services..."
 	docker compose down -v
 	@echo "Stopping any remaining emulator containers..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
 	@echo "Removing stray containers by name..."
-	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess admin-console 2>/dev/null || true
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge admin-console 2>/dev/null || true
 	@echo "Removing any remaining emulator containers by ID..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
 	@echo "✅ All services stopped and cleaned up"
 
 # View logs
@@ -72,6 +72,7 @@ test:
 	@go test ./services/ess-queue-ess/... || true
 	@go test ./services/ess-enn-ess/... || true
 	@go test ./services/kay-vee/... || true
+	@go test ./services/drawbridge/... || true
 	@go test ./services/admin-console/... || true
 	@echo ""
 	@echo "Running integration tests..."
@@ -82,13 +83,13 @@ clean:
 	@echo "Cleaning up all Docker artifacts..."
 	@docker compose down -v 2>/dev/null || true
 	@echo "Removing build images..."
-	@docker rmi cloud-u-l8r-essthree cloud-u-l8r-cloudfauxnt cloud-u-l8r-ess-queue-ess cloud-u-l8r-ess-enn-ess cloud-u-l8r-admin-console 2>/dev/null || true
+	@docker rmi cloud-u-l8r-essthree cloud-u-l8r-cloudfauxnt cloud-u-l8r-ess-queue-ess cloud-u-l8r-ess-enn-ess cloud-u-l8r-drawbridge cloud-u-l8r-admin-console 2>/dev/null || true
 	@echo "Stopping any remaining emulator containers..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
 	@echo "Removing stray containers by name..."
-	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess admin-console 2>/dev/null || true
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge admin-console 2>/dev/null || true
 	@echo "Removing any remaining emulator containers by ID..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
 	@echo "Removing stray volumes..."
 	@docker volume rm cloud-u-l8r_shared-volume 2>/dev/null || true
 	@echo "Removing shared network..."

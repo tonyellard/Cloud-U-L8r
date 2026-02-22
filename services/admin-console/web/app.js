@@ -31,6 +31,10 @@ let cloudfauxntActivityRows = [];
 let cloudfauxntActivityNextToken = '';
 let essQueueEssActivityRows = [];
 let essQueueEssActivityNextToken = '';
+let drawbridgeSummary = null;
+let drawbridgeResources = [];
+let drawbridgeActivityRows = [];
+let drawbridgeActivityNextToken = '';
 
 const validViews = new Set([
   'dashboard',
@@ -39,6 +43,7 @@ const validViews = new Set([
   'kay-vee',
   'essthree',
   'cloudfauxnt',
+  'drawbridge',
 ]);
 
 function displayServiceName(name) {
@@ -55,6 +60,7 @@ function getServiceReadmeURL(serviceName) {
     'ess-queue-ess': 'services/ess-queue-ess/README.md',
     'ess-enn-ess': 'services/ess-enn-ess/README.md',
     'kay-vee': 'services/kay-vee/README.md',
+    'drawbridge': 'services/drawbridge/README.md',
     'admin-console': 'services/admin-console/README.md',
   };
 
@@ -70,6 +76,7 @@ function getAdminViewForService(serviceName) {
     'kay-vee': 'kay-vee',
     'essthree': 'essthree',
     'cloudfauxnt': 'cloudfauxnt',
+    'drawbridge': 'drawbridge',
   };
 
   return viewMap[serviceName] || '';
@@ -204,10 +211,14 @@ function switchView(view, options = {}) {
     title.textContent = 'ess-three';
     subtitle.textContent = 'S3-compatible object storage emulator admin surface';
     loadEssThreeSummary();
-  } else {
+  } else if (nextView === 'cloudfauxnt') {
     title.textContent = 'cloudfauxnt';
     subtitle.textContent = 'Distribution, origin, behavior, and signing administration';
     loadCloudfauxntSummary();
+  } else if (nextView === 'drawbridge') {
+    title.textContent = 'drawbridge';
+    subtitle.textContent = 'EventBridge emulator — event buses, rules, and targets';
+    loadDrawbridgeOverview();
   }
 
     connectSSE(nextView);
@@ -3150,6 +3161,130 @@ async function loadPeekMessages(queueId) {
   }
 }
 
+// --- Drawbridge (EventBridge) ---
+
+async function loadDrawbridgeOverview() {
+  const container = document.getElementById('view-content');
+  container.innerHTML = '<p class="text-slate-400">Loading drawbridge overview...</p>';
+  try {
+    const [summary, resources, activityData] = await Promise.all([
+      apiGet('/api/services/drawbridge/summary'),
+      apiGet('/api/services/drawbridge/resources'),
+      apiGet('/api/services/drawbridge/activity?maxResults=25'),
+    ]);
+    drawbridgeSummary = summary;
+    drawbridgeResources = resources;
+    drawbridgeActivityRows = activityData.activity || [];
+    drawbridgeActivityNextToken = activityData.nextToken || '';
+    renderDrawbridgeOverview({ summary, resources, activity: drawbridgeActivityRows, nextToken: drawbridgeActivityNextToken });
+  } catch (err) {
+    container.innerHTML = `<p class="text-red-600">Failed to load drawbridge: ${err.message}</p>`;
+  }
+}
+
+function renderDrawbridgeOverview(data) {
+  const container = document.getElementById('view-content');
+  const summary = data.summary || drawbridgeSummary || {};
+  const resources = data.resources || drawbridgeResources || [];
+  const activityRows = data.activity || drawbridgeActivityRows || [];
+
+  let html = `<div class="flex items-center gap-3 mb-4">
+    <div class="flex gap-4">
+      <div class="bg-white rounded shadow px-4 py-2 text-center">
+        <div class="text-2xl font-bold">${summary.eventBuses || 0}</div>
+        <div class="text-xs text-slate-500">Event Buses</div>
+      </div>
+      <div class="bg-white rounded shadow px-4 py-2 text-center">
+        <div class="text-2xl font-bold">${summary.rules || 0}</div>
+        <div class="text-xs text-slate-500">Rules</div>
+      </div>
+      <div class="bg-white rounded shadow px-4 py-2 text-center">
+        <div class="text-2xl font-bold">${summary.targets || 0}</div>
+        <div class="text-xs text-slate-500">Targets</div>
+      </div>
+    </div>
+    <button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh drawbridge view" aria-label="Refresh drawbridge view" onclick="loadDrawbridgeOverview()">Refresh</button>
+  </div>`;
+
+  // Event Buses
+  html += '<h3 class="text-lg font-semibold mt-6 mb-2">Event Buses</h3>';
+  if (resources.length === 0) {
+    html += '<p class="text-slate-400 text-sm">No event buses found.</p>';
+  } else {
+    for (const bus of resources) {
+      html += `<div class="bg-white rounded shadow mb-3 p-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="font-semibold">${escapeHtml(bus.name)}</span>
+            <span class="ml-2 text-xs text-slate-400">${escapeHtml(bus.arn || '')}</span>
+          </div>
+          <div class="text-sm text-slate-500">${bus.ruleCount || 0} rules &middot; ${bus.targetCount || 0} targets</div>
+        </div>`;
+      if (bus.rules && bus.rules.length > 0) {
+        html += '<div class="mt-3 ml-4">';
+        for (const rule of bus.rules) {
+          const stateColor = rule.state === 'ENABLED' ? 'text-green-600' : 'text-red-500';
+          html += `<div class="border-l-2 border-slate-200 pl-3 mb-2">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-sm">${escapeHtml(rule.name)}</span>
+              <span class="text-xs ${stateColor}">${rule.state}</span>
+              <span class="text-xs text-slate-400">${rule.targetCount || 0} targets</span>
+            </div>`;
+          if (rule.eventPattern) {
+            html += `<div class="text-xs text-slate-500 mt-1 font-mono bg-slate-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(rule.eventPattern)}</div>`;
+          }
+          if (rule.targets && rule.targets.length > 0) {
+            html += '<div class="mt-1 ml-4">';
+            for (const t of rule.targets) {
+              html += `<div class="text-xs text-slate-500"><span class="font-medium">${escapeHtml(t.Id || '')}</span> &rarr; <span class="font-mono">${escapeHtml(t.Arn || '')}</span></div>`;
+            }
+            html += '</div>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  // Activity Log
+  html += '<h3 class="text-lg font-semibold mt-6 mb-2">Recent Activity</h3>';
+  html += renderDrawbridgeActivity(activityRows);
+
+  container.innerHTML = html;
+}
+
+function renderDrawbridgeActivity(rows) {
+  if (!rows || rows.length === 0) {
+    return '<p class="text-slate-400 text-sm">No recent activity.</p>';
+  }
+  let html = `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">
+    <thead class="bg-slate-50"><tr>
+      <th class="text-left px-3 py-1 border-b">Time</th>
+      <th class="text-left px-3 py-1 border-b">Action</th>
+      <th class="text-left px-3 py-1 border-b">Status</th>
+      <th class="text-left px-3 py-1 border-b">Error</th>
+    </tr></thead><tbody>`;
+  for (const row of rows) {
+    const ts = row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '';
+    const statusColor = row.statusCode < 400 ? 'text-green-600' : 'text-red-600';
+    html += `<tr class="border-b border-slate-100">
+      <td class="px-3 py-1 whitespace-nowrap">${ts}</td>
+      <td class="px-3 py-1 font-mono text-xs">${escapeHtml(row.action || row.path || '')}</td>
+      <td class="px-3 py-1 ${statusColor}">${row.statusCode || ''}</td>
+      <td class="px-3 py-1 text-xs text-red-500">${escapeHtml(row.errorType || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function connectSSE(view) {
   if (eventSource) {
     eventSource.close();
@@ -3184,8 +3319,14 @@ function connectSSE(view) {
         essThreeActivityRows = payload.activity || [];
         essThreeActivityNextToken = payload.activityNextToken || '';
         renderEssThreeSummary(payload);
-      } else {
+      } else if (view === 'cloudfauxnt') {
         renderCloudfauxntSummary(payload);
+      } else if (view === 'drawbridge') {
+        drawbridgeSummary = payload.summary || null;
+        drawbridgeResources = payload.resources || [];
+        drawbridgeActivityRows = payload.activity || [];
+        drawbridgeActivityNextToken = payload.nextToken || '';
+        renderDrawbridgeOverview(payload);
       }
     } catch (error) {
       setAlert(`Failed to parse stream data: ${error.message}`);
@@ -3203,6 +3344,7 @@ document.getElementById('menu-ess-enn-ess').addEventListener('click', () => swit
 document.getElementById('menu-kay-vee').addEventListener('click', () => switchView('kay-vee'));
 document.getElementById('menu-essthree').addEventListener('click', () => switchView('essthree'));
 document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
+document.getElementById('menu-drawbridge').addEventListener('click', () => switchView('drawbridge'));
 
 window.addEventListener('popstate', (event) => {
   const stateView = event.state?.view;

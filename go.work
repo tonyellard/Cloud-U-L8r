@@ -6,6 +6,7 @@ use (
 	./pkg/health
 	./services/admin-console
 	./services/cloudfauxnt
+	./services/drawbridge
 	./services/ess-queue-ess
 	./services/ess-enn-ess
 	./services/essthree

@@ -431,6 +431,41 @@ type KayVeeSecretValueResponse struct {
 	SecretBinary string `json:"secret_binary,omitempty"`
 }
 
+// --- Drawbridge (EventBridge) types ---
+
+type DrawbridgeSummaryResponse struct {
+	Service    string `json:"service"`
+	EventBuses int    `json:"eventBuses"`
+	Rules      int    `json:"rules"`
+	Targets    int    `json:"targets"`
+}
+
+type DrawbridgeBusDetail struct {
+	Name        string                  `json:"name"`
+	Arn         string                  `json:"arn"`
+	RuleCount   int                     `json:"ruleCount"`
+	TargetCount int                     `json:"targetCount"`
+	Rules       []DrawbridgeRuleDetail  `json:"rules"`
+}
+
+type DrawbridgeRuleDetail struct {
+	Name         string                  `json:"name"`
+	State        string                  `json:"state"`
+	EventPattern string                  `json:"eventPattern,omitempty"`
+	TargetCount  int                     `json:"targetCount"`
+	Targets      []DrawbridgeTarget      `json:"targets"`
+}
+
+type DrawbridgeTarget struct {
+	Id  string `json:"Id"`
+	Arn string `json:"Arn"`
+}
+
+type DrawbridgeActivityResponse struct {
+	Activity  []KayVeeActivityEntry `json:"activity"`
+	NextToken string                `json:"nextToken,omitempty"`
+}
+
 func NewRouter(logger *slog.Logger) http.Handler {
 	srv := &Server{
 		logger: logger,
@@ -486,6 +521,9 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/ess-enn-ess/actions/create-subscription", srv.handleCreateSubscription)
 	r.Post("/api/services/ess-enn-ess/actions/delete-subscription", srv.handleDeleteSubscription)
 	r.Post("/api/services/ess-enn-ess/actions/publish", srv.handlePublishTopicMessage)
+	r.Get("/api/services/drawbridge/summary", srv.handleDrawbridgeSummary)
+	r.Get("/api/services/drawbridge/resources", srv.handleDrawbridgeResources)
+	r.Get("/api/services/drawbridge/activity", srv.handleDrawbridgeActivity)
 	r.Get("/api/events", srv.handleEvents)
 
 	fs := http.FileServer(http.Dir("./web"))
@@ -1383,6 +1421,95 @@ func (s *Server) handleKayVeeUpdateSecretVersionStage(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// --- Drawbridge (EventBridge) handlers ---
+
+func (s *Server) handleDrawbridgeSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchDrawbridgeSummary()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleDrawbridgeResources(w http.ResponseWriter, _ *http.Request) {
+	resources, err := s.fetchDrawbridgeResources()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resources)
+}
+
+func (s *Server) handleDrawbridgeActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := r.URL.Query().Get("maxResults")
+	if maxResults == "" {
+		maxResults = "50"
+	}
+	nextToken := r.URL.Query().Get("nextToken")
+	activity, err := s.fetchDrawbridgeActivity(maxResults, nextToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, activity)
+}
+
+func (s *Server) fetchDrawbridgeSummary() (DrawbridgeSummaryResponse, error) {
+	resp, err := s.client.Get("http://drawbridge:9340/admin/api/summary")
+	if err != nil {
+		return DrawbridgeSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return DrawbridgeSummaryResponse{}, fmt.Errorf("drawbridge summary status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var summary DrawbridgeSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return DrawbridgeSummaryResponse{}, err
+	}
+	return summary, nil
+}
+
+func (s *Server) fetchDrawbridgeResources() ([]DrawbridgeBusDetail, error) {
+	resp, err := s.client.Get("http://drawbridge:9340/admin/api/resources")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("drawbridge resources status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var resources []DrawbridgeBusDetail
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+func (s *Server) fetchDrawbridgeActivity(maxResults, nextToken string) (DrawbridgeActivityResponse, error) {
+	u := fmt.Sprintf("http://drawbridge:9340/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	if nextToken != "" {
+		u += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+	resp, err := s.client.Get(u)
+	if err != nil {
+		return DrawbridgeActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return DrawbridgeActivityResponse{}, fmt.Errorf("drawbridge activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var activity DrawbridgeActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return DrawbridgeActivityResponse{}, err
+	}
+	return activity, nil
+}
+
 func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	var req CreateTopicRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1899,7 +2026,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "dashboard"
 	}
-	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" {
+	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" && view != "drawbridge" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
 		return
 	}
@@ -2018,6 +2145,22 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		})
 	}
 
+	if view == "drawbridge" {
+		summary, err := s.fetchDrawbridgeSummary()
+		if err != nil {
+			return nil, err
+		}
+		resources, _ := s.fetchDrawbridgeResources()
+		activity, _ := s.fetchDrawbridgeActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":   "drawbridge",
+			"summary":   summary,
+			"resources": resources,
+			"activity":  activity.Activity,
+			"nextToken": activity.NextToken,
+		})
+	}
+
 	return json.Marshal(s.buildDashboardSummary())
 }
 
@@ -2126,6 +2269,26 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 		}
 	}
 	services = append(services, kayVeeService)
+
+	drawbridgeService := DashboardService{
+		Name:   "drawbridge",
+		Status: s.checkService("http://drawbridge:9340/health"),
+		Stats: []DashboardStat{
+			{Label: "Event Buses", Value: 0},
+			{Label: "Rules", Value: 0},
+			{Label: "Targets", Value: 0},
+		},
+	}
+	if drawbridgeService.Status == "online" {
+		if dbSummary, err := s.fetchDrawbridgeSummary(); err == nil {
+			drawbridgeService.Stats[0].Value = dbSummary.EventBuses
+			drawbridgeService.Stats[1].Value = dbSummary.Rules
+			drawbridgeService.Stats[2].Value = dbSummary.Targets
+		} else {
+			s.logger.Warn("failed to fetch drawbridge dashboard stats", "error", err)
+		}
+	}
+	services = append(services, drawbridgeService)
 
 	summary.Services = services
 	return summary
