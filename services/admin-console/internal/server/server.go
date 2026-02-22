@@ -466,6 +466,59 @@ type DrawbridgeActivityResponse struct {
 	NextToken string                `json:"nextToken,omitempty"`
 }
 
+type DrawbridgeCreateEventBusRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type DrawbridgeDeleteEventBusRequest struct {
+	Name string `json:"name"`
+}
+
+type DrawbridgePutRuleRequest struct {
+	Name         string `json:"name"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+	EventPattern string `json:"event_pattern,omitempty"`
+	State        string `json:"state,omitempty"`
+	Description  string `json:"description,omitempty"`
+}
+
+type DrawbridgeDeleteRuleRequest struct {
+	Name         string `json:"name"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+}
+
+type DrawbridgeToggleRuleRequest struct {
+	Name         string `json:"name"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+}
+
+type DrawbridgePutTargetRequest struct {
+	Rule         string `json:"rule"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+	TargetID     string `json:"target_id"`
+	TargetArn    string `json:"target_arn"`
+	Input        string `json:"input,omitempty"`
+}
+
+type DrawbridgeRemoveTargetRequest struct {
+	Rule         string `json:"rule"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+	TargetID     string `json:"target_id"`
+}
+
+type DrawbridgePutEventRequest struct {
+	Source       string `json:"source"`
+	DetailType   string `json:"detail_type"`
+	Detail       string `json:"detail"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+}
+
+type DrawbridgeTestEventPatternRequest struct {
+	EventPattern string `json:"event_pattern"`
+	Event        string `json:"event"`
+}
+
 func NewRouter(logger *slog.Logger) http.Handler {
 	srv := &Server{
 		logger: logger,
@@ -524,6 +577,16 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/drawbridge/summary", srv.handleDrawbridgeSummary)
 	r.Get("/api/services/drawbridge/resources", srv.handleDrawbridgeResources)
 	r.Get("/api/services/drawbridge/activity", srv.handleDrawbridgeActivity)
+	r.Post("/api/services/drawbridge/actions/create-event-bus", srv.handleDrawbridgeCreateEventBus)
+	r.Post("/api/services/drawbridge/actions/delete-event-bus", srv.handleDrawbridgeDeleteEventBus)
+	r.Post("/api/services/drawbridge/actions/put-rule", srv.handleDrawbridgePutRule)
+	r.Post("/api/services/drawbridge/actions/delete-rule", srv.handleDrawbridgeDeleteRule)
+	r.Post("/api/services/drawbridge/actions/enable-rule", srv.handleDrawbridgeEnableRule)
+	r.Post("/api/services/drawbridge/actions/disable-rule", srv.handleDrawbridgeDisableRule)
+	r.Post("/api/services/drawbridge/actions/put-target", srv.handleDrawbridgePutTarget)
+	r.Post("/api/services/drawbridge/actions/remove-target", srv.handleDrawbridgeRemoveTarget)
+	r.Post("/api/services/drawbridge/actions/put-event", srv.handleDrawbridgePutEvent)
+	r.Post("/api/services/drawbridge/actions/test-event-pattern", srv.handleDrawbridgeTestEventPattern)
 	r.Get("/api/events", srv.handleEvents)
 
 	fs := http.FileServer(http.Dir("./web"))
@@ -1508,6 +1571,350 @@ func (s *Server) fetchDrawbridgeActivity(maxResults, nextToken string) (Drawbrid
 		return DrawbridgeActivityResponse{}, err
 	}
 	return activity, nil
+}
+
+func (s *Server) handleDrawbridgeCreateEventBus(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeCreateEventBusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.CreateEventBus", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleDrawbridgeDeleteEventBus(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeDeleteEventBusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if name == "default" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("cannot delete the default event bus"))
+		return
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.DeleteEventBus", map[string]any{"Name": name}, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgePutRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgePutRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+	if ep := strings.TrimSpace(req.EventPattern); ep != "" {
+		payload["EventPattern"] = ep
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	state := strings.TrimSpace(req.State)
+	if state == "" {
+		state = "ENABLED"
+	}
+	payload["State"] = state
+
+	if err := s.callDrawbridgeTarget("AWSEvents.PutRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleDrawbridgeDeleteRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeDeleteRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.DeleteRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgeEnableRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeToggleRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.EnableRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgeDisableRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeToggleRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.DisableRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgePutTarget(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgePutTargetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	rule := strings.TrimSpace(req.Rule)
+	if rule == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("rule is required"))
+		return
+	}
+	targetID := strings.TrimSpace(req.TargetID)
+	if targetID == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target_id is required"))
+		return
+	}
+	targetArn := strings.TrimSpace(req.TargetArn)
+	if targetArn == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target_arn is required"))
+		return
+	}
+
+	target := map[string]any{"Id": targetID, "Arn": targetArn}
+	if input := strings.TrimSpace(req.Input); input != "" {
+		target["Input"] = input
+	}
+
+	payload := map[string]any{
+		"Rule":    rule,
+		"Targets": []map[string]any{target},
+	}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	var result struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+		FailedEntries    []struct {
+			TargetId     string `json:"TargetId"`
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"FailedEntries"`
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.PutTargets", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	if result.FailedEntryCount > 0 && len(result.FailedEntries) > 0 {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("%s: %s", result.FailedEntries[0].ErrorCode, result.FailedEntries[0].ErrorMessage))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgeRemoveTarget(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeRemoveTargetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	rule := strings.TrimSpace(req.Rule)
+	if rule == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("rule is required"))
+		return
+	}
+	targetID := strings.TrimSpace(req.TargetID)
+	if targetID == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target_id is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"Rule": rule,
+		"Ids":  []string{targetID},
+	}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	var result struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+		FailedEntries    []struct {
+			TargetId     string `json:"TargetId"`
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"FailedEntries"`
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.RemoveTargets", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	if result.FailedEntryCount > 0 && len(result.FailedEntries) > 0 {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("%s: %s", result.FailedEntries[0].ErrorCode, result.FailedEntries[0].ErrorMessage))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgePutEvent(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgePutEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("source is required"))
+		return
+	}
+	detailType := strings.TrimSpace(req.DetailType)
+	if detailType == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("detail_type is required"))
+		return
+	}
+	detail := strings.TrimSpace(req.Detail)
+	if detail == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("detail is required"))
+		return
+	}
+
+	entry := map[string]any{
+		"Source":     source,
+		"DetailType": detailType,
+		"Detail":     detail,
+	}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		entry["EventBusName"] = bus
+	}
+
+	payload := map[string]any{
+		"Entries": []map[string]any{entry},
+	}
+
+	var result struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+		Entries          []struct {
+			EventId      string `json:"EventId"`
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"Entries"`
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.PutEvents", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	if result.FailedEntryCount > 0 && len(result.Entries) > 0 {
+		entry := result.Entries[0]
+		if entry.ErrorCode != "" {
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("%s: %s", entry.ErrorCode, entry.ErrorMessage))
+			return
+		}
+	}
+	eventId := ""
+	if len(result.Entries) > 0 {
+		eventId = result.Entries[0].EventId
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "event_id": eventId})
+}
+
+func (s *Server) handleDrawbridgeTestEventPattern(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeTestEventPatternRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	eventPattern := strings.TrimSpace(req.EventPattern)
+	if eventPattern == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("event_pattern is required"))
+		return
+	}
+	event := strings.TrimSpace(req.Event)
+	if event == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("event is required"))
+		return
+	}
+
+	var result struct {
+		Result bool `json:"Result"`
+	}
+	payload := map[string]any{
+		"EventPattern": eventPattern,
+		"Event":        event,
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.TestEventPattern", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result.Result})
 }
 
 func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
@@ -2795,6 +3202,51 @@ func (s *Server) callKayVeeTarget(targetName string, payload any, target any) er
 			message = http.StatusText(response.StatusCode)
 		}
 		return fmt.Errorf("kay-vee target %s failed (%d): %s", targetName, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Server) callDrawbridgeTarget(targetName string, payload any, target any) error {
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "http://drawbridge:9340/", bytes.NewReader(encodedPayload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	request.Header.Set("X-Amz-Target", targetName)
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		var awsErr struct {
+			Type    string `json:"__type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(responseBody, &awsErr); err == nil && strings.TrimSpace(awsErr.Type) != "" {
+			return fmt.Errorf("%s: %s", awsErr.Type, awsErr.Message)
+		}
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("drawbridge target %s failed (%d): %s", targetName, response.StatusCode, message)
 	}
 
 	if target == nil {

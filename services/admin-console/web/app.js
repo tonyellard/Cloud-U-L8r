@@ -3182,12 +3182,188 @@ async function loadDrawbridgeOverview() {
   }
 }
 
+function drawbridgeRuleKey(bus, rule) {
+  return `db-target-${encodeURIComponent(bus)}-${encodeURIComponent(rule)}`;
+}
+
+function syncDrawbridgeBusSelector(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const current = sel.value;
+  const buses = drawbridgeResources || [];
+  sel.innerHTML = buses.map(b =>
+    `<option value="${escapeHtml(b.name)}"${b.name === current ? ' selected' : ''}>${escapeHtml(b.name)}</option>`
+  ).join('');
+}
+
+async function createDrawbridgeEventBus() {
+  const nameInput = document.getElementById('db-create-bus-name');
+  const descInput = document.getElementById('db-create-bus-desc');
+  const name = (nameInput?.value || '').trim();
+  if (!name) { setAlert('Event bus name is required.'); return; }
+  try {
+    await apiPost('/api/services/drawbridge/actions/create-event-bus', {
+      name,
+      description: (descInput?.value || '').trim(),
+    });
+    if (nameInput) nameInput.value = '';
+    if (descInput) descInput.value = '';
+    setAlert(`Event bus "${name}" created.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteDrawbridgeEventBus(name) {
+  if (!confirm(`Delete event bus "${name}"? This cannot be undone.`)) return;
+  try {
+    await apiPost('/api/services/drawbridge/actions/delete-event-bus', { name });
+    setAlert(`Event bus "${name}" deleted.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function putDrawbridgeRule() {
+  const name = (document.getElementById('db-rule-name')?.value || '').trim();
+  const bus = document.getElementById('db-rule-bus')?.value || 'default';
+  const pattern = (document.getElementById('db-rule-pattern')?.value || '').trim();
+  const desc = (document.getElementById('db-rule-desc')?.value || '').trim();
+  if (!name) { setAlert('Rule name is required.'); return; }
+  if (pattern) {
+    try { JSON.parse(pattern); } catch { setAlert('Event pattern must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/drawbridge/actions/put-rule', {
+      name,
+      event_bus_name: bus,
+      event_pattern: pattern,
+      description: desc,
+    });
+    document.getElementById('db-rule-name').value = '';
+    document.getElementById('db-rule-pattern').value = '';
+    document.getElementById('db-rule-desc').value = '';
+    setAlert(`Rule "${name}" saved on bus "${bus}".`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteDrawbridgeRule(name, bus) {
+  if (!confirm(`Delete rule "${name}" on bus "${bus}"?`)) return;
+  try {
+    await apiPost('/api/services/drawbridge/actions/delete-rule', { name, event_bus_name: bus });
+    setAlert(`Rule "${name}" deleted.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function toggleDrawbridgeRule(name, bus, currentState) {
+  const action = currentState === 'ENABLED' ? 'disable-rule' : 'enable-rule';
+  const label = currentState === 'ENABLED' ? 'Disabled' : 'Enabled';
+  try {
+    await apiPost(`/api/services/drawbridge/actions/${action}`, { name, event_bus_name: bus });
+    setAlert(`Rule "${name}" ${label}.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function putDrawbridgeTarget(rule, bus, ruleKey) {
+  const idInput = document.getElementById(`${ruleKey}-id`);
+  const arnInput = document.getElementById(`${ruleKey}-arn`);
+  const inputInput = document.getElementById(`${ruleKey}-input`);
+  const targetId = (idInput?.value || '').trim();
+  const targetArn = (arnInput?.value || '').trim();
+  const targetInput = (inputInput?.value || '').trim();
+  if (!targetId) { setAlert('Target ID is required.'); return; }
+  if (!targetArn) { setAlert('Target ARN is required.'); return; }
+  if (targetInput) {
+    try { JSON.parse(targetInput); } catch { setAlert('Target input must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/drawbridge/actions/put-target', {
+      rule,
+      event_bus_name: bus,
+      target_id: targetId,
+      target_arn: targetArn,
+      input: targetInput,
+    });
+    if (idInput) idInput.value = '';
+    if (arnInput) arnInput.value = '';
+    if (inputInput) inputInput.value = '';
+    setAlert(`Target "${targetId}" added to rule "${rule}".`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function removeDrawbridgeTarget(rule, bus, targetId) {
+  if (!confirm(`Remove target "${targetId}" from rule "${rule}"?`)) return;
+  try {
+    await apiPost('/api/services/drawbridge/actions/remove-target', {
+      rule,
+      event_bus_name: bus,
+      target_id: targetId,
+    });
+    setAlert(`Target "${targetId}" removed.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function putDrawbridgeEvent() {
+  const bus = document.getElementById('db-event-bus')?.value || 'default';
+  const source = (document.getElementById('db-event-source')?.value || '').trim();
+  const detailType = (document.getElementById('db-event-detail-type')?.value || '').trim();
+  const detail = (document.getElementById('db-event-detail')?.value || '').trim();
+  if (!source) { setAlert('Event source is required.'); return; }
+  if (!detailType) { setAlert('Detail type is required.'); return; }
+  if (!detail) { setAlert('Detail JSON is required.'); return; }
+  try { JSON.parse(detail); } catch { setAlert('Detail must be valid JSON.'); return; }
+  try {
+    const result = await apiPost('/api/services/drawbridge/actions/put-event', {
+      source,
+      detail_type: detailType,
+      detail,
+      event_bus_name: bus,
+    });
+    document.getElementById('db-event-source').value = '';
+    document.getElementById('db-event-detail-type').value = '';
+    document.getElementById('db-event-detail').value = '';
+    const eid = result.event_id ? ` (ID: ${result.event_id})` : '';
+    setAlert(`Event sent to bus "${bus}"${eid}.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function testDrawbridgeEventPattern() {
+  const pattern = (document.getElementById('db-test-pattern')?.value || '').trim();
+  const event = (document.getElementById('db-test-event')?.value || '').trim();
+  const badge = document.getElementById('db-test-result');
+  if (!pattern) { setAlert('Event pattern is required.'); return; }
+  if (!event) { setAlert('Test event JSON is required.'); return; }
+  try { JSON.parse(pattern); } catch { setAlert('Event pattern must be valid JSON.'); return; }
+  try { JSON.parse(event); } catch { setAlert('Test event must be valid JSON.'); return; }
+  try {
+    const result = await apiPost('/api/services/drawbridge/actions/test-event-pattern', {
+      event_pattern: pattern,
+      event,
+    });
+    if (badge) {
+      if (result.result) {
+        badge.className = 'ml-3 px-2 py-1 rounded text-xs bg-emerald-100 text-emerald-800';
+        badge.textContent = 'MATCH';
+      } else {
+        badge.className = 'ml-3 px-2 py-1 rounded text-xs bg-red-100 text-red-800';
+        badge.textContent = 'NO MATCH';
+      }
+    }
+    setAlert('');
+  } catch (err) { setAlert(err.message); }
+}
+
 function renderDrawbridgeOverview(data) {
   const container = document.getElementById('view-content');
   const summary = data.summary || drawbridgeSummary || {};
   const resources = data.resources || drawbridgeResources || [];
   const activityRows = data.activity || drawbridgeActivityRows || [];
 
+  // Summary cards + Refresh
   let html = `<div class="flex items-center gap-3 mb-4">
     <div class="flex gap-4">
       <div class="bg-white rounded shadow px-4 py-2 text-center">
@@ -3206,40 +3382,161 @@ function renderDrawbridgeOverview(data) {
     <button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh drawbridge view" aria-label="Refresh drawbridge view" onclick="loadDrawbridgeOverview()">Refresh</button>
   </div>`;
 
-  // Event Buses
+  // Create Event Bus form
+  html += `<div class="bg-white rounded border p-4 mb-4">
+    <h3 class="text-sm font-semibold mb-2">Create Event Bus</h3>
+    <div class="flex items-end gap-2">
+      <div class="flex-1">
+        <label class="text-xs text-slate-500" for="db-create-bus-name">Name</label>
+        <input id="db-create-bus-name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-event-bus">
+      </div>
+      <div class="flex-1">
+        <label class="text-xs text-slate-500" for="db-create-bus-desc">Description (optional)</label>
+        <input id="db-create-bus-desc" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+      </div>
+      <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm whitespace-nowrap" onclick="createDrawbridgeEventBus()">Create</button>
+    </div>
+  </div>`;
+
+  // Bus selector options for forms
+  const busOptions = resources.map(b =>
+    `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`
+  ).join('');
+
+  // Create / Update Rule form
+  html += `<div class="bg-white rounded border p-4 mb-4">
+    <h3 class="text-sm font-semibold mb-2">Create / Update Rule</h3>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="db-rule-name">Rule Name</label>
+        <input id="db-rule-name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-rule">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="db-rule-bus">Event Bus</label>
+        <select id="db-rule-bus" class="w-full border rounded px-2 py-1 text-sm">${busOptions}</select>
+      </div>
+    </div>
+    <div class="mb-2">
+      <label class="text-xs text-slate-500" for="db-rule-pattern">Event Pattern (JSON)</label>
+      <textarea id="db-rule-pattern" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="3" placeholder='{"source": ["myapp"]}'></textarea>
+    </div>
+    <div class="mb-2">
+      <label class="text-xs text-slate-500" for="db-rule-desc">Description (optional)</label>
+      <input id="db-rule-desc" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+    </div>
+    <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="putDrawbridgeRule()">Save Rule</button>
+  </div>`;
+
+  // Send Event form
+  html += `<div class="bg-white rounded border p-4 mb-4">
+    <h3 class="text-sm font-semibold mb-2">Send Event</h3>
+    <div class="grid grid-cols-3 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="db-event-bus">Event Bus</label>
+        <select id="db-event-bus" class="w-full border rounded px-2 py-1 text-sm">${busOptions}</select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="db-event-source">Source</label>
+        <input id="db-event-source" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="myapp">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="db-event-detail-type">Detail Type</label>
+        <input id="db-event-detail-type" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="OrderCreated">
+      </div>
+    </div>
+    <div class="mb-2">
+      <label class="text-xs text-slate-500" for="db-event-detail">Detail (JSON)</label>
+      <textarea id="db-event-detail" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="3" placeholder='{"orderId": "123"}'></textarea>
+    </div>
+    <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="putDrawbridgeEvent()">Send Event</button>
+  </div>`;
+
+  // Test Event Pattern form
+  html += `<div class="bg-white rounded border p-4 mb-4">
+    <h3 class="text-sm font-semibold mb-2">Test Event Pattern</h3>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="db-test-pattern">Event Pattern (JSON)</label>
+        <textarea id="db-test-pattern" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="3" placeholder='{"source": ["myapp"]}'></textarea>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="db-test-event">Test Event (JSON)</label>
+        <textarea id="db-test-event" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="3" placeholder='{"source": "myapp", "detail-type": "OrderCreated", "detail": {}}'></textarea>
+      </div>
+    </div>
+    <div class="flex items-center">
+      <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="testDrawbridgeEventPattern()">Test Pattern</button>
+      <span id="db-test-result"></span>
+    </div>
+  </div>`;
+
+  // Event Buses hierarchy with action buttons
   html += '<h3 class="text-lg font-semibold mt-6 mb-2">Event Buses</h3>';
   if (resources.length === 0) {
     html += '<p class="text-slate-400 text-sm">No event buses found.</p>';
   } else {
     for (const bus of resources) {
+      const busNameEnc = encodeURIComponent(bus.name);
+      const deleteBusBtn = bus.name !== 'default'
+        ? `<button class="px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="deleteDrawbridgeEventBus(decodeURIComponent('${busNameEnc}'))">Delete Bus</button>`
+        : '';
       html += `<div class="bg-white rounded shadow mb-3 p-4">
         <div class="flex items-center justify-between">
           <div>
             <span class="font-semibold">${escapeHtml(bus.name)}</span>
             <span class="ml-2 text-xs text-slate-400">${escapeHtml(bus.arn || '')}</span>
           </div>
-          <div class="text-sm text-slate-500">${bus.ruleCount || 0} rules &middot; ${bus.targetCount || 0} targets</div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-slate-500">${bus.ruleCount || 0} rules &middot; ${bus.targetCount || 0} targets</span>
+            ${deleteBusBtn}
+          </div>
         </div>`;
       if (bus.rules && bus.rules.length > 0) {
         html += '<div class="mt-3 ml-4">';
         for (const rule of bus.rules) {
           const stateColor = rule.state === 'ENABLED' ? 'text-green-600' : 'text-red-500';
-          html += `<div class="border-l-2 border-slate-200 pl-3 mb-2">
+          const toggleLabel = rule.state === 'ENABLED' ? 'Disable' : 'Enable';
+          const ruleNameEnc = encodeURIComponent(rule.name);
+          const ruleKey = drawbridgeRuleKey(bus.name, rule.name);
+          html += `<div class="border-l-2 border-slate-200 pl-3 mb-3">
             <div class="flex items-center gap-2">
               <span class="font-medium text-sm">${escapeHtml(rule.name)}</span>
               <span class="text-xs ${stateColor}">${rule.state}</span>
               <span class="text-xs text-slate-400">${rule.targetCount || 0} targets</span>
+              <button class="ml-2 px-2 py-0.5 rounded border border-slate-300 text-slate-600 text-xs hover:bg-slate-50" onclick="toggleDrawbridgeRule(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'), '${rule.state}')">${toggleLabel}</button>
+              <button class="px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="deleteDrawbridgeRule(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'))">Delete</button>
             </div>`;
           if (rule.eventPattern) {
             html += `<div class="text-xs text-slate-500 mt-1 font-mono bg-slate-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(rule.eventPattern)}</div>`;
           }
+          // Existing targets with Remove buttons
           if (rule.targets && rule.targets.length > 0) {
             html += '<div class="mt-1 ml-4">';
             for (const t of rule.targets) {
-              html += `<div class="text-xs text-slate-500"><span class="font-medium">${escapeHtml(t.Id || '')}</span> &rarr; <span class="font-mono">${escapeHtml(t.Arn || '')}</span></div>`;
+              const targetIdEnc = encodeURIComponent(t.Id || '');
+              html += `<div class="flex items-center gap-2 text-xs text-slate-500 mb-0.5">
+                <span class="font-medium">${escapeHtml(t.Id || '')}</span> &rarr; <span class="font-mono">${escapeHtml(t.Arn || '')}</span>
+                <button class="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="removeDrawbridgeTarget(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'), decodeURIComponent('${targetIdEnc}'))">Remove</button>
+              </div>`;
             }
             html += '</div>';
           }
+          // Add Target inline form
+          html += `<div class="mt-2 ml-4 flex items-end gap-2">
+            <div>
+              <label class="text-xs text-slate-400">Target ID</label>
+              <input id="${ruleKey}-id" type="text" class="border rounded px-2 py-0.5 text-xs w-28" placeholder="target-1">
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Target ARN</label>
+              <input id="${ruleKey}-arn" type="text" class="border rounded px-2 py-0.5 text-xs w-56" placeholder="arn:aws:sqs:...">
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Input (JSON, optional)</label>
+              <input id="${ruleKey}-input" type="text" class="border rounded px-2 py-0.5 text-xs w-40" placeholder='{"key":"val"}'>
+            </div>
+            <button class="px-2 py-0.5 rounded bg-slate-800 text-white text-xs whitespace-nowrap" onclick="putDrawbridgeTarget(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'), '${ruleKey}')">Add Target</button>
+          </div>`;
           html += '</div>';
         }
         html += '</div>';
