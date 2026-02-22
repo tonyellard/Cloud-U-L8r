@@ -43,6 +43,12 @@ let schedulerActivityRows = [];
 let schedulerActivityNextToken = '';
 const expandedSchedulerGroups = new Set();
 
+let pipesSummary = null;
+let pipesResources = [];
+let pipesActivityRows = [];
+let pipesActivityNextToken = '';
+const expandedPipes = new Set();
+
 const validViews = new Set([
   'dashboard',
   'ess-queue-ess',
@@ -52,6 +58,7 @@ const validViews = new Set([
   'cloudfauxnt',
   'drawbridge',
   'scheduler',
+  'pipes',
 ]);
 
 function displayServiceName(name) {
@@ -231,6 +238,10 @@ function switchView(view, options = {}) {
     title.textContent = 'scheduler';
     subtitle.textContent = 'EventBridge Scheduler emulator — schedule groups and schedules';
     loadSchedulerOverview();
+  } else if (nextView === 'pipes') {
+    title.textContent = 'pipes';
+    subtitle.textContent = 'EventBridge Pipes emulator — point-to-point integrations';
+    loadPipesOverview();
   }
 
     connectSSE(nextView);
@@ -3868,6 +3879,219 @@ function renderSchedulerActivity(rows) {
   return html;
 }
 
+// --- Pipes view ---
+
+async function loadPipesOverview() {
+  const container = document.getElementById('view-content');
+  container.innerHTML = '<p class="text-slate-400">Loading pipes overview...</p>';
+  try {
+    const [summary, resources, activityData] = await Promise.all([
+      apiGet('/api/services/pipes/summary'),
+      apiGet('/api/services/pipes/resources'),
+      apiGet('/api/services/pipes/activity?maxResults=25'),
+    ]);
+    pipesSummary = summary;
+    pipesResources = resources || [];
+    pipesActivityRows = activityData.activity || [];
+    pipesActivityNextToken = activityData.nextToken || '';
+    renderPipesOverview({ summary, resources: pipesResources, activity: pipesActivityRows, nextToken: pipesActivityNextToken });
+  } catch (err) {
+    container.innerHTML = `<p class="text-red-600">Failed to load pipes: ${err.message}</p>`;
+  }
+}
+
+function togglePipe(encodedName) {
+  if (expandedPipes.has(encodedName)) {
+    expandedPipes.delete(encodedName);
+  } else {
+    expandedPipes.add(encodedName);
+  }
+  renderPipesOverview({
+    summary: pipesSummary,
+    resources: pipesResources,
+    activity: pipesActivityRows,
+    nextToken: pipesActivityNextToken,
+  });
+}
+
+async function createPipe() {
+  const name = (document.getElementById('pipes-create-name')?.value || '').trim();
+  const source = (document.getElementById('pipes-create-source')?.value || '').trim();
+  const target = (document.getElementById('pipes-create-target')?.value || '').trim();
+  const filter = (document.getElementById('pipes-create-filter')?.value || '').trim();
+  const enrichment = (document.getElementById('pipes-create-enrichment')?.value || '').trim();
+  const desc = (document.getElementById('pipes-create-desc')?.value || '').trim();
+  if (!name) { setAlert('Pipe name is required.'); return; }
+  if (!source) { setAlert('Source ARN is required.'); return; }
+  if (!target) { setAlert('Target ARN is required.'); return; }
+  if (filter) {
+    try { JSON.parse(filter); } catch { setAlert('Filter pattern must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/pipes/actions/create-pipe', { name, source, target, filter, enrichment, description: desc });
+    ['pipes-create-name', 'pipes-create-source', 'pipes-create-target', 'pipes-create-filter', 'pipes-create-enrichment', 'pipes-create-desc'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    setAlert(`Pipe "${name}" created.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deletePipe(name) {
+  if (!confirm(`Delete pipe "${name}"?`)) return;
+  try {
+    expandedPipes.delete(encodeURIComponent(name));
+    await apiPost('/api/services/pipes/actions/delete-pipe', { name });
+    setAlert(`Pipe "${name}" deleted.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function startPipe(name) {
+  try {
+    await apiPost('/api/services/pipes/actions/start-pipe', { name });
+    setAlert(`Pipe "${name}" started.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function stopPipe(name) {
+  try {
+    await apiPost('/api/services/pipes/actions/stop-pipe', { name });
+    setAlert(`Pipe "${name}" stopped.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+function renderPipesOverview({ summary, resources, activity, nextToken }) {
+  const container = document.getElementById('view-content');
+  const s = summary || pipesSummary || {};
+  const pipes = resources || pipesResources || [];
+  const activityRows = activity || pipesActivityRows || [];
+  let html = '';
+
+  // Summary cards
+  html += '<div class="flex gap-4 mb-4">';
+  html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${s.pipes ?? 0}</div><div class="text-xs text-slate-500">Pipes</div></div>`;
+  html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${s.runningPipes ?? 0}</div><div class="text-xs text-slate-500">Running</div></div>`;
+  html += `<button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh pipes view" aria-label="Refresh pipes view" onclick="loadPipesOverview()">Refresh</button>`;
+  html += '</div>';
+
+  // Create pipe form
+  html += `<div class="bg-white rounded shadow p-4 mb-4">
+    <h3 class="font-semibold text-sm mb-2">Create Pipe</h3>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-name">Pipe Name</label>
+        <input id="pipes-create-name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-pipe">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-source">Source ARN (SQS)</label>
+        <input id="pipes-create-source" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="arn:aws:sqs:us-east-1:000000000000:source-queue">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-target">Target ARN</label>
+        <input id="pipes-create-target" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="arn:aws:sqs:us-east-1:000000000000:target-queue">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-desc">Description (optional)</label>
+        <input id="pipes-create-desc" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-filter">Filter Pattern JSON (optional)</label>
+        <input id="pipes-create-filter" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder='{"body": {"priority": ["high"]}}'>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-enrichment">Enrichment URL (optional)</label>
+        <input id="pipes-create-enrichment" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="https://api.example.com/enrich">
+      </div>
+    </div>
+    <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="createPipe()">Create Pipe</button>
+  </div>`;
+
+  // Pipes as expandable cards
+  if (pipes && pipes.length > 0) {
+    for (const pipe of pipes) {
+      const nameEnc = encodeURIComponent(pipe.name);
+      const isExpanded = expandedPipes.has(nameEnc);
+      const chevron = isExpanded ? '&#9660;' : '&#9654;';
+      const stateColor = pipe.currentState === 'RUNNING' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600';
+      const isRunning = pipe.currentState === 'RUNNING';
+
+      html += `<div class="bg-white rounded shadow mb-3">
+        <div class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50" onclick="togglePipe('${nameEnc}')">
+          <span class="text-slate-400">${chevron}</span>
+          <span class="font-semibold">${escapeHtml(pipe.name)}</span>
+          <span class="text-xs px-1.5 py-0.5 rounded ${stateColor}">${pipe.currentState}</span>
+          ${pipe.filterCount > 0 ? `<span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">${pipe.filterCount} filter${pipe.filterCount > 1 ? 's' : ''}</span>` : ''}
+          ${pipe.enrichment ? '<span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">enriched</span>' : ''}
+          <div class="ml-auto flex gap-1">
+            ${isRunning
+              ? `<button class="px-2 py-0.5 rounded border border-amber-300 text-amber-600 text-xs hover:bg-amber-50" onclick="event.stopPropagation(); stopPipe(decodeURIComponent('${nameEnc}'))">Stop</button>`
+              : `<button class="px-2 py-0.5 rounded border border-green-300 text-green-600 text-xs hover:bg-green-50" onclick="event.stopPropagation(); startPipe(decodeURIComponent('${nameEnc}'))">Start</button>`
+            }
+            <button class="px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="event.stopPropagation(); deletePipe(decodeURIComponent('${nameEnc}'))">Delete</button>
+          </div>
+        </div>`;
+
+      if (isExpanded) {
+        html += '<div class="border-t px-4 py-3 space-y-2">';
+        html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Source:</span> <span class="font-mono">${escapeHtml(pipe.source)}</span></div>`;
+        html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Target:</span> <span class="font-mono">${escapeHtml(pipe.target)}</span></div>`;
+        if (pipe.enrichment) {
+          html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Enrichment:</span> <span class="font-mono">${escapeHtml(pipe.enrichment)}</span></div>`;
+        }
+        if (pipe.description) {
+          html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Description:</span> ${escapeHtml(pipe.description)}</div>`;
+        }
+        html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">ARN:</span> <span class="font-mono">${escapeHtml(pipe.arn)}</span></div>`;
+        html += `<div class="text-xs text-slate-400">Created: ${pipe.creationTime} | Modified: ${pipe.lastModifiedTime}</div>`;
+        html += '</div>';
+      }
+
+      html += '</div>';
+    }
+  } else {
+    html += '<div class="bg-white rounded shadow p-4 text-sm text-slate-400">No pipes created yet.</div>';
+  }
+
+  // Activity log
+  html += '<div class="bg-white rounded shadow p-4 mt-4"><h3 class="font-semibold text-sm mb-2">Recent Activity</h3>';
+  html += renderPipesActivity(activityRows);
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function renderPipesActivity(rows) {
+  if (!rows || rows.length === 0) {
+    return '<p class="text-slate-400 text-sm">No recent activity.</p>';
+  }
+  let html = `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">
+    <thead class="bg-slate-50"><tr>
+      <th class="text-left px-3 py-1 border-b">Time</th>
+      <th class="text-left px-3 py-1 border-b">Action</th>
+      <th class="text-left px-3 py-1 border-b">Status</th>
+      <th class="text-left px-3 py-1 border-b">Error</th>
+    </tr></thead><tbody>`;
+  for (const row of rows) {
+    const ts = row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '';
+    const statusColor = row.statusCode < 400 ? 'text-green-600' : 'text-red-600';
+    html += `<tr class="border-b border-slate-100">
+      <td class="px-3 py-1 whitespace-nowrap">${ts}</td>
+      <td class="px-3 py-1 font-mono text-xs">${escapeHtml(row.action || row.path || '')}</td>
+      <td class="px-3 py-1 ${statusColor}">${row.statusCode || ''}</td>
+      <td class="px-3 py-1 text-xs text-red-500">${escapeHtml(row.errorType || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -3921,6 +4145,12 @@ function connectSSE(view) {
         schedulerActivityRows = payload.activity || [];
         schedulerActivityNextToken = payload.nextToken || '';
         renderSchedulerOverview(payload);
+      } else if (view === 'pipes') {
+        pipesSummary = payload.summary || null;
+        pipesResources = payload.resources || [];
+        pipesActivityRows = payload.activity || [];
+        pipesActivityNextToken = payload.nextToken || '';
+        renderPipesOverview(payload);
       }
     } catch (error) {
       setAlert(`Failed to parse stream data: ${error.message}`);
@@ -3940,6 +4170,7 @@ document.getElementById('menu-essthree').addEventListener('click', () => switchV
 document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
 document.getElementById('menu-drawbridge').addEventListener('click', () => switchView('drawbridge'));
 document.getElementById('menu-scheduler').addEventListener('click', () => switchView('scheduler'));
+document.getElementById('menu-pipes').addEventListener('click', () => switchView('pipes'));
 
 window.addEventListener('popstate', (event) => {
   const stateView = event.state?.view;

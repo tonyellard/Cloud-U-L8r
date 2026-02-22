@@ -117,6 +117,27 @@ services:
     networks:
       - shared-network
 
+  pipes:
+    build:
+      context: .
+      dockerfile: services/pipes/Dockerfile
+    container_name: pipes
+    ports:
+      - "9370:9370"
+    environment:
+      - PORT=9370
+      - REGION=us-east-1
+      - ACCOUNT_ID=000000000000
+      - SQS_ENDPOINT=http://ess-queue-ess:9320
+      - SNS_ENDPOINT=http://ess-enn-ess:9330
+      - EVENTBRIDGE_ENDPOINT=http://drawbridge:9340
+    depends_on:
+      - ess-queue-ess
+      - ess-enn-ess
+      - drawbridge
+    networks:
+      - shared-network
+
   admin-console:
     build:
       context: .
@@ -132,6 +153,7 @@ services:
       - kay-vee
       - drawbridge
       - scheduler
+      - pipes
     networks:
       - shared-network
 

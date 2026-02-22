@@ -574,6 +574,60 @@ type SchedulerDeleteScheduleRequest struct {
 	GroupName string `json:"group_name,omitempty"`
 }
 
+// --- Pipes types ---
+
+type PipesSummaryResponse struct {
+	Service      string `json:"service"`
+	Pipes        int    `json:"pipes"`
+	RunningPipes int    `json:"runningPipes"`
+}
+
+type PipesPipeDetail struct {
+	Name             string `json:"name"`
+	Arn              string `json:"arn"`
+	CurrentState     string `json:"currentState"`
+	DesiredState     string `json:"desiredState"`
+	Source           string `json:"source"`
+	Target           string `json:"target"`
+	Enrichment       string `json:"enrichment,omitempty"`
+	Description      string `json:"description,omitempty"`
+	FilterCount      int    `json:"filterCount"`
+	CreationTime     string `json:"creationTime"`
+	LastModifiedTime string `json:"lastModifiedTime"`
+}
+
+type PipesActivityResponse struct {
+	Activity  []KayVeeActivityEntry `json:"activity"`
+	NextToken string                `json:"nextToken,omitempty"`
+}
+
+type PipesCreatePipeRequest struct {
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Target      string `json:"target"`
+	RoleArn     string `json:"role_arn,omitempty"`
+	Description string `json:"description,omitempty"`
+	Filter      string `json:"filter,omitempty"`
+	Enrichment  string `json:"enrichment,omitempty"`
+	State       string `json:"state,omitempty"`
+}
+
+type PipesUpdatePipeRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Target      string `json:"target,omitempty"`
+	RoleArn     string `json:"role_arn,omitempty"`
+	State       string `json:"state,omitempty"`
+}
+
+type PipesDeletePipeRequest struct {
+	Name string `json:"name"`
+}
+
+type PipesStartStopPipeRequest struct {
+	Name string `json:"name"`
+}
+
 func NewRouter(logger *slog.Logger) http.Handler {
 	srv := &Server{
 		logger: logger,
@@ -649,6 +703,14 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/scheduler/actions/delete-group", srv.handleSchedulerDeleteGroup)
 	r.Post("/api/services/scheduler/actions/create-schedule", srv.handleSchedulerCreateSchedule)
 	r.Post("/api/services/scheduler/actions/delete-schedule", srv.handleSchedulerDeleteSchedule)
+	r.Get("/api/services/pipes/summary", srv.handlePipesSummary)
+	r.Get("/api/services/pipes/resources", srv.handlePipesResources)
+	r.Get("/api/services/pipes/activity", srv.handlePipesActivity)
+	r.Post("/api/services/pipes/actions/create-pipe", srv.handlePipesCreatePipe)
+	r.Post("/api/services/pipes/actions/update-pipe", srv.handlePipesUpdatePipe)
+	r.Post("/api/services/pipes/actions/delete-pipe", srv.handlePipesDeletePipe)
+	r.Post("/api/services/pipes/actions/start-pipe", srv.handlePipesStartPipe)
+	r.Post("/api/services/pipes/actions/stop-pipe", srv.handlePipesStopPipe)
 	r.Get("/api/events", srv.handleEvents)
 
 	fs := http.FileServer(http.Dir("./web"))
@@ -2498,7 +2560,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "dashboard"
 	}
-	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" && view != "drawbridge" && view != "scheduler" {
+	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" && view != "drawbridge" && view != "scheduler" && view != "pipes" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
 		return
 	}
@@ -2642,6 +2704,22 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		activity, _ := s.fetchSchedulerActivity("25", "")
 		return json.Marshal(map[string]any{
 			"service":   "scheduler",
+			"summary":   summary,
+			"resources": resources,
+			"activity":  activity.Activity,
+			"nextToken": activity.NextToken,
+		})
+	}
+
+	if view == "pipes" {
+		summary, err := s.fetchPipesSummary()
+		if err != nil {
+			return nil, err
+		}
+		resources, _ := s.fetchPipesResources()
+		activity, _ := s.fetchPipesActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":   "pipes",
 			"summary":   summary,
 			"resources": resources,
 			"activity":  activity.Activity,
@@ -2795,6 +2873,24 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 		}
 	}
 	services = append(services, schedulerService)
+
+	pipesService := DashboardService{
+		Name:   "pipes",
+		Status: s.checkService("http://pipes:9370/health"),
+		Stats: []DashboardStat{
+			{Label: "Pipes", Value: 0},
+			{Label: "Running", Value: 0},
+		},
+	}
+	if pipesService.Status == "online" {
+		if pipesSummary, err := s.fetchPipesSummary(); err == nil {
+			pipesService.Stats[0].Value = pipesSummary.Pipes
+			pipesService.Stats[1].Value = pipesSummary.RunningPipes
+		} else {
+			s.logger.Warn("failed to fetch pipes dashboard stats", "error", err)
+		}
+	}
+	services = append(services, pipesService)
 
 	summary.Services = services
 	return summary
@@ -3598,6 +3694,297 @@ func (s *Server) callDrawbridgeTarget(targetName string, payload any, target any
 			message = http.StatusText(response.StatusCode)
 		}
 		return fmt.Errorf("drawbridge target %s failed (%d): %s", targetName, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// --- Pipes handlers ---
+
+func (s *Server) handlePipesSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchPipesSummary()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handlePipesResources(w http.ResponseWriter, _ *http.Request) {
+	resources, err := s.fetchPipesResources()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resources)
+}
+
+func (s *Server) handlePipesActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := r.URL.Query().Get("maxResults")
+	if maxResults == "" {
+		maxResults = "50"
+	}
+	nextToken := r.URL.Query().Get("nextToken")
+	activity, err := s.fetchPipesActivity(maxResults, nextToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, activity)
+}
+
+func (s *Server) handlePipesCreatePipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesCreatePipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("source is required"))
+		return
+	}
+	target := strings.TrimSpace(req.Target)
+	if target == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target is required"))
+		return
+	}
+
+	roleArn := strings.TrimSpace(req.RoleArn)
+	if roleArn == "" {
+		roleArn = "arn:aws:iam::000000000000:role/pipe-role"
+	}
+
+	payload := map[string]any{
+		"Source":  source,
+		"Target":  target,
+		"RoleArn": roleArn,
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	if req.State == "STOPPED" {
+		payload["DesiredState"] = "STOPPED"
+	}
+	if filter := strings.TrimSpace(req.Filter); filter != "" {
+		payload["SourceParameters"] = map[string]any{
+			"FilterCriteria": map[string]any{
+				"Filters": []map[string]any{
+					{"Pattern": filter},
+				},
+			},
+		}
+	}
+	if enrich := strings.TrimSpace(req.Enrichment); enrich != "" {
+		payload["Enrichment"] = enrich
+	}
+
+	if err := s.callPipesREST(http.MethodPost, "/v1/pipes/"+name, payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesUpdatePipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesUpdatePipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	roleArn := strings.TrimSpace(req.RoleArn)
+	if roleArn == "" {
+		roleArn = "arn:aws:iam::000000000000:role/pipe-role"
+	}
+
+	payload := map[string]any{
+		"RoleArn": roleArn,
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	if target := strings.TrimSpace(req.Target); target != "" {
+		payload["Target"] = target
+	}
+	if req.State != "" {
+		payload["DesiredState"] = req.State
+	}
+
+	if err := s.callPipesREST(http.MethodPut, "/v1/pipes/"+name, payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesDeletePipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesDeletePipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callPipesREST(http.MethodDelete, "/v1/pipes/"+name, nil, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesStartPipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesStartStopPipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callPipesREST(http.MethodPost, "/v1/pipes/"+name+"/start", nil, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesStopPipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesStartStopPipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callPipesREST(http.MethodPost, "/v1/pipes/"+name+"/stop", nil, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) fetchPipesSummary() (PipesSummaryResponse, error) {
+	resp, err := s.client.Get("http://pipes:9370/admin/api/summary")
+	if err != nil {
+		return PipesSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return PipesSummaryResponse{}, fmt.Errorf("pipes summary status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var summary PipesSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return PipesSummaryResponse{}, err
+	}
+	return summary, nil
+}
+
+func (s *Server) fetchPipesResources() ([]PipesPipeDetail, error) {
+	resp, err := s.client.Get("http://pipes:9370/admin/api/resources")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("pipes resources status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var resources []PipesPipeDetail
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+func (s *Server) fetchPipesActivity(maxResults, nextToken string) (PipesActivityResponse, error) {
+	u := fmt.Sprintf("http://pipes:9370/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	if nextToken != "" {
+		u += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+	resp, err := s.client.Get(u)
+	if err != nil {
+		return PipesActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return PipesActivityResponse{}, fmt.Errorf("pipes activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var activity PipesActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return PipesActivityResponse{}, err
+	}
+	return activity, nil
+}
+
+func (s *Server) callPipesREST(method, path string, body any, target any) error {
+	var reqBody io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reqBody = bytes.NewReader(encoded)
+	}
+
+	request, err := http.NewRequest(method, "http://pipes:9370"+path, reqBody)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		var awsErr struct {
+			Type    string `json:"__type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(responseBody, &awsErr); err == nil && strings.TrimSpace(awsErr.Type) != "" {
+			return fmt.Errorf("%s: %s", awsErr.Type, awsErr.Message)
+		}
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("pipes %s %s failed (%d): %s", method, path, response.StatusCode, message)
 	}
 
 	if target == nil {

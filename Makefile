@@ -46,11 +46,11 @@ down:
 	@echo "Stopping services..."
 	docker compose down -v
 	@echo "Stopping any remaining emulator containers..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
 	@echo "Removing stray containers by name..."
-	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler admin-console 2>/dev/null || true
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler pipes admin-console 2>/dev/null || true
 	@echo "Removing any remaining emulator containers by ID..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
 	@echo "✅ All services stopped and cleaned up"
 
 # View logs
@@ -64,7 +64,7 @@ status:
 # Run tests in all services
 test:
 	@echo "Running shared package tests..."
-	@go test ./pkg/awserrors/... ./pkg/health/... ./pkg/schedule/... || true
+	@go test ./pkg/awserrors/... ./pkg/health/... ./pkg/matching/... ./pkg/schedule/... || true
 	@echo ""
 	@echo "Running unit tests..."
 	@go test ./services/essthree/... || true
@@ -74,6 +74,7 @@ test:
 	@go test ./services/kay-vee/... || true
 	@go test ./services/drawbridge/... || true
 	@go test ./services/scheduler/... || true
+	@go test ./services/pipes/... || true
 	@go test ./services/admin-console/... || true
 	@echo ""
 	@echo "Running integration tests..."
@@ -84,13 +85,13 @@ clean:
 	@echo "Cleaning up all Docker artifacts..."
 	@docker compose down -v 2>/dev/null || true
 	@echo "Removing build images..."
-	@docker rmi cloud-u-l8r-essthree cloud-u-l8r-cloudfauxnt cloud-u-l8r-ess-queue-ess cloud-u-l8r-ess-enn-ess cloud-u-l8r-drawbridge cloud-u-l8r-scheduler cloud-u-l8r-admin-console 2>/dev/null || true
+	@docker rmi cloud-u-l8r-essthree cloud-u-l8r-cloudfauxnt cloud-u-l8r-ess-queue-ess cloud-u-l8r-ess-enn-ess cloud-u-l8r-drawbridge cloud-u-l8r-scheduler cloud-u-l8r-pipes cloud-u-l8r-admin-console 2>/dev/null || true
 	@echo "Stopping any remaining emulator containers..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
 	@echo "Removing stray containers by name..."
-	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler admin-console 2>/dev/null || true
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler pipes admin-console 2>/dev/null || true
 	@echo "Removing any remaining emulator containers by ID..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
 	@echo "Removing stray volumes..."
 	@docker volume rm cloud-u-l8r_shared-volume 2>/dev/null || true
 	@echo "Removing shared network..."
@@ -100,7 +101,7 @@ clean:
 # Kill processes bound to service ports
 clean-ports:
 	@echo "Cleaning service ports with fuser..."
-	@sudo fuser -k 9300/tcp 9310/tcp 9320/tcp 9330/tcp 9340/tcp 9350/tcp 9360/tcp 9999/tcp 2>/dev/null || true
+	@sudo fuser -k 9300/tcp 9310/tcp 9320/tcp 9330/tcp 9340/tcp 9350/tcp 9360/tcp 9370/tcp 9999/tcp 2>/dev/null || true
 	@echo "✅ Service ports cleaned"
 
 # Stop a single service by name

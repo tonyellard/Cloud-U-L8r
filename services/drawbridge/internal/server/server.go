@@ -18,7 +18,7 @@ import (
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 	"github.com/tonyellard/cloud-u-l8r/pkg/schedule"
 	"github.com/tonyellard/drawbridge/internal/delivery"
-	"github.com/tonyellard/drawbridge/internal/matching"
+	"github.com/tonyellard/cloud-u-l8r/pkg/matching"
 	"github.com/tonyellard/drawbridge/internal/model"
 	dbschedule "github.com/tonyellard/drawbridge/internal/schedule"
 	"github.com/tonyellard/drawbridge/internal/store"
