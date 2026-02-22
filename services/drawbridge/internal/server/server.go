@@ -132,6 +132,13 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 		s.handlePutEvents(recorder, body)
 	case "AWSEvents.TestEventPattern":
 		s.handleTestEventPattern(recorder, body)
+	// Tags (stubs)
+	case "AWSEvents.ListTagsForResource":
+		writeJSON(recorder, http.StatusOK, map[string]interface{}{"Tags": []interface{}{}})
+	case "AWSEvents.TagResource":
+		writeJSON(recorder, http.StatusOK, map[string]interface{}{})
+	case "AWSEvents.UntagResource":
+		writeJSON(recorder, http.StatusOK, map[string]interface{}{})
 	default:
 		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "unsupported target: "+target)
 	}
