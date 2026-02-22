@@ -104,9 +104,9 @@ services:
       dockerfile: services/scheduler/Dockerfile
     container_name: scheduler
     ports:
-      - "9360:9360"
+      - "9342:9342"
     environment:
-      - PORT=9360
+      - PORT=9342
       - REGION=us-east-1
       - ACCOUNT_ID=000000000000
       - SQS_ENDPOINT=http://ess-queue-ess:9320
@@ -123,9 +123,9 @@ services:
       dockerfile: services/pipes/Dockerfile
     container_name: pipes
     ports:
-      - "9370:9370"
+      - "9344:9344"
     environment:
-      - PORT=9370
+      - PORT=9344
       - REGION=us-east-1
       - ACCOUNT_ID=000000000000
       - SQS_ENDPOINT=http://ess-queue-ess:9320

@@ -29,9 +29,9 @@ RUN apk --no-cache add ca-certificates
 
 COPY --from=builder /build/services/pipes/pipes ./pipes
 
-EXPOSE 9370
+EXPOSE 9344
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:9370/health || exit 1
+  CMD wget --quiet --tries=1 --spider http://localhost:9344/health || exit 1
 
 ENTRYPOINT ["./pipes"]

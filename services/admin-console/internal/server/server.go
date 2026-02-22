@@ -2858,7 +2858,7 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 
 	schedulerService := DashboardService{
 		Name:   "scheduler",
-		Status: s.checkService("http://scheduler:9360/health"),
+		Status: s.checkService("http://scheduler:9342/health"),
 		Stats: []DashboardStat{
 			{Label: "Groups", Value: 0},
 			{Label: "Schedules", Value: 0},
@@ -2876,7 +2876,7 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 
 	pipesService := DashboardService{
 		Name:   "pipes",
-		Status: s.checkService("http://pipes:9370/health"),
+		Status: s.checkService("http://pipes:9344/health"),
 		Stats: []DashboardStat{
 			{Label: "Pipes", Value: 0},
 			{Label: "Running", Value: 0},
@@ -3444,7 +3444,7 @@ func (s *Server) handleSchedulerActivity(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) fetchSchedulerSummary() (SchedulerSummaryResponse, error) {
-	resp, err := s.client.Get("http://scheduler:9360/admin/api/summary")
+	resp, err := s.client.Get("http://scheduler:9342/admin/api/summary")
 	if err != nil {
 		return SchedulerSummaryResponse{}, err
 	}
@@ -3461,7 +3461,7 @@ func (s *Server) fetchSchedulerSummary() (SchedulerSummaryResponse, error) {
 }
 
 func (s *Server) fetchSchedulerResources() ([]SchedulerGroupDetail, error) {
-	resp, err := s.client.Get("http://scheduler:9360/admin/api/resources")
+	resp, err := s.client.Get("http://scheduler:9342/admin/api/resources")
 	if err != nil {
 		return nil, err
 	}
@@ -3478,7 +3478,7 @@ func (s *Server) fetchSchedulerResources() ([]SchedulerGroupDetail, error) {
 }
 
 func (s *Server) fetchSchedulerActivity(maxResults, nextToken string) (SchedulerActivityResponse, error) {
-	u := fmt.Sprintf("http://scheduler:9360/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	u := fmt.Sprintf("http://scheduler:9342/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
 	if nextToken != "" {
 		u += "&nextToken=" + url.QueryEscape(nextToken)
 	}
@@ -3622,7 +3622,7 @@ func (s *Server) callSchedulerTarget(targetName string, payload any, target any)
 		return err
 	}
 
-	request, err := http.NewRequest(http.MethodPost, "http://scheduler:9360/", bytes.NewReader(encodedPayload))
+	request, err := http.NewRequest(http.MethodPost, "http://scheduler:9342/", bytes.NewReader(encodedPayload))
 	if err != nil {
 		return err
 	}
@@ -3893,7 +3893,7 @@ func (s *Server) handlePipesStopPipe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) fetchPipesSummary() (PipesSummaryResponse, error) {
-	resp, err := s.client.Get("http://pipes:9370/admin/api/summary")
+	resp, err := s.client.Get("http://pipes:9344/admin/api/summary")
 	if err != nil {
 		return PipesSummaryResponse{}, err
 	}
@@ -3910,7 +3910,7 @@ func (s *Server) fetchPipesSummary() (PipesSummaryResponse, error) {
 }
 
 func (s *Server) fetchPipesResources() ([]PipesPipeDetail, error) {
-	resp, err := s.client.Get("http://pipes:9370/admin/api/resources")
+	resp, err := s.client.Get("http://pipes:9344/admin/api/resources")
 	if err != nil {
 		return nil, err
 	}
@@ -3927,7 +3927,7 @@ func (s *Server) fetchPipesResources() ([]PipesPipeDetail, error) {
 }
 
 func (s *Server) fetchPipesActivity(maxResults, nextToken string) (PipesActivityResponse, error) {
-	u := fmt.Sprintf("http://pipes:9370/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	u := fmt.Sprintf("http://pipes:9344/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
 	if nextToken != "" {
 		u += "&nextToken=" + url.QueryEscape(nextToken)
 	}
@@ -3957,7 +3957,7 @@ func (s *Server) callPipesREST(method, path string, body any, target any) error 
 		reqBody = bytes.NewReader(encoded)
 	}
 
-	request, err := http.NewRequest(method, "http://pipes:9370"+path, reqBody)
+	request, err := http.NewRequest(method, "http://pipes:9344"+path, reqBody)
 	if err != nil {
 		return err
 	}

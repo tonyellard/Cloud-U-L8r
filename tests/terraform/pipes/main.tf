@@ -21,7 +21,7 @@ provider "aws" {
   skip_requesting_account_id  = true
 
   endpoints {
-    pipes = "http://localhost:9370"
+    pipes = "http://localhost:9344"
     sqs   = "http://localhost:9320"
     sns   = "http://localhost:9330"
   }

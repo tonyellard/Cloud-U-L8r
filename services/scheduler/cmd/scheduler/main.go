@@ -21,7 +21,7 @@ func main() {
 	}
 
 	handler := server.NewRouter(logger, cfg)
-	port := envOrDefault("PORT", "9360")
+	port := envOrDefault("PORT", "9342")
 
 	srv := &http.Server{
 		Addr:              ":" + port,
