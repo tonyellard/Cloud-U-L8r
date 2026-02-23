@@ -182,10 +182,10 @@ func (s *Server) handleCreatePipe(w http.ResponseWriter, r *http.Request, name s
 
 	writeJSON(w, http.StatusOK, model.CreatePipeResponse{
 		Arn:              p.Arn,
-		CreationTime:     p.CreationTime.Format(time.RFC3339),
+		CreationTime:     float64(p.CreationTime.Unix()),
 		CurrentState:     p.CurrentState,
 		DesiredState:     p.DesiredState,
-		LastModifiedTime: p.LastModifiedTime.Format(time.RFC3339),
+		LastModifiedTime: float64(p.LastModifiedTime.Unix()),
 		Name:             p.Name,
 	})
 }
@@ -199,13 +199,13 @@ func (s *Server) handleDescribePipe(w http.ResponseWriter, _ *http.Request, name
 
 	resp := model.DescribePipeResponse{
 		Arn:                  p.Arn,
-		CreationTime:         p.CreationTime.Format(time.RFC3339),
+		CreationTime:         float64(p.CreationTime.Unix()),
 		CurrentState:         p.CurrentState,
 		Description:          p.Description,
 		DesiredState:         p.DesiredState,
 		Enrichment:           p.Enrichment,
 		EnrichmentParameters: p.EnrichmentParameters,
-		LastModifiedTime:     p.LastModifiedTime.Format(time.RFC3339),
+		LastModifiedTime:     float64(p.LastModifiedTime.Unix()),
 		Name:                 p.Name,
 		RoleArn:              p.RoleArn,
 		Source:               p.Source,
@@ -246,10 +246,10 @@ func (s *Server) handleUpdatePipe(w http.ResponseWriter, r *http.Request, name s
 
 	writeJSON(w, http.StatusOK, model.UpdatePipeResponse{
 		Arn:              p.Arn,
-		CreationTime:     p.CreationTime.Format(time.RFC3339),
+		CreationTime:     float64(p.CreationTime.Unix()),
 		CurrentState:     p.CurrentState,
 		DesiredState:     p.DesiredState,
-		LastModifiedTime: p.LastModifiedTime.Format(time.RFC3339),
+		LastModifiedTime: float64(p.LastModifiedTime.Unix()),
 		Name:             p.Name,
 	})
 }
@@ -263,10 +263,10 @@ func (s *Server) handleDeletePipe(w http.ResponseWriter, _ *http.Request, name s
 
 	writeJSON(w, http.StatusOK, model.DeletePipeResponse{
 		Arn:              p.Arn,
-		CreationTime:     p.CreationTime.Format(time.RFC3339),
+		CreationTime:     float64(p.CreationTime.Unix()),
 		CurrentState:     p.CurrentState,
 		DesiredState:     p.DesiredState,
-		LastModifiedTime: p.LastModifiedTime.Format(time.RFC3339),
+		LastModifiedTime: float64(p.LastModifiedTime.Unix()),
 		Name:             p.Name,
 	})
 }
@@ -312,10 +312,10 @@ func (s *Server) handleStartPipe(w http.ResponseWriter, _ *http.Request, name st
 
 	writeJSON(w, http.StatusOK, model.UpdatePipeResponse{
 		Arn:              p.Arn,
-		CreationTime:     p.CreationTime.Format(time.RFC3339),
+		CreationTime:     float64(p.CreationTime.Unix()),
 		CurrentState:     p.CurrentState,
 		DesiredState:     p.DesiredState,
-		LastModifiedTime: p.LastModifiedTime.Format(time.RFC3339),
+		LastModifiedTime: float64(p.LastModifiedTime.Unix()),
 		Name:             p.Name,
 	})
 }
@@ -329,10 +329,10 @@ func (s *Server) handleStopPipe(w http.ResponseWriter, _ *http.Request, name str
 
 	writeJSON(w, http.StatusOK, model.UpdatePipeResponse{
 		Arn:              p.Arn,
-		CreationTime:     p.CreationTime.Format(time.RFC3339),
+		CreationTime:     float64(p.CreationTime.Unix()),
 		CurrentState:     p.CurrentState,
 		DesiredState:     p.DesiredState,
-		LastModifiedTime: p.LastModifiedTime.Format(time.RFC3339),
+		LastModifiedTime: float64(p.LastModifiedTime.Unix()),
 		Name:             p.Name,
 	})
 }

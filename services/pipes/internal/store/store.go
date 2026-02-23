@@ -185,11 +185,11 @@ func (s *Store) ListPipes(namePrefix, sourcePrefix, targetPrefix, currentState, 
 		}
 		result = append(result, model.PipeSummary{
 			Arn:              p.Arn,
-			CreationTime:     p.CreationTime.Format(time.RFC3339),
+			CreationTime:     float64(p.CreationTime.Unix()),
 			CurrentState:     p.CurrentState,
 			DesiredState:     p.DesiredState,
 			Enrichment:       p.Enrichment,
-			LastModifiedTime: p.LastModifiedTime.Format(time.RFC3339),
+			LastModifiedTime: float64(p.LastModifiedTime.Unix()),
 			Name:             p.Name,
 			Source:           p.Source,
 			Target:           p.Target,

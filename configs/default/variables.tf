@@ -42,6 +42,12 @@ variable "scheduler_endpoint" {
   default     = "http://localhost:9342"
 }
 
+variable "cloudfauxnt_endpoint" {
+  description = "CloudFront emulator admin endpoint"
+  type        = string
+  default     = "http://localhost:9310"
+}
+
 variable "pipes_endpoint" {
   description = "EventBridge Pipes emulator endpoint"
   type        = string

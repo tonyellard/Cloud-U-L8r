@@ -33,7 +33,6 @@ services:
       - SIGNING_ENABLED=true
       - SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
       - SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
-      - ORIGINS=[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"],"require_signature":false,"default_root_object":"index.html"}]
     restart: unless-stopped
     depends_on:
       - essthree

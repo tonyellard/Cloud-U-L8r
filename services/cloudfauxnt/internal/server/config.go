@@ -180,10 +180,7 @@ func (c *Config) Validate() error {
 		c.Server.TimeoutSeconds = 30
 	}
 
-	// Validate origins
-	if len(c.Origins) == 0 {
-		return fmt.Errorf("at least one origin must be configured")
-	}
+	// Validate origins (empty is allowed — origins can be added at runtime via admin API)
 	for i, origin := range c.Origins {
 		if origin.Name == "" {
 			return fmt.Errorf("origin %d: name is required", i)
