@@ -7,6 +7,9 @@ Consolidated operator console for the local Cloud-U-L8r stack.
 - Full `ess-queue-ess` queue operations
 - Full `ess-enn-ess` topic/subscription/publish operations
 - `kay-vee` summary/activity/export plus parameter and secret workflows
+- `drawbridge` event bus management and rule operations
+- `scheduler` schedule group and schedule operations
+- `pipes` pipe management and operations
 - Informational `ess-three` summary (bucket/object overview)
 - Informational `cloudfauxnt` summary (origin/behavior/signing overview)
 - Active-view-only SSE updates
@@ -47,6 +50,9 @@ Consolidated operator console for the local Cloud-U-L8r stack.
 ## Internal Dependencies
 - `http://ess-queue-ess:9320`
 - `http://ess-enn-ess:9330`
+- `http://drawbridge:9340`
+- `http://scheduler:9342`
+- `http://pipes:9344`
 - `http://kay-vee:9350`
 - `http://essthree:9300`
 - `http://cloudfauxnt:9310`

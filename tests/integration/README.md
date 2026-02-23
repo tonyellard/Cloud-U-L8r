@@ -12,6 +12,11 @@ Comprehensive integration test that verifies:
    - ess-three (S3 emulator) on port 9300
    - cloudfauxnt (CloudFront emulator) on port 9310
    - ess-queue-ess (SQS emulator) on port 9320
+   - ess-enn-ess (SNS emulator) on port 9330
+   - drawbridge (EventBridge emulator) on port 9340
+   - scheduler (EventBridge Scheduler emulator) on port 9342
+   - pipes (EventBridge Pipes emulator) on port 9344
+   - kay-vee (SSM + Secrets Manager emulator) on port 9350
 
 2. **Cross-Service Communication**
    - CloudFauxnt → ess-three: Verifies CloudFront can proxy requests to S3
@@ -61,7 +66,7 @@ make up
 ## Test Coverage
 
 Current integration tests verify:
-- ✅ All three services are running and healthy
+- ✅ All nine services are running and healthy
 - ✅ CloudFauxnt can successfully proxy requests to ess-three
 - ✅ SQS queue creation and basic operations work
 - ✅ Cross-service networking is configured correctly

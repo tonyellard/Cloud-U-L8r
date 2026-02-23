@@ -28,9 +28,13 @@ Please be respectful and constructive in all interactions. This project is dedic
 
 See individual service READMEs for detailed setup instructions:
 - [ess-three](services/essthree/README.md) - S3 Emulator
+- [cloudfauxnt](services/cloudfauxnt/README.md) - CloudFront Emulator
 - [ess-queue-ess](services/ess-queue-ess/README.md) - SQS Emulator
 - [ess-enn-ess](services/ess-enn-ess/README.md) - SNS Emulator
-- [cloudfauxnt](services/cloudfauxnt/README.md) - CloudFront Emulator
+- [drawbridge](services/drawbridge/README.md) - EventBridge Emulator
+- [scheduler](services/scheduler/README.md) - EventBridge Scheduler Emulator
+- [pipes](services/pipes/README.md) - EventBridge Pipes Emulator
+- [kay-vee](services/kay-vee/README.md) - SSM Parameter Store + Secrets Manager Emulator
 
 ### Code Standards
 
@@ -52,7 +56,7 @@ make test
 Run integration tests from the root:
 
 ```bash
-make integration-test
+make test
 ```
 
 ## License

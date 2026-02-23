@@ -1,15 +1,18 @@
 # Cloud-U-L8r
 
-A unified development stack for local AWS service emulation, providing S3, SQS, SNS, CloudFront-like, and Parameter/Secrets capabilities in a single orchestrated environment.
+A unified development stack for local AWS service emulation, providing S3, SQS, SNS, EventBridge, EventBridge Scheduler, EventBridge Pipes, CloudFront-like, and Parameter/Secrets capabilities in a single orchestrated environment.
 
 ## Services
 
-This monorepo contains six interconnected services:
+This monorepo contains nine interconnected services:
 
 - **ess-three** (Port 9300) - S3-compatible object storage emulator
 - **cloudfauxnt** (Port 9310) - CloudFront-like CDN emulator with signed URL support
 - **ess-queue-ess** (Port 9320) - SQS-compatible message queue emulator with FIFO and DLQ support
 - **ess-enn-ess** (Port 9330) - SNS-compatible notification service emulator
+- **drawbridge** (Port 9340) - EventBridge emulator
+- **scheduler** (Port 9342) - EventBridge Scheduler emulator
+- **pipes** (Port 9344) - EventBridge Pipes emulator
 - **kay-vee** (Port 9350) - Combined SSM Parameter Store + Secrets Manager emulator
 - **admin-console** (Port 9999) - Consolidated operator console for dashboard + per-service administration
 
@@ -40,6 +43,9 @@ Once running, services are available at:
 - **CloudFront (cloudfauxnt)**: `http://localhost:9310`
 - **SQS (ess-queue-ess)**: `http://localhost:9320`
 - **SNS (ess-enn-ess)**: `http://localhost:9330` (Admin UI: `http://localhost:9331`)
+- **EventBridge (drawbridge)**: `http://localhost:9340`
+- **EventBridge Scheduler (scheduler)**: `http://localhost:9342`
+- **EventBridge Pipes (pipes)**: `http://localhost:9344`
 - **kay-vee**: `http://localhost:9350`
 - **Admin Console**: `http://localhost:9999`
 
@@ -48,6 +54,9 @@ For inter-container communication, services use the internal `shared-network`:
 - `http://cloudfauxnt:9310`
 - `http://ess-queue-ess:9320`
 - `http://ess-enn-ess:9330` (Admin UI: `http://ess-enn-ess:9331`)
+- `http://drawbridge:9340`
+- `http://scheduler:9342`
+- `http://pipes:9344`
 - `http://kay-vee:9350`
 - `http://admin-console:9999`
 
@@ -58,6 +67,9 @@ All services use the 93xx port range with 10-port increments:
 - **9310**: CloudFront CDN
 - **9320**: SQS Queue
 - **9330**: SNS Notifications (9331 for Admin UI)
+- **9340**: EventBridge (`drawbridge`)
+- **9342**: EventBridge Scheduler (`scheduler`)
+- **9344**: EventBridge Pipes (`pipes`)
 - **9350**: Parameter + Secrets Emulator (`kay-vee`)
 - **9999**: Consolidated Admin Console
 
@@ -101,7 +113,7 @@ This repository uses Go workspaces to manage all service modules:
 
 ```bash
 # Workspace is already initialized, just use Go commands normally
-go work use ./services/admin-console ./services/essthree ./services/cloudfauxnt ./services/ess-queue-ess ./services/ess-enn-ess
+go work use ./services/admin-console ./services/essthree ./services/cloudfauxnt ./services/ess-queue-ess ./services/ess-enn-ess ./services/drawbridge ./services/scheduler ./services/pipes ./services/kay-vee
 ```
 
 ## Documentation
@@ -111,6 +123,9 @@ go work use ./services/admin-console ./services/essthree ./services/cloudfauxnt 
 - [ess-queue-ess Documentation](services/ess-queue-ess/README.md)
 - [ess-enn-ess Documentation](services/ess-enn-ess/README.md)
 - [kay-vee Documentation](services/kay-vee/README.md)
+- [drawbridge Documentation](services/drawbridge/README.md)
+- [scheduler Documentation](services/scheduler/README.md)
+- [pipes Documentation](services/pipes/README.md)
 - [admin-console Documentation](services/admin-console/README.md)
 
 ## License

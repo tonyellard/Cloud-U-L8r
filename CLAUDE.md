@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Cloud-U-L8r is a monorepo of **six interconnected AWS service emulators** for local development, built in Go and orchestrated via Docker Compose. Each service emulates a specific AWS API (S3, CloudFront, SQS, SNS, SSM Parameter Store + Secrets Manager) plus a consolidated admin console.
+Cloud-U-L8r is a monorepo of **nine interconnected AWS service emulators** for local development, built in Go and orchestrated via Docker Compose. Each service emulates a specific AWS API (S3, CloudFront, SQS, SNS, EventBridge, EventBridge Scheduler, EventBridge Pipes, SSM Parameter Store + Secrets Manager) plus a consolidated admin console.
 
 ## Repository Structure
 
@@ -12,19 +12,25 @@ Cloud-U-L8r/
 │   └── default/                     # Default dev resource definitions (*.tf)
 ├── docs/                            # Architecture docs (kay-vee planning)
 ├── pkg/                             # Shared Go packages
+│   ├── activity/                    # Cross-service activity logging
 │   ├── awserrors/                   # AWS-compatible error formatting (XML, JSON, CloudFront)
-│   └── health/                      # Standardized health check handler
+│   ├── health/                      # Standardized health check handler
+│   ├── matching/                    # EventBridge event pattern matching
+│   └── schedule/                    # Cron/rate schedule parsing
 ├── services/
 │   ├── essthree/                    # S3 emulator (port 9300)
 │   ├── cloudfauxnt/                 # CloudFront emulator (port 9310)
 │   ├── ess-queue-ess/               # SQS emulator (port 9320)
 │   ├── ess-enn-ess/                 # SNS emulator (port 9330, admin 9331)
+│   ├── drawbridge/                  # EventBridge emulator (port 9340)
+│   ├── scheduler/                   # EventBridge Scheduler emulator (port 9342)
+│   ├── pipes/                       # EventBridge Pipes emulator (port 9344)
 │   ├── kay-vee/                     # SSM Parameter Store + Secrets Manager (port 9350)
 │   └── admin-console/               # Consolidated admin dashboard (port 9999)
 ├── tests/integration/               # Cross-service integration tests
 ├── docker-compose.yml               # Full stack orchestration
 ├── Makefile                         # Primary build/run interface
-├── go.work                          # Go workspace (all 6 services + shared packages)
+├── go.work                          # Go workspace (all 9 services + shared packages)
 ├── start-stack.sh                   # Stack startup script
 ├── cleanup-stack.sh                 # Comprehensive container cleanup
 ├── verify-stack.sh                  # Health-check all services
@@ -39,6 +45,9 @@ Cloud-U-L8r/
 | **cloudfauxnt** | 9310 | CloudFront | chi | `cmd/cloudfauxnt/main.go` |
 | **ess-queue-ess** | 9320 | SQS | chi | `cmd/ess-queue-ess/main.go` |
 | **ess-enn-ess** | 9330 | SNS | stdlib | `cmd/ess-enn-ess/main.go` |
+| **drawbridge** | 9340 | EventBridge | stdlib | `cmd/drawbridge/main.go` |
+| **scheduler** | 9342 | EventBridge Scheduler | stdlib | `cmd/scheduler/main.go` |
+| **pipes** | 9344 | EventBridge Pipes | stdlib | `cmd/pipes/main.go` |
 | **kay-vee** | 9350 | SSM + Secrets Manager | stdlib | `cmd/kay-vee/main.go` |
 | **admin-console** | 9999 | Admin dashboard | chi | `cmd/admin-console/main.go` |
 
@@ -80,6 +89,7 @@ service/
 | `make tf-init CONFIG=<name>` | Initialize Terraform for a config |
 | `make tf-plan CONFIG=<name>` | Plan changes for a config |
 | `make tf-destroy CONFIG=<name>` | Destroy resources for a config |
+| `make full-clean` | Clean + wipe all service data and Terraform state |
 
 ## Testing
 
@@ -95,7 +105,7 @@ Or all at once:
 make test
 ```
 
-Unit tests use `httptest.NewRequest` / `httptest.NewRecorder` for HTTP handler testing. Services with Go unit tests: **essthree**, **cloudfauxnt**, **ess-queue-ess**, **ess-enn-ess**, **kay-vee**, **admin-console**.
+Unit tests use `httptest.NewRequest` / `httptest.NewRecorder` for HTTP handler testing. Services with Go unit tests: **essthree**, **cloudfauxnt**, **ess-queue-ess**, **ess-enn-ess**, **drawbridge**, **scheduler**, **pipes**, **kay-vee**, **admin-console**.
 
 ### Integration Tests
 
@@ -123,7 +133,7 @@ curl -X PUT http://localhost:9300/test-bucket/key -d "content"
 
 ## Go Workspace
 
-The root `go.work` file declares a workspace over all 6 service modules. Standard Go commands work from the repo root:
+The root `go.work` file declares a workspace over all 9 service modules. Standard Go commands work from the repo root:
 ```bash
 go build ./services/essthree/...
 go test ./services/kay-vee/...
@@ -137,11 +147,14 @@ Services are intentionally minimal in external dependencies:
 
 | Service | External Dependencies |
 |---------|----------------------|
-| essthree | `go-chi/chi` v5, `pkg/awserrors`, `pkg/health` |
-| cloudfauxnt | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3`, `pkg/health` |
-| ess-queue-ess | `go-chi/chi` v5, `google/uuid`, `pkg/awserrors`, `pkg/health` |
+| essthree | `go-chi/chi` v5, `pkg/activity`, `pkg/awserrors`, `pkg/health` |
+| cloudfauxnt | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3`, `pkg/activity`, `pkg/awserrors`, `pkg/health` |
+| ess-queue-ess | `go-chi/chi` v5, `google/uuid`, `pkg/activity`, `pkg/awserrors`, `pkg/health` |
 | ess-enn-ess | `gopkg.in/yaml.v3`, `pkg/health` |
-| kay-vee | `pkg/awserrors`, `pkg/health` |
+| drawbridge | `google/uuid`, `pkg/activity`, `pkg/awserrors`, `pkg/health`, `pkg/matching`, `pkg/schedule` |
+| scheduler | `pkg/activity`, `pkg/awserrors`, `pkg/health`, `pkg/schedule` |
+| pipes | `pkg/activity`, `pkg/awserrors`, `pkg/health`, `pkg/matching` |
+| kay-vee | `pkg/activity`, `pkg/awserrors`, `pkg/health` |
 | admin-console | `go-chi/chi` v5, `pkg/awserrors`, `pkg/health` |
 
 ## Docker
@@ -160,10 +173,13 @@ essthree  (standalone)
 
 ess-queue-ess (standalone)
   └── ess-enn-ess (depends_on: ess-queue-ess)
+  └── drawbridge (depends_on: ess-queue-ess, ess-enn-ess)
+  └── scheduler (depends_on: ess-queue-ess, ess-enn-ess)
+  └── pipes (depends_on: ess-queue-ess, ess-enn-ess, drawbridge)
 
 kay-vee (standalone)
 
-admin-console (depends_on: ess-queue-ess, ess-enn-ess, kay-vee)
+admin-console (depends_on: ess-queue-ess, ess-enn-ess, kay-vee, drawbridge, scheduler, pipes)
 ```
 
 Inter-service communication uses container names on `shared-network` (e.g., `http://essthree:9300`).
@@ -176,6 +192,9 @@ Services are configured via **environment variables** set in `docker-compose.yml
 - **cloudfauxnt** — Env vars: `PORT`, `HOST`, `CORS_ENABLED`, `SIGNING_ENABLED`, `SIGNING_KEY_PAIR_ID`, `SIGNING_PUBLIC_KEY_PATH`, `ORIGINS` (JSON)
 - **ess-queue-ess** — Env vars: `PORT`
 - **ess-enn-ess** — Env vars: `API_PORT`, `ADMIN_PORT`, `HOST`, `REGION`, `ACCOUNT_ID`, `SQS_ENDPOINT`, `SQS_ENABLED`, `AUTO_CONFIRM_SUBSCRIPTIONS`
+- **drawbridge** — Env vars: `PORT`, `REGION`, `ACCOUNT_ID`, `SQS_ENDPOINT`, `SNS_ENDPOINT`
+- **scheduler** — Env vars: `PORT`, `REGION`, `ACCOUNT_ID`, `SQS_ENDPOINT`, `SNS_ENDPOINT`
+- **pipes** — Env vars: `PORT`, `REGION`, `ACCOUNT_ID`, `SQS_ENDPOINT`, `SNS_ENDPOINT`, `EVENTBRIDGE_ENDPOINT`
 - **kay-vee** — Env vars: `PORT` (in-memory only)
 - **admin-console** — Env vars: `PORT` (uses hardcoded service endpoints)
 
@@ -195,7 +214,7 @@ ui: description                     # UI/frontend changes
 legal: description                  # License/legal changes
 ```
 
-Scope is typically the service name: `kay-vee`, `admin-console`, `essthree`, `cloudfauxnt`, `ess-enn-ess`, `ess-queue-ess`. Multi-service changes use comma-separated scopes (e.g., `feat(kay-vee,admin-console):`).
+Scope is typically the service name: `kay-vee`, `admin-console`, `essthree`, `cloudfauxnt`, `ess-enn-ess`, `ess-queue-ess`, `drawbridge`, `scheduler`, `pipes`. Multi-service changes use comma-separated scopes (e.g., `feat(kay-vee,admin-console):`).
 
 ### License Headers
 
@@ -219,7 +238,7 @@ YAML/Makefile files use `#` comment style:
 
 ### Logging
 
-- Newer services (ess-enn-ess, kay-vee, admin-console): `log/slog` structured logging
+- Newer services (ess-enn-ess, kay-vee, drawbridge, scheduler, pipes, admin-console): `log/slog` structured logging
 - Older services (essthree, cloudfauxnt, ess-queue-ess): `log` or `fmt` printf-style
 
 ### Error Responses
@@ -231,7 +250,7 @@ Services return AWS-compatible error formats:
 ### Storage
 
 - **essthree**: Filesystem-based (`/data` directory with bucket/key structure)
-- **ess-queue-ess, ess-enn-ess, kay-vee**: In-memory stores (no persistence across restarts; use `make run-config` to re-provision resources)
+- **ess-queue-ess, ess-enn-ess, drawbridge, scheduler, pipes, kay-vee**: In-memory stores (no persistence across restarts; use `make run-config` to re-provision resources)
 
 ### Admin APIs
 
@@ -251,6 +270,9 @@ All services use the 93xx range with 10-port increments:
 | 9320 | ess-queue-ess (SQS) |
 | 9330 | ess-enn-ess (SNS API) |
 | 9331 | ess-enn-ess (SNS Admin UI) |
+| 9340 | drawbridge (EventBridge) |
+| 9342 | scheduler (EventBridge Scheduler) |
+| 9344 | pipes (EventBridge Pipes) |
 | 9350 | kay-vee (Parameter Store + Secrets Manager) |
 | 9999 | admin-console |
 
@@ -262,6 +284,9 @@ All services use the 93xx range with 10-port increments:
 | Modify CloudFront proxy | `services/cloudfauxnt/internal/server/handlers.go`, `config.go` |
 | Add SQS action | `services/ess-queue-ess/internal/server/handlers.go`, `queue.go` |
 | Add SNS operation | `services/ess-enn-ess/internal/server/handlers.go` |
+| Add EventBridge operation | `services/drawbridge/internal/server/server.go`, `internal/store/store.go` |
+| Add Scheduler operation | `services/scheduler/internal/server/server.go`, `internal/store/store.go` |
+| Add Pipes operation | `services/pipes/internal/server/server.go`, `internal/store/store.go` |
 | Add SSM/Secrets Manager operation | `services/kay-vee/internal/server/router.go`, `internal/storage/store.go` |
 | Modify admin dashboard | `services/admin-console/internal/server/server.go`, `web/` directory |
 | Add shared error handling | `pkg/awserrors/errors.go` |
@@ -274,5 +299,5 @@ All services use the 93xx range with 10-port increments:
 
 - Feature branches: `feature/your-feature-name`
 - Bugfix branches: `bugfix/<service-or-description>`
-- PRs target `master`
+- PRs target `main`
 - Run `make test` before submitting PRs
