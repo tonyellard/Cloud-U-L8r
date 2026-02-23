@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-.PHONY: all build rebuild up down logs test clean clean-ports stop-service start-service restart-service status help
+.PHONY: all build rebuild up down logs test clean full-clean clean-ports stop-service start-service restart-service status help run-config tf-init tf-plan tf-destroy stack
 
 SERVICE ?=
 SERVICE_GOAL := $(word 2,$(MAKECMDGOALS))
@@ -46,11 +46,11 @@ down:
 	@echo "Stopping services..."
 	docker compose down -v
 	@echo "Stopping any remaining emulator containers..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|kay-vee\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
 	@echo "Removing stray containers by name..."
-	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler pipes admin-console 2>/dev/null || true
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler pipes kay-vee admin-console 2>/dev/null || true
 	@echo "Removing any remaining emulator containers by ID..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|kay-vee\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
 	@echo "✅ All services stopped and cleaned up"
 
 # View logs
@@ -85,18 +85,33 @@ clean:
 	@echo "Cleaning up all Docker artifacts..."
 	@docker compose down -v 2>/dev/null || true
 	@echo "Removing build images..."
-	@docker rmi cloud-u-l8r-essthree cloud-u-l8r-cloudfauxnt cloud-u-l8r-ess-queue-ess cloud-u-l8r-ess-enn-ess cloud-u-l8r-drawbridge cloud-u-l8r-scheduler cloud-u-l8r-pipes cloud-u-l8r-admin-console 2>/dev/null || true
+	@docker rmi cloud-u-l8r-essthree cloud-u-l8r-cloudfauxnt cloud-u-l8r-ess-queue-ess cloud-u-l8r-ess-enn-ess cloud-u-l8r-drawbridge cloud-u-l8r-scheduler cloud-u-l8r-pipes cloud-u-l8r-kay-vee cloud-u-l8r-admin-console 2>/dev/null || true
 	@echo "Stopping any remaining emulator containers..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|kay-vee\|admin-console" --quiet | xargs -r docker stop 2>/dev/null || true
 	@echo "Removing stray containers by name..."
-	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler pipes admin-console 2>/dev/null || true
+	@docker rm -f essthree ess-three cloudfauxnt ess-queue-ess ess-enn-ess drawbridge scheduler pipes kay-vee admin-console 2>/dev/null || true
 	@echo "Removing any remaining emulator containers by ID..."
-	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
+	@docker ps -a --filter "name=essthree\|ess-three\|cloudfauxnt\|ess-queue-ess\|ess-enn-ess\|drawbridge\|scheduler\|pipes\|kay-vee\|admin-console" --quiet | xargs -r docker rm -f 2>/dev/null || true
 	@echo "Removing stray volumes..."
 	@docker volume rm cloud-u-l8r_shared-volume 2>/dev/null || true
 	@echo "Removing shared network..."
 	@docker network rm cloud-u-l8r_shared-network 2>/dev/null || true
 	@echo "✅ Cleanup complete"
+
+# Full clean: clean + wipe all persisted service data and Terraform state
+full-clean: clean
+	@echo "Removing essthree data (S3 buckets/objects)..."
+	@sudo rm -rf services/essthree/data/*
+	@echo "Removing ess-queue-ess data..."
+	@sudo rm -rf services/ess-queue-ess/data/*
+	@echo "Removing ess-enn-ess data..."
+	@sudo rm -rf services/ess-enn-ess/data/*.db services/ess-enn-ess/data/*.log
+	@echo "Removing Terraform state from all configs..."
+	@find configs -name '.terraform' -type d -exec rm -rf {} + 2>/dev/null || true
+	@find configs -name '.terraform.lock.hcl' -delete 2>/dev/null || true
+	@find configs -name '*.tfstate' -delete 2>/dev/null || true
+	@find configs -name '*.tfstate.backup' -delete 2>/dev/null || true
+	@echo "✅ Full clean complete — all emulator data and Terraform state wiped"
 
 # Kill processes bound to service ports
 clean-ports:
@@ -134,6 +149,51 @@ restart-service:
 	@docker compose restart "$(SERVICE)"
 	@echo "✅ Service restarted: $(SERVICE)"
 
+# ============================================================
+# Terraform Config Management
+# ============================================================
+
+CONFIG ?=
+
+# Apply a named Terraform config against running services
+# Usage: make run-config CONFIG=default
+run-config:
+	@if [ -z "$(CONFIG)" ]; then \
+		echo "Usage: make run-config CONFIG=<config-name>"; \
+		echo "Available configs:"; \
+		ls -1 configs/ 2>/dev/null | grep -v '^\.' || echo "  (none found)"; \
+		exit 1; \
+	fi
+	@if [ ! -d "configs/$(CONFIG)" ]; then \
+		echo "Config '$(CONFIG)' not found in configs/"; \
+		exit 1; \
+	fi
+	@echo "Applying config: $(CONFIG)..."
+	cd configs/$(CONFIG) && terraform init -input=false && terraform apply -auto-approve
+	@echo "Config '$(CONFIG)' applied"
+
+# Initialize Terraform for a named config
+tf-init:
+	@if [ -z "$(CONFIG)" ]; then echo "Usage: make tf-init CONFIG=<config-name>"; exit 1; fi
+	cd configs/$(CONFIG) && terraform init
+
+# Plan changes for a named config
+tf-plan:
+	@if [ -z "$(CONFIG)" ]; then echo "Usage: make tf-plan CONFIG=<config-name>"; exit 1; fi
+	cd configs/$(CONFIG) && terraform plan
+
+# Destroy resources for a named config
+tf-destroy:
+	@if [ -z "$(CONFIG)" ]; then echo "Usage: make tf-destroy CONFIG=<config-name>"; exit 1; fi
+	cd configs/$(CONFIG) && terraform destroy -auto-approve
+
+# Full stack: start services, wait for health, apply default config
+stack: up
+	@echo "Waiting for services to become healthy..."
+	@./verify-stack.sh || true
+	@echo "Applying default Terraform config..."
+	@$(MAKE) run-config CONFIG=default
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -144,15 +204,24 @@ help:
 	@echo "  logs         - View logs from all services"
 	@echo "  status       - Show status of all Docker containers"
 	@echo "  test         - Run Go tests in all services"
-	@echo "  clean        - Remove containers, volumes, networks, and images (full reset)"
-	@echo "  clean-ports  - Kill processes using service ports (9300, 9310, 9320, 9330, 9999)"
+	@echo "  clean        - Remove containers, volumes, networks, and images"
+	@echo "  full-clean   - clean + wipe all service data and Terraform state"
+	@echo "  clean-ports  - Kill processes using service ports (9300, 9310, 9320, 9330, 9340, 9342, 9344, 9350, 9999)"
 	@echo "  stop-service - Stop one service (use SERVICE=<name> or positional name)"
 	@echo "  start-service - Start one service (use SERVICE=<name> or positional name)"
 	@echo "  restart-service - Restart one service (use SERVICE=<name> or positional name)"
 	@echo ""
+	@echo "Terraform config targets:"
+	@echo "  run-config   - Apply a named Terraform config (CONFIG=<name>)"
+	@echo "  tf-init      - Initialize Terraform for a config (CONFIG=<name>)"
+	@echo "  tf-plan      - Plan changes for a config (CONFIG=<name>)"
+	@echo "  tf-destroy   - Destroy resources for a config (CONFIG=<name>)"
+	@echo "  stack        - Start services + apply default config (full end-to-end)"
+	@echo ""
 	@echo "Common workflows:"
 	@echo "  make up              - Start fresh with latest code"
+	@echo "  make stack           - Start services and apply default Terraform config"
 	@echo "  make down            - Stop everything cleanly"
 	@echo "  make logs            - View container output"
-	@echo "  make clean && make up - Full reset and restart"
+	@echo "  make full-clean && make stack - Nuke everything and start fresh"
 	@echo "  make rebuild         - Force full rebuild (no cache)"

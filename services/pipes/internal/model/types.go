@@ -97,24 +97,24 @@ type CreatePipeRequest struct {
 
 // CreatePipeResponse is returned from POST /v1/pipes/{Name}.
 type CreatePipeResponse struct {
-	Arn              string `json:"Arn"`
-	CreationTime     string `json:"CreationTime"`
-	CurrentState     string `json:"CurrentState"`
-	DesiredState     string `json:"DesiredState"`
-	LastModifiedTime string `json:"LastModifiedTime"`
-	Name             string `json:"Name"`
+	Arn              string  `json:"Arn"`
+	CreationTime     float64 `json:"CreationTime"`
+	CurrentState     string  `json:"CurrentState"`
+	DesiredState     string  `json:"DesiredState"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
+	Name             string  `json:"Name"`
 }
 
 // DescribePipeResponse is returned from GET /v1/pipes/{Name}.
 type DescribePipeResponse struct {
 	Arn                  string            `json:"Arn"`
-	CreationTime         string            `json:"CreationTime"`
+	CreationTime         float64           `json:"CreationTime"`
 	CurrentState         string            `json:"CurrentState"`
 	Description          string            `json:"Description,omitempty"`
 	DesiredState         string            `json:"DesiredState"`
 	Enrichment           string            `json:"Enrichment,omitempty"`
 	EnrichmentParameters *EnrichParameters `json:"EnrichmentParameters,omitempty"`
-	LastModifiedTime     string            `json:"LastModifiedTime"`
+	LastModifiedTime     float64           `json:"LastModifiedTime"`
 	Name                 string            `json:"Name"`
 	RoleArn              string            `json:"RoleArn"`
 	Source               string            `json:"Source"`
@@ -138,22 +138,22 @@ type UpdatePipeRequest struct {
 
 // UpdatePipeResponse is returned from PUT /v1/pipes/{Name}.
 type UpdatePipeResponse struct {
-	Arn              string `json:"Arn"`
-	CreationTime     string `json:"CreationTime"`
-	CurrentState     string `json:"CurrentState"`
-	DesiredState     string `json:"DesiredState"`
-	LastModifiedTime string `json:"LastModifiedTime"`
-	Name             string `json:"Name"`
+	Arn              string  `json:"Arn"`
+	CreationTime     float64 `json:"CreationTime"`
+	CurrentState     string  `json:"CurrentState"`
+	DesiredState     string  `json:"DesiredState"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
+	Name             string  `json:"Name"`
 }
 
 // DeletePipeResponse is returned from DELETE /v1/pipes/{Name}.
 type DeletePipeResponse struct {
-	Arn              string `json:"Arn"`
-	CreationTime     string `json:"CreationTime"`
-	CurrentState     string `json:"CurrentState"`
-	DesiredState     string `json:"DesiredState"`
-	LastModifiedTime string `json:"LastModifiedTime"`
-	Name             string `json:"Name"`
+	Arn              string  `json:"Arn"`
+	CreationTime     float64 `json:"CreationTime"`
+	CurrentState     string  `json:"CurrentState"`
+	DesiredState     string  `json:"DesiredState"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
+	Name             string  `json:"Name"`
 }
 
 // ListPipesResponse is returned from GET /v1/pipes.
@@ -164,15 +164,15 @@ type ListPipesResponse struct {
 
 // PipeSummary is used in list responses.
 type PipeSummary struct {
-	Arn              string `json:"Arn"`
-	CreationTime     string `json:"CreationTime"`
-	CurrentState     string `json:"CurrentState"`
-	DesiredState     string `json:"DesiredState"`
-	Enrichment       string `json:"Enrichment,omitempty"`
-	LastModifiedTime string `json:"LastModifiedTime"`
-	Name             string `json:"Name"`
-	Source           string `json:"Source"`
-	Target           string `json:"Target"`
+	Arn              string  `json:"Arn"`
+	CreationTime     float64 `json:"CreationTime"`
+	CurrentState     string  `json:"CurrentState"`
+	DesiredState     string  `json:"DesiredState"`
+	Enrichment       string  `json:"Enrichment,omitempty"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
+	Name             string  `json:"Name"`
+	Source           string  `json:"Source"`
+	Target           string  `json:"Target"`
 }
 
 // ── Admin types ──

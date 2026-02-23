@@ -5,7 +5,12 @@
 ### Option 1: Docker Compose (Recommended)
 ```bash
 cd /home/tony/Documents/cloud-u-l8r
-docker-compose up -d
+
+# Start all services
+make up
+
+# Provision topics and subscriptions via Terraform
+make run-config CONFIG=default
 ```
 This starts all services including SNS, SQS, and admin dashboard.
 
@@ -13,12 +18,12 @@ This starts all services including SNS, SQS, and admin dashboard.
 ```bash
 # Terminal 1: Start SQS emulator
 cd /home/tony/Documents/cloud-u-l8r/services/ess-queue-ess
-docker-compose up
+PORT=9320 go run ./cmd/ess-queue-ess
 
 # Terminal 2: Build and start SNS emulator
 cd /home/tony/Documents/cloud-u-l8r/services/ess-enn-ess
 go build -o ess-enn-ess ./cmd/ess-enn-ess
-./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
+SQS_ENDPOINT=http://localhost:9320 ./ess-enn-ess
 ```
 
 ## Accessing Services
@@ -31,41 +36,33 @@ go build -o ess-enn-ess ./cmd/ess-enn-ess
 
 ## Configuration
 
-Configuration is centralized in `/config/ess-enn-ess.config.yaml` (mounted read-only in containers).
+Configuration is via environment variables. All settings have sensible defaults.
 
-### Configurable Settings
+### Environment Variables
 
-```yaml
-sqs:
-  enabled: true
-  endpoint: "http://ess-queue-ess:9320"
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_PORT` | `9330` | SNS API port |
+| `ADMIN_PORT` | `9331` | Admin dashboard port |
+| `HOST` | `0.0.0.0` | Bind address |
+| `REGION` | `us-east-1` | AWS region for ARN generation |
+| `ACCOUNT_ID` | `123456789012` | AWS account ID for ARN generation |
+| `SQS_ENDPOINT` | `http://ess-queue-ess:9320` | SQS emulator endpoint |
+| `SQS_ENABLED` | `true` | Enable/disable SQS integration |
+| `AUTO_CONFIRM_SUBSCRIPTIONS` | `true` | Auto-confirm subscriptions (dev mode) |
 
-http:
-  enabled: true
-  max_retries: 3
-  retry_backoff_ms: 100
+### Provisioning Topics and Subscriptions
 
-admin:
-  enabled: true
+Topics and subscriptions are provisioned via Terraform:
 
-storage:
-  activity_log_size: 10000
-
-aws:
-  account_id: "123456789012"
-  region: "us-east-1"
+```bash
+# From the repository root
+make run-config CONFIG=default
 ```
 
-### State Export & Restore
+### State Export
 
-The admin dashboard (`/api/export`) creates a complete YAML backup including:
-- Configuration settings
-- All created topics
-- All subscriptions with full state
-
-**To export:** Admin Dashboard → Export/Import tab → "Download Export"
-
-**To restore:** Replace config file with exported YAML and restart the service.
+The admin dashboard (`/api/export`) creates a YAML snapshot of current topics and subscriptions, useful for debugging and inspection.
 
 ## Key Endpoints
 
@@ -182,26 +179,19 @@ cd /home/tony/Documents/cloud-u-l8r/services/ess-enn-ess
 - Filter subscriptions by topic ARN
 - Filter activities by topic, event type, or status
 
-## Configuration
+## Configuration (Environment Variables)
 
-Edit `../../config/ess-enn-ess.config.yaml`:
-
-```yaml
-server:
-  api_port: 9330       # SNS API port
-  admin_port: 9331     # Admin dashboard port
-  host: "0.0.0.0"
-
-sqs:
-  enabled: true
-  endpoint: "http://ess-queue-ess:9320"  # SQS emulator endpoint
-
-delivery:
-  http:
-    max_retries: 3
-    backoff_initial_ms: 100
-    backoff_max_ms: 10000
-    backoff_multiplier: 2
+```bash
+# Example: run with custom settings
+API_PORT=9330 \
+ADMIN_PORT=9331 \
+HOST=0.0.0.0 \
+SQS_ENABLED=true \
+SQS_ENDPOINT=http://ess-queue-ess:9320 \
+REGION=us-east-1 \
+ACCOUNT_ID=123456789012 \
+AUTO_CONFIRM_SUBSCRIPTIONS=true \
+./ess-enn-ess
 ```
 
 ## Development Commands
@@ -214,8 +204,8 @@ go build -o ess-enn-ess ./cmd/ess-enn-ess
 # Run tests
 go test ./...
 
-# Run with specific config
-./ess-enn-ess -config config/custom.yaml
+# Run with custom env vars
+API_PORT=9330 ADMIN_PORT=9331 SQS_ENDPOINT=http://localhost:9320 ./ess-enn-ess
 
 # View logs (if running in foreground)
 # Logs include: topic operations, subscriptions, publish, delivery, retries
@@ -240,8 +230,9 @@ kill -9 <PID>
 
 ### SQS delivery not working
 1. Verify ess-queue-ess is running: `curl http://localhost:9320/health`
-2. Check config has: `sqs.endpoint: "http://ess-queue-ess:9320"`
-3. Review activity log for delivery errors
+2. Check that `SQS_ENDPOINT` env var points to the correct SQS emulator address
+3. Verify `SQS_ENABLED` is not set to `false`
+4. Review activity log for delivery errors
 
 ### Dashboard not loading
 1. Verify admin server running: `curl http://localhost:9331/health`
@@ -269,9 +260,7 @@ ess-enn-ess/
 │   ├── admin/              # Admin dashboard
 │   │   ├── admin.go        # Backend API
 │   │   └── dashboard.go    # HTML UI
-│   └── config/             # Configuration
-├── config/
-│   └── config.example.yaml # Example config (central config lives in ../../config)
+│   └── config/             # Configuration (env var-based)
 ├── test_*.sh               # Test scripts
 └── README.md               # Documentation
 ```

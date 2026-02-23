@@ -34,12 +34,17 @@ openssl rsa -in public.pem -pubin -text -noout
 
 1. Generate keys using the commands above
 2. Place `public.pem` in this directory
-3. Update `config/cloudfauxnt.config.yaml` with the correct `public_key_path` and `key_pair_id`
+3. Set the `SIGNING_PUBLIC_KEY_PATH` and `SIGNING_KEY_PAIR_ID` environment variables to point to the public key and identify the key pair:
+   ```bash
+   export SIGNING_ENABLED=true
+   export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+   export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
+   ```
 4. Keep `private.pem` in your application code for generating signed URLs
 
 ## CloudFront Key Pair ID
 
-The `key_pair_id` in the config should match the identifier used when generating signed URLs. For local development, you can use any identifier (e.g., "APKAJEXAMPLE123456"), but ensure it matches between your signing code and CloudFauxnt configuration.
+The `SIGNING_KEY_PAIR_ID` environment variable should match the identifier used when generating signed URLs. For local development, you can use any identifier (e.g., "APKAJEXAMPLE123456"), but ensure it matches between your signing code and CloudFauxnt configuration.
 
 ## Example: Generating a Signed URL (Python)
 

@@ -9,28 +9,32 @@ Get Ess-Queue-Ess running in under 5 minutes.
 
 ## Quick Start with Docker
 
-1. **Clone and start**:
+1. **Start the stack**:
    ```bash
-   git clone https://github.com/tonyellard/ess-queue-ess.git
-   cd ess-queue-ess
-   docker compose up -d
+   cd /path/to/cloud-u-l8r
+   make up
    ```
 
-2. **Verify it's running**:
+2. **Provision queues via Terraform**:
+   ```bash
+   make run-config CONFIG=default
+   ```
+
+3. **Verify it's running**:
    ```bash
    curl http://localhost:9320/health
    # Should return: {"status":"healthy"}
    ```
 
-3. **Open the Admin UI**:
-   Open your browser to `http://localhost:9320/admin` to see the web interface with pre-configured queues from the example config.
+4. **Open the Admin UI**:
+   Open your browser to `http://localhost:9320/admin` to see the web interface.
 
-4. **Create your first queue** (using AWS CLI):
+5. **Create your first queue** (using AWS CLI):
    ```bash
    aws sqs create-queue --queue-name my-first-queue --endpoint-url http://localhost:9320
    ```
 
-5. **Send a message**:
+6. **Send a message**:
    ```bash
    aws sqs send-message \
      --queue-url http://localhost:9320/my-first-queue \
@@ -38,14 +42,14 @@ Get Ess-Queue-Ess running in under 5 minutes.
      --endpoint-url http://localhost:9320
    ```
 
-6. **Receive the message**:
+7. **Receive the message**:
    ```bash
    aws sqs receive-message \
      --queue-url http://localhost:9320/my-first-queue \
      --endpoint-url http://localhost:9320
    ```
 
-7. **View in Admin UI**: Refresh the admin page to see your new queue and message!
+8. **View in Admin UI**: Refresh the admin page to see your new queue and message!
 
 ## Using the Admin UI for Queue Management
 
@@ -71,20 +75,15 @@ The admin UI at `http://localhost:9320/admin` provides a visual way to manage qu
 2. Click "**🗑 Delete**" button
 3. Confirm deletion
 
-### Export Configuration
-1. Click "**⬇ Export Config**" button
-2. Download your config file (ess-queue-ess.config.yaml) with your current queue setup
-3. Use this file to bootstrap queues on next startup
-
-This workflow lets you set up queues visually, then export the configuration for consistent deployments!
+For consistent, reproducible queue setups, use Terraform provisioning (`make run-config CONFIG=default`) from the repository root.
 
 ## Quick Start with Go
 
-1. **Clone, build, and run**:
+1. **Build and run**:
    ```bash
-   git clone https://github.com/tonyellard/ess-queue-ess.git
-   cd ess-queue-ess
-   make run
+   cd services/ess-queue-ess
+   go build -o ess-queue-ess ./cmd/ess-queue-ess
+   PORT=9320 ./ess-queue-ess
    ```
 
 2. **Open Admin UI**: Visit `http://localhost:9320/admin` in your browser
@@ -104,29 +103,16 @@ This workflow lets you set up queues visually, then export the configuration for
      -d "Action=ReceiveMessage&QueueUrl=http://localhost:9320/test-queue&MaxNumberOfMessages=10"
    ```
 
-## Bootstrap Queues with Configuration
+## Provisioning Queues
 
-1. **Create a central config file**:
-   ```bash
-   make config  # Creates ../../config/ess-queue-ess.config.yaml
-   ```
+Queues are provisioned via Terraform rather than YAML config files:
 
-2. **Edit config/ess-queue-ess.config.yaml** to define your queues:
-   ```yaml
-   queues:
-     - name: "my-app-queue"
-       visibility_timeout: 30
-       message_retention_period: 345600
-   ```
+```bash
+# From the repository root
+make run-config CONFIG=default
+```
 
-3. **Run with config**:
-   ```bash
-   make run-with-config
-   # OR
-   docker compose up -d  # Config is auto-mounted from ../../config
-   ```
-
-Your queues will be created automatically on startup!
+You can also create queues at runtime using the SQS API or the Admin UI.
 
 ## Using with Your Application
 

@@ -20,7 +20,7 @@ dotnet run
 ## What You'll See
 
 1. **Health Check** - Verifies CloudFauxnt is running
-2. **Unsigned Request** - Directly access files via path rewriting
+2. **Unsigned Request** - Directly access files via path forwarding
 3. **Signed URL** - Generate and use time-limited signed URLs
 4. **Signed Cookies** - Generate and use session cookies with CloudFront signing
 
@@ -93,18 +93,17 @@ var signer = new CloudFrontSigner(privateKeyPath, keyPairId);
 
 ```
 Cloudfauxnt/
-├── docker-compose.yml          (CloudFauxnt container)
-├── config.yaml                 (CloudFauxnt config)
+├── docker-compose.yml          (CloudFauxnt container, env var config)
 ├── keys/
 │   ├── private.pem            (2048-bit RSA key)
 │   └── public.pem             (Public key for signing)
-├── dotnet-example/            ← NEW
+├── dotnet-example/
 │   ├── CloudFauxntExample.csproj
 │   ├── CloudFrontSigner.cs
 │   ├── Program.cs
 │   ├── README.md
 │   └── .gitignore
-├── README.md                   (updated with example link)
+├── README.md
 └── QUICKSTART.md
 ```
 
@@ -115,7 +114,7 @@ Cloudfauxnt/
 | Connection refused | `docker ps` to verify services are running |
 | Private key not found | Run `cd ../keys && openssl genrsa -out private.pem 2048` |
 | Signing fails | Verify `../keys/private.pem` is readable and valid |
-| Path rewriting not working | Check `strip_prefix` and `target_prefix` in `config.yaml` |
+| Path routing not working | Check `path_patterns` in the `ORIGINS` env var |
 
 ## Build & Publish
 
@@ -161,7 +160,7 @@ The example integrates with:
 ## Security Considerations
 
 ⚠️ **Development Only:**
-- CORS set to `["*"]` in config - restrict in production
+- CORS set to `["*"]` by default - restrict in production
 - Signing disabled by default - enable with valid keys
 - HTTP endpoints - use HTTPS in production
 
@@ -177,4 +176,3 @@ The example integrates with:
 - [CloudFauxnt README](../README.md) - Full CloudFauxnt documentation
 - [CloudFauxnt QUICKSTART](../QUICKSTART.md) - Setup guide
 - [keys/README.md](../keys/README.md) - RSA key generation
-- [config.example.yaml](../config.example.yaml) - Configuration reference

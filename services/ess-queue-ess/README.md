@@ -17,7 +17,7 @@ Ess-Queue-Ess provides a local AWS Simple Queue Service (SQS) emulator that impl
 - **Queue Attributes**: Get and monitor queue statistics (message counts, visibility settings)
 - **Message Management**: Visibility timeout, message retention, delay delivery
 - **Web Admin UI**: Browser-based interface to inspect queues and messages in real-time
-- **Configuration Bootstrap**: Define queues in YAML config to auto-create on startup
+- **Terraform Provisioning**: Queues are provisioned via Terraform for reproducible setups
 - **Multi-SDK Support**: Compatible with AWS CLI, Python boto3, .NET AWS SDK, and other AWS SDKs
 - **Dual Protocol Support**: Handles both JSON (AWS CLI v2) and Query (XML) protocols
 - **Docker Support**: Run as a containerized service with docker-compose
@@ -43,7 +43,6 @@ See [QUICKSTART.md](QUICKSTART.md) for a quick getting started guide.
 ## Documentation
 
 - **[FIFO Queues and Dead Letter Queues](docs/FIFO_AND_DLQ.md)** - Complete guide to FIFO queues, DLQ, and message redrive
-- **[Configuration Bootstrap](docs/CONFIGURATION.md)** - Auto-create queues from YAML config (if exists)
 - **[Admin UI Guide](docs/ADMIN_UI.md)** - Web interface documentation (if exists)
 
 ## Installation
@@ -51,9 +50,13 @@ See [QUICKSTART.md](QUICKSTART.md) for a quick getting started guide.
 ### Using Docker (Recommended)
 
 ```bash
-git clone https://github.com/tonyellard/ess-queue-ess.git
-cd ess-queue-ess
-docker compose up -d
+cd /path/to/cloud-u-l8r
+
+# Start the full stack
+make up
+
+# Provision queues via Terraform
+make run-config CONFIG=default
 ```
 
 The service will be available at `http://localhost:9320`
@@ -61,10 +64,9 @@ The service will be available at `http://localhost:9320`
 ### Using Go
 
 ```bash
-git clone https://github.com/tonyellard/ess-queue-ess.git
-cd ess-queue-ess
-make build
-make run
+cd services/ess-queue-ess
+go build -o ess-queue-ess ./cmd/ess-queue-ess
+PORT=9320 ./ess-queue-ess
 ```
 
 ## Shared Networking
@@ -196,7 +198,6 @@ The admin interface provides:
   - Set max receive count for DLQ behavior
   - Delete queues with confirmation dialog
   - Send test messages to any queue
-  - Export current queue configuration as YAML
 - **Queue inspection**:
   - List of all queues with message counts
   - Expandable view to inspect message contents
@@ -211,49 +212,27 @@ The admin UI uses the following REST API endpoints (also available for programma
 - `POST /admin/api/queue` - Create a new queue
 - `DELETE /admin/api/queue?name={name}` - Delete a queue
 - `POST /admin/api/message` - Send a test message to a queue
-- `GET /admin/api/config/export` - Download current queue configuration as YAML
 
 ## Configuration
 
-### Bootstrap Queues with YAML
-
-Create queues automatically on startup using a configuration file:
-
-1. **Create central config** (or use the example):
-  ```bash
-  make config  # Creates ../../config/ess-queue-ess.config.yaml
-  ```
-
-2. **Edit config/ess-queue-ess.config.yaml**:
-   ```yaml
-   server:
-     port: 9320
-     host: "0.0.0.0"
-
-   queues:
-     - name: "my-app-queue"
-       visibility_timeout: 30
-       message_retention_period: 345600  # 4 days
-       maximum_message_size: 262144      # 256KB
-       delay_seconds: 0
-       receive_message_wait_time: 0
-   ```
-
-3. **Run with config**:
-   ```bash
-   # Using Go
-   make run-with-config
-   
-   # Or directly
-  ./ess-queue-ess --config ../../config/ess-queue-ess.config.yaml
-   
-  # Docker (central config is auto-mounted)
-   docker compose up -d
-   ```
-
 ### Environment Variables
 
-- `PORT`: Server port (default: 9320)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `9320` | Server port |
+
+No config file is needed. The service starts with zero configuration and queues are provisioned at runtime.
+
+### Provisioning Queues
+
+Queues are provisioned via Terraform rather than YAML bootstrap:
+
+```bash
+# From the repository root
+make run-config CONFIG=default
+```
+
+This creates the standard set of queues defined in the Terraform configuration. You can also create queues at runtime using the SQS API or the Admin UI.
 
 ### Docker Compose
 
@@ -265,9 +244,6 @@ services:
       - "9320:9320"
     environment:
       - PORT=9320
-    volumes:
-      - ../../config:/app/config:ro
-    command: ["./ess-queue-ess", "--config", "/app/config/ess-queue-ess.config.yaml"]
 ```
 
 ## Makefile Commands
@@ -276,8 +252,6 @@ services:
 make help              # Show all available commands
 make build             # Build the Go binary
 make run               # Run locally
-make run-with-config   # Run with central config
-make config            # Create ../../config/ess-queue-ess.config.yaml
 make test              # Run unit tests
 make docker-build      # Build Docker image
 make docker-run        # Start with docker-compose

@@ -12,15 +12,16 @@ CloudFauxnt is a CloudFront emulator that adds CloudFront-like features to your 
 
 ## Quick Start (3 Steps)
 
-### 1. Create Configuration
+### 1. Configure Environment
+
+Set the required environment variables. You can do this in your shell, in a `.env` file, or in your `docker-compose.yml`:
 
 ```bash
-# Copy the example config into the central config directory
-mkdir -p ../../config
-cp config.example.yaml ../../config/cloudfauxnt.config.yaml
+export PORT=9310
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"]}]'
 ```
 
-The default config proxies to `http://ess-three:9000` with path rewriting: `/s3/*` → `/test-bucket/*`
+The default configuration proxies requests matching `/test-bucket/*` directly to `http://essthree:9300`.
 
 ### 2. Run Both Services in Docker
 
@@ -51,42 +52,35 @@ docker ps
 curl http://localhost:9310/health
 # Should return: {"status":"healthy","service":"cloudfauxnt"}
 
-# Test proxy with path rewriting
-curl http://localhost:9310/s3/MyTestFile.txt
-# This proxies to: http://ess-three:9000/test-bucket/MyTestFile.txt
+# Test proxy with direct path forwarding
+curl http://localhost:9310/test-bucket/MyTestFile.txt
+# This proxies to: http://essthree:9300/test-bucket/MyTestFile.txt
 ```
 
 ## Configuration Basics
 
-Edit `config/cloudfauxnt.config.yaml` to customize CloudFauxnt's behavior:
+Configure CloudFauxnt's behavior via environment variables:
 
-```yaml
-server:
-  port: 9310  # CloudFauxnt listens on this port
-  # Optional: serve this object when requesting "/"
-  default_root_object: "index.html"
-  
-origins:
-  - name: s3
-    url: http://ess-three:9000  # ess-three service name (Docker)
-    path_patterns:
-      - "/s3/*"         # Match paths starting with /s3/
-    strip_prefix: "/s3"      # Remove /s3 from the path
-    target_prefix: "/test-bucket"  # Add /test-bucket to the path
-      
-cors:
-  enabled: true
-  allowed_origins: ["*"]  # Allow all origins (dev only!)
-  
-signing:
-  enabled: false  # Set to true to enable CloudFront signing
+```bash
+# Server settings
+export PORT=9310
+export HOST=0.0.0.0
+
+# Origins (JSON array)
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"],"default_root_object":"index.html"}]'
+
+# CORS
+export CORS_ENABLED=true
+
+# Signing (disabled by default)
+export SIGNING_ENABLED=false
 ```
 
-**Path Rewriting Example:**
+**Path Forwarding Example:**
 ```
-Request:  http://localhost:9310/s3/MyTestFile.txt
-Stripped: /MyTestFile.txt
-Result:   http://ess-three:9000/test-bucket/MyTestFile.txt
+Request:  http://localhost:9310/test-bucket/MyTestFile.txt
+Matches:  /test-bucket/*
+Proxied:  http://essthree:9300/test-bucket/MyTestFile.txt
 ```
 
 ## Running Separate Containers
@@ -128,7 +122,7 @@ docker network connect shared-network ess-three
 docker network connect shared-network ess-queue-ess
 docker network connect shared-network cloudfauxnt
 ```
-- CloudFauxnt config uses: `http://ess-three:9000` (runs in Docker)
+- CloudFauxnt ORIGINS env var uses: `http://essthree:9300` (runs in Docker)
 
 ## Running Locally (No Docker)
 
@@ -144,18 +138,9 @@ cd /path/to/ess-three
 ```bash
 cd /path/to/CloudFauxnt
 go build -o cloudfauxnt .
-./cloudfauxnt --config ../../config/cloudfauxnt.config.yaml
-```
-
-**Update config/cloudfauxnt.config.yaml:**
-```yaml
-origins:
-  - name: s3
-    url: http://127.0.0.1:9000  # Use IPv4 address
-    path_patterns:
-      - "/s3/*"
-    strip_prefix: "/s3"
-    target_prefix: "/test-bucket"
+export PORT=9310
+export ORIGINS='[{"name":"s3","url":"http://127.0.0.1:9300","path_patterns":["/test-bucket/*"]}]'
+./cloudfauxnt
 ```
 
 ## Next Steps
@@ -170,18 +155,11 @@ origins:
    cd ..
    ```
 
-2. **Update config/cloudfauxnt.config.yaml:**
-   ```yaml
-   signing:
-     enabled: true
-     key_pair_id: "APKAJEXAMPLE123456"
-     public_key_path: "/app/keys/public.pem"  # Path inside Docker container
-     
-     # Optional: Configure token behavior
-     token_options:
-       clock_skew_seconds: 30          # Allow 30-second time tolerance
-       default_url_ttl_seconds: 3600   # 1-hour default TTL
-       default_cookie_ttl_seconds: 86400  # 24-hour default TTL
+2. **Set signing environment variables:**
+   ```bash
+   export SIGNING_ENABLED=true
+   export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+   export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem  # Path inside Docker container
    ```
 
 3. **Rebuild and restart CloudFauxnt:**
@@ -194,79 +172,42 @@ origins:
 4. **Generate and test a signed URL:**
    See [keys/README.md](keys/README.md) for Python example
 
-**Token Options Explained:**
-- `clock_skew_seconds` - Time tolerance for distributed systems where clocks differ slightly
-- `default_url_ttl_seconds` - Default expiration time for signed URLs
-- `default_cookie_ttl_seconds` - Default expiration time for signed cookies
-
 ### Add Multiple Origins
 
-```yaml
-origins:
-  - name: s3
-    url: http://localhost:9000
-    path_patterns:
-      - "/s3/*"
-      - "/buckets/*"
-      
-  - name: api
-    url: https://api.example.com
-    path_patterns:
-      - "/api/*"
-      
-  - name: default
-    url: http://localhost:3000
-    path_patterns:
-      - "/*"  # Catch-all
+```bash
+export ORIGINS='[
+  {"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*","/other-bucket/*"]},
+  {"name":"api","url":"https://api.example.com","path_patterns":["/api/*"]},
+  {"name":"default","url":"http://localhost:3000","path_patterns":["/*"]}
+]'
 ```
 
-Requests to `/api/users` go to `api.example.com`, `/s3/bucket/key` goes to S3, everything else goes to localhost:3000.
+Requests to `/api/users` go to `api.example.com`, `/test-bucket/key` goes to S3, everything else goes to localhost:3000.
 
 ### Mixed Security Levels (Per-Origin Signatures)
 
-When `signing.enabled: true`, you can allow unsigned access to specific origins:
+When `SIGNING_ENABLED=true`, you can allow unsigned access to specific origins:
 
-```yaml
-signing:
-  enabled: true
-  # ... other settings ...
+```bash
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
 
-origins:
-  - name: public-files
-    url: http://ess-three:9000
-    path_patterns: ["/public/*"]
-    require_signature: false   # Allow unsigned downloads
-  
-  - name: premium-content
-    url: http://ess-three:9000
-    path_patterns: ["/premium/*"]
-    require_signature: true    # Always require signed URLs/cookies
-  
-  - name: temp-downloads
-    url: http://ess-three:9000
-    path_patterns: ["/temp/*"]
-    # Omit require_signature - inherits global signing.enabled
+export ORIGINS='[
+  {"name":"public-files","url":"http://essthree:9300","path_patterns":["/public/*"],"require_signature":false},
+  {"name":"premium-content","url":"http://essthree:9300","path_patterns":["/premium/*"],"require_signature":true},
+  {"name":"temp-downloads","url":"http://essthree:9300","path_patterns":["/temp/*"]}
+]'
 ```
 
-Now `/public/file.txt` works unsigned, but `/premium/file.txt` requires a signature.
+Now `/public/file.txt` works unsigned, but `/premium/file.txt` requires a signature. `/temp/*` inherits the global `SIGNING_ENABLED` setting.
 
 ### Configure CORS
 
-```yaml
-cors:
-  enabled: true
-  allowed_origins:
-    - "http://localhost:3000"
-    - "https://app.example.com"
-  allowed_methods:
-    - "GET"
-    - "POST"
-    - "PUT"
-    - "DELETE"
-  allowed_headers:
-    - "Content-Type"
-    - "Authorization"
-  max_age: 3600
+Enable CORS via the `CORS_ENABLED` environment variable:
+
+```bash
+export CORS_ENABLED=true
 ```
 
 ## Troubleshooting
@@ -278,7 +219,7 @@ cors:
 
 ### "No origin found for path"
 
-- Check your `path_patterns` in config/cloudfauxnt.config.yaml
+- Check your `path_patterns` in the `ORIGINS` env var
 - Patterns match longest-first
 - Use `/*` as a catch-all
 
@@ -287,14 +228,13 @@ cors:
 - Verify `key_pair_id` matches between config and signing code
 - Check expiration time is in the future
 - Ensure public key is valid: `openssl rsa -in keys/public.pem -pubin -text`
-- If you see "signature expired" errors from distributed systems, increase `clock_skew_seconds` in `token_options`
 - Check system time is synchronized: `date` should show correct time
 
 ### CORS errors in browser
 
 - Check `allowed_origins` includes your app's origin
 - Use `["*"]` for development
-- Verify CORS is enabled in config
+- Verify `CORS_ENABLED=true` is set
 
 ## Example: Full Stack with ess-three
 
@@ -303,10 +243,10 @@ cors:
 version: '3.8'
 
 services:
-  ess-three:
+  essthree:
     image: essthree:latest
     ports:
-      - "9000:9000"
+      - "9300:9300"
     volumes:
       - ./data:/data
     networks:
@@ -316,11 +256,14 @@ services:
     build: .
     ports:
       - "9310:9310"
+    environment:
+      PORT: "9310"
+      ORIGINS: '[{"name":"s3","url":"http://essthree:9300","path_patterns":["/*"]}]'
+      CORS_ENABLED: "true"
     volumes:
-      - ../../config:/app/config:ro
       - ./keys:/app/keys:ro
     depends_on:
-      - ess-three
+      - essthree
     networks:
       - app
 
@@ -328,19 +271,18 @@ networks:
   app:
 ```
 
-Then your apps connect to `http://localhost:9310` instead of `http://localhost:9000`.
+Then your apps connect to `http://localhost:9310` instead of `http://localhost:9300`.
 
 ## More Resources
 
 - [Full README](README.md) - Detailed documentation
 - [keys/README.md](keys/README.md) - Signing key generation and usage
 - [test/README.md](test/README.md) - Testing guide
-- [config.example.yaml](config.example.yaml) - Annotated configuration
 
 ## Getting Help
 
 - Check logs: `docker compose logs cloudfauxnt` or `journalctl -u cloudfauxnt`
 - Test health: `curl http://localhost:9310/health`
-- Verify config: `./cloudfauxnt --config ../../config/cloudfauxnt.config.yaml` (will show validation errors)
+- Verify environment: ensure `ORIGINS` is set and contains valid JSON
 
 Happy coding! 🎉

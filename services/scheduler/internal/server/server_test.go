@@ -264,3 +264,111 @@ func TestUnsupportedTarget(t *testing.T) {
 		t.Errorf("expected 400 for unknown target, got %d", rr.Code)
 	}
 }
+
+// --- REST API tests (Terraform provider protocol) ---
+
+func TestREST_CreateAndGetScheduleGroup(t *testing.T) {
+	handler := newTestHandler()
+
+	// Create group via REST
+	req := httptest.NewRequest(http.MethodPost, "/schedule-groups/rest-group", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create group REST: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var createResp struct {
+		ScheduleGroupArn string `json:"ScheduleGroupArn"`
+	}
+	json.NewDecoder(rr.Body).Decode(&createResp)
+	if createResp.ScheduleGroupArn == "" {
+		t.Error("expected non-empty ScheduleGroupArn")
+	}
+
+	// Get group via REST
+	req = httptest.NewRequest(http.MethodGet, "/schedule-groups/rest-group", nil)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get group REST: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var getResp map[string]any
+	json.NewDecoder(rr.Body).Decode(&getResp)
+	if getResp["Name"] != "rest-group" {
+		t.Errorf("expected name rest-group, got %v", getResp["Name"])
+	}
+	// Verify timestamps are epoch numbers, not strings
+	if _, ok := getResp["CreationDate"].(float64); !ok {
+		t.Errorf("expected CreationDate to be a number, got %T", getResp["CreationDate"])
+	}
+}
+
+func TestREST_CreateAndGetSchedule(t *testing.T) {
+	handler := newTestHandler()
+
+	// Create schedule via REST
+	body, _ := json.Marshal(map[string]any{
+		"ScheduleExpression": "rate(5 minutes)",
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+		"Target": map[string]string{
+			"Arn":     "arn:aws:sqs:us-east-1:000000000000:my-queue",
+			"RoleArn": "arn:aws:iam::000000000000:role/role",
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/schedules/rest-sched", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create schedule REST: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Get schedule via REST
+	req = httptest.NewRequest(http.MethodGet, "/schedules/rest-sched", nil)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get schedule REST: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var sched map[string]any
+	json.NewDecoder(rr.Body).Decode(&sched)
+	if sched["Name"] != "rest-sched" {
+		t.Errorf("expected name rest-sched, got %v", sched["Name"])
+	}
+	if _, ok := sched["CreationDate"].(float64); !ok {
+		t.Errorf("expected CreationDate to be a number, got %T", sched["CreationDate"])
+	}
+}
+
+func TestREST_DeleteScheduleGroup(t *testing.T) {
+	handler := newTestHandler()
+
+	// Create
+	req := httptest.NewRequest(http.MethodPost, "/schedule-groups/to-delete", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	// Delete
+	req = httptest.NewRequest(http.MethodDelete, "/schedule-groups/to-delete", nil)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("delete group REST: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify gone
+	req = httptest.NewRequest(http.MethodGet, "/schedule-groups/to-delete", nil)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", rr.Code)
+	}
+}

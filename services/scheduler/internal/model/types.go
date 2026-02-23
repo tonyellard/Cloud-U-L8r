@@ -5,10 +5,11 @@ import "time"
 
 // ScheduleGroup represents a schedule group.
 type ScheduleGroup struct {
-	Name         string    `json:"Name"`
-	Arn          string    `json:"Arn"`
-	State        string    `json:"State"`
-	CreationDate time.Time `json:"CreationDate"`
+	Name                 string    `json:"Name"`
+	Arn                  string    `json:"Arn"`
+	State                string    `json:"State"`
+	CreationDate         time.Time `json:"CreationDate"`
+	LastModificationDate time.Time `json:"LastModificationDate,omitempty"`
 }
 
 // Schedule represents a single schedule.

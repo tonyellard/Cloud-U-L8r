@@ -217,26 +217,20 @@ foreach (var cookie in cookies)
 // CloudFront-Key-Pair-Id: APKAJEXAMPLE123456
 ```
 
-## How Path Rewriting Works
+## How Path Routing Works
 
-CloudFauxnt uses the configuration to rewrite paths before proxying to the backend:
+CloudFauxnt matches incoming request paths against origin path patterns and forwards them directly to the backend without any path rewriting. Origins are configured via the `ORIGINS` environment variable (a JSON array):
 
-```yaml
-origins:
-  - name: s3
-    url: http://essthree:9300
-    path_patterns: ["/s3/*"]
-    strip_prefix: "/s3"
-    target_prefix: "/test-bucket"
+```bash
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"]}]'
 ```
 
-When you request `/s3/MyTestFile.txt`:
+When you request `/test-bucket/MyTestFile.txt`:
 
-1. CloudFauxnt matches `/s3/*` pattern
-2. Strips `/s3` → `/MyTestFile.txt`
-3. Adds `/test-bucket` → `/test-bucket/MyTestFile.txt`
-4. Proxies to `http://essthree:9300/test-bucket/MyTestFile.txt`
-5. ess-three serves the file from its storage
+1. CloudFauxnt matches the `/test-bucket/*` pattern
+2. Forwards the full path `/test-bucket/MyTestFile.txt` to the origin
+3. Proxies to `http://essthree:9300/test-bucket/MyTestFile.txt`
+4. ess-three serves the file from its storage
 
 ## Building and Running
 
@@ -316,64 +310,33 @@ CLOUDFAUXNT_KEY_PAIR_ID="APKAIJRANDOMSTRING123" dotnet run
 **Symptom:** Signed URL works when generated but CloudFauxnt rejects it
 
 **Solutions:**
-- Verify CloudFauxnt has signing enabled in `config.yaml`:
-  ```yaml
-  signing:
-    enabled: true
-    key_pair_id: "APKAJEXAMPLE123456"
-    public_key_path: "/app/keys/public.pem"
-    token_options:
-      clock_skew_seconds: 30          # Allow 30-second time tolerance
-      default_url_ttl_seconds: 3600   # 1 hour default
+- Verify CloudFauxnt has signing enabled via environment variables:
+  ```bash
+  export SIGNING_ENABLED=true
+  export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+  export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
   ```
-- Verify the key pair ID matches between the signer and CloudFauxnt config
+- Verify the key pair ID matches between the signer and CloudFauxnt configuration
 - Verify the expiration time is in the future (check system clock)
-- If clock difference is large (>30 seconds), increase `clock_skew_seconds` in token_options
+- If clock difference is large (>30 seconds), check your server's token options configuration
 - Check CloudFauxnt logs: `docker logs cloudfauxnt -f`
 
 ## Integration with CloudFauxnt Config
 
 The example uses the default CloudFauxnt configuration. To customize:
 
-### 1. Update CloudFauxnt Config
+### 1. Update CloudFauxnt Environment Variables
 
-Edit `/path/to/CloudFauxnt/config.yaml`:
+Set environment variables for CloudFauxnt (e.g., in your `docker-compose.yml` or shell):
 
-```yaml
-server:
-  port: 9310
-
-origins:
-  - name: s3
-    url: http://essthree:9300
-    path_patterns: ["/s3/*"]
-    strip_prefix: "/s3"
-    target_prefix: "/test-bucket"
-
-signing:
-  enabled: true
-  key_pair_id: "APKAJEXAMPLE123456"
-  public_key_path: "/app/keys/public.pem"
-  
-  # Token options affect signature validation
-  token_options:
-    # Clock skew tolerance (recommended: 30-60 seconds)
-    # Allows for clock differences in distributed systems
-    clock_skew_seconds: 30
-    
-    # Default TTL for signed URLs (1 hour)
-    # Can be overridden per-URL in client code
-    default_url_ttl_seconds: 3600
-    
-    # Default TTL for signed cookies (24 hours)
-    # Can be overridden per-request in client code
-    default_cookie_ttl_seconds: 86400
+```bash
+export PORT=9310
+export HOST=0.0.0.0
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"]}]'
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
 ```
-
-**Token Options Impact:**
-- If you see "signature expired" errors, check the system clock difference and increase `clock_skew_seconds`
-- The `default_url_ttl_seconds` is informational; clients set their own expiration via the `DateTime` parameter
-- The `default_cookie_ttl_seconds` is informational; clients set their own expiration via the `DateTime` parameter
 
 ### 2. Update the Example
 
@@ -381,8 +344,8 @@ Modify `Program.cs` to use your configuration:
 
 ```csharp
 var cloudfauxntUrl = "http://localhost:9310";
-var keyPairId = "APKAJEXAMPLE123456";  // Match config.yaml
-var resourcePath = "/s3/MyTestFile.txt";
+var keyPairId = "APKAJEXAMPLE123456";  // Match SIGNING_KEY_PAIR_ID env var
+var resourcePath = "/test-bucket/MyTestFile.txt";
 ```
 
 ### 3. Restart CloudFauxnt
@@ -397,7 +360,6 @@ docker compose restart cloudfauxnt
 - [CloudFauxnt README](../README.md) - Main CloudFauxnt documentation
 - [CloudFauxnt QUICKSTART](../QUICKSTART.md) - Setup guide
 - [keys/README.md](../keys/README.md) - RSA key generation guide
-- [config.example.yaml](../config.example.yaml) - Configuration template
 
 ## License
 

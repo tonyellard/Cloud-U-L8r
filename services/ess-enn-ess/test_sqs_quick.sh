@@ -18,7 +18,7 @@ fi
 if ! curl -s http://localhost:9320/health > /dev/null 2>&1; then
     echo "Starting ess-queue-ess..."
     if [ -f "../ess-queue-ess/ess-queue-ess" ]; then
-        (cd ../ess-queue-ess && ./ess-queue-ess --config config.yaml > /tmp/ess-queue-ess.log 2>&1 &)
+        (cd ../ess-queue-ess && ./ess-queue-ess > /tmp/ess-queue-ess.log 2>&1 &)
         echo $! > /tmp/ess-queue-ess.pid
         sleep 2
     else
@@ -30,7 +30,7 @@ fi
 # Start ess-enn-ess if not running
 if ! curl -s http://localhost:9330/health > /dev/null 2>&1; then
     echo "Starting ess-enn-ess..."
-    ./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml > /tmp/ess-enn-ess.log 2>&1 &
+    ./ess-enn-ess > /tmp/ess-enn-ess.log 2>&1 &
     echo $! > /tmp/ess-enn-ess.pid
     sleep 2
 fi

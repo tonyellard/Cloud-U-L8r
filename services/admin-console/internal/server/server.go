@@ -207,8 +207,6 @@ type CloudfauxntOriginOverview struct {
 	Name              string   `json:"name"`
 	URL               string   `json:"url"`
 	PathPatterns      []string `json:"path_patterns"`
-	StripPrefix       string   `json:"strip_prefix,omitempty"`
-	TargetPrefix      string   `json:"target_prefix,omitempty"`
 	RequireSignature  bool     `json:"require_signature"`
 	DefaultRootObject string   `json:"default_root_object,omitempty"`
 }
@@ -260,8 +258,6 @@ type CloudfauxntOriginUpsertRequest struct {
 	Name              string   `json:"name"`
 	URL               string   `json:"url"`
 	PathPatterns      []string `json:"path_patterns"`
-	StripPrefix       string   `json:"strip_prefix,omitempty"`
-	TargetPrefix      string   `json:"target_prefix,omitempty"`
 	RequireSignature  *bool    `json:"require_signature"`
 	DefaultRootObject *string  `json:"default_root_object"`
 }
@@ -338,12 +334,12 @@ type ServiceActivityResponse struct {
 }
 
 type KayVeeParameter struct {
-	Name             string    `json:"Name"`
-	Type             string    `json:"Type"`
-	Value            string    `json:"Value,omitempty"`
-	Version          int64     `json:"Version"`
-	ARN              string    `json:"ARN,omitempty"`
-	LastModifiedDate time.Time `json:"LastModifiedDate,omitempty"`
+	Name             string  `json:"Name"`
+	Type             string  `json:"Type"`
+	Value            string  `json:"Value,omitempty"`
+	Version          int64   `json:"Version"`
+	ARN              string  `json:"ARN,omitempty"`
+	LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 }
 
 type KayVeeParametersResponse struct {
@@ -376,12 +372,12 @@ type KayVeeLabelParameterRequest struct {
 }
 
 type KayVeeSecretEntry struct {
-	ARN             string     `json:"ARN"`
-	Name            string     `json:"Name"`
-	Description     string     `json:"Description,omitempty"`
-	CreatedDate     time.Time  `json:"CreatedDate"`
-	LastChangedDate time.Time  `json:"LastChangedDate"`
-	DeletedDate     *time.Time `json:"DeletedDate,omitempty"`
+	ARN             string   `json:"ARN"`
+	Name            string   `json:"Name"`
+	Description     string   `json:"Description,omitempty"`
+	CreatedDate     float64  `json:"CreatedDate"`
+	LastChangedDate float64  `json:"LastChangedDate"`
+	DeletedDate     *float64 `json:"DeletedDate,omitempty"`
 }
 
 type KayVeeSecretsResponse struct {
@@ -1119,8 +1115,6 @@ func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Re
 		"name":                req.Name,
 		"url":                 req.URL,
 		"path_patterns":       req.PathPatterns,
-		"strip_prefix":        req.StripPrefix,
-		"target_prefix":       req.TargetPrefix,
 		"require_signature":   req.RequireSignature,
 		"default_root_object": req.DefaultRootObject,
 	}
@@ -1156,8 +1150,6 @@ func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Re
 		"name":                req.Name,
 		"url":                 req.URL,
 		"path_patterns":       req.PathPatterns,
-		"strip_prefix":        req.StripPrefix,
-		"target_prefix":       req.TargetPrefix,
 		"require_signature":   req.RequireSignature,
 		"default_root_object": req.DefaultRootObject,
 	}

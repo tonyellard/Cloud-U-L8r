@@ -471,12 +471,10 @@ function openCloudfauxntOriginModal(encodedCurrentName = '') {
   const nameInput = document.getElementById('cloudfauxnt-origin-name');
   const urlInput = document.getElementById('cloudfauxnt-origin-url');
   const patternsInput = document.getElementById('cloudfauxnt-origin-path-patterns');
-  const stripPrefixInput = document.getElementById('cloudfauxnt-origin-strip-prefix');
-  const targetPrefixInput = document.getElementById('cloudfauxnt-origin-target-prefix');
   const defaultRootInput = document.getElementById('cloudfauxnt-origin-default-root');
   const requireSignatureSelect = document.getElementById('cloudfauxnt-origin-require-signature');
 
-  if (!title || !currentNameInput || !nameInput || !urlInput || !patternsInput || !stripPrefixInput || !targetPrefixInput || !defaultRootInput || !requireSignatureSelect) {
+  if (!title || !currentNameInput || !nameInput || !urlInput || !patternsInput || !defaultRootInput || !requireSignatureSelect) {
     return;
   }
 
@@ -488,8 +486,6 @@ function openCloudfauxntOriginModal(encodedCurrentName = '') {
     nameInput.value = existing.name || '';
     urlInput.value = existing.url || '';
     patternsInput.value = (existing.path_patterns || []).join('\n');
-    stripPrefixInput.value = existing.strip_prefix || '';
-    targetPrefixInput.value = existing.target_prefix || '';
     defaultRootInput.value = existing.default_root_object || '';
     if (existing.require_signature === true) {
       requireSignatureSelect.value = 'true';
@@ -504,8 +500,6 @@ function openCloudfauxntOriginModal(encodedCurrentName = '') {
     nameInput.value = '';
     urlInput.value = '';
     patternsInput.value = '';
-    stripPrefixInput.value = '';
-    targetPrefixInput.value = '';
     defaultRootInput.value = '';
     requireSignatureSelect.value = 'inherit';
   }
@@ -526,8 +520,6 @@ async function saveCloudfauxntOrigin() {
     const name = document.getElementById('cloudfauxnt-origin-name')?.value?.trim() || '';
     const originURL = document.getElementById('cloudfauxnt-origin-url')?.value?.trim() || '';
     const pathPatternRaw = document.getElementById('cloudfauxnt-origin-path-patterns')?.value || '';
-    const stripPrefix = document.getElementById('cloudfauxnt-origin-strip-prefix')?.value?.trim() || '';
-    const targetPrefix = document.getElementById('cloudfauxnt-origin-target-prefix')?.value?.trim() || '';
     const defaultRootObject = document.getElementById('cloudfauxnt-origin-default-root')?.value?.trim() || '';
     const requireSignatureValue = document.getElementById('cloudfauxnt-origin-require-signature')?.value || 'inherit';
 
@@ -546,8 +538,6 @@ async function saveCloudfauxntOrigin() {
       name,
       url: originURL,
       path_patterns: pathPatterns,
-      strip_prefix: stripPrefix,
-      target_prefix: targetPrefix,
       require_signature: requireSignatureValue === 'inherit'
         ? null
         : requireSignatureValue === 'true',
@@ -1077,7 +1067,7 @@ function renderKayVeeOverview(payload) {
       <td class="py-2 pr-2 text-xs">${escapeHTML(parameter.Type || '')}</td>
       <td class="py-2 pr-2 text-xs break-all">${escapeHTML(parameter.Value || '-')}</td>
       <td class="py-2 pr-2 text-xs">${Number(parameter.Version || 0)}</td>
-      <td class="py-2 pr-2 text-xs whitespace-nowrap">${parameter.LastModifiedDate ? escapeHTML(new Date(parameter.LastModifiedDate).toLocaleString()) : '-'}</td>
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${parameter.LastModifiedDate ? escapeHTML(new Date(parameter.LastModifiedDate * 1000).toLocaleString()) : '-'}</td>
       <td class="py-2 text-right">
         <div class="flex justify-end gap-2">
           <button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Update parameter" aria-label="Update parameter" onclick="openKayVeeUpdateParameterModal('${encodeURIComponent(parameter.Name || '')}')">Update</button>
@@ -1103,7 +1093,7 @@ function renderKayVeeOverview(payload) {
         <td class="py-2 pr-2 text-xs break-all">${escapeHTML(secret.Description || '-')}</td>
         <td class="py-2 pr-2 text-xs break-all">${escapeHTML(revealedValue)}</td>
         <td class="py-2 pr-2 text-xs">${isDeleted ? '<span class="px-2 py-1 rounded bg-amber-100 text-amber-800">deleted</span>' : '<span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">active</span>'}</td>
-        <td class="py-2 pr-2 text-xs whitespace-nowrap">${secret.LastChangedDate ? escapeHTML(new Date(secret.LastChangedDate).toLocaleString()) : '-'}</td>
+        <td class="py-2 pr-2 text-xs whitespace-nowrap">${secret.LastChangedDate ? escapeHTML(new Date(secret.LastChangedDate * 1000).toLocaleString()) : '-'}</td>
         <td class="py-2 text-right">
           <div class="flex justify-end gap-2">
             <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs" title="${isRevealed ? 'Hide secret value' : 'Reveal secret value'}" aria-label="${isRevealed ? 'Hide secret value' : 'Reveal secret value'}" onclick="revealKayVeeSecretValue('${encodeURIComponent(secretKey)}')">${isRevealed ? 'Hide' : 'Reveal'}</button>
@@ -1753,16 +1743,6 @@ function renderCloudfauxntSummary(data) {
           <div>
             <label for="cloudfauxnt-origin-path-patterns" class="block text-xs text-slate-500 mb-1">Path Patterns (one per line)</label>
             <textarea id="cloudfauxnt-origin-path-patterns" rows="3" class="w-full border rounded px-2 py-1 text-sm" placeholder="/s3/*"></textarea>
-          </div>
-          <div class="grid md:grid-cols-2 gap-3">
-            <div>
-              <label for="cloudfauxnt-origin-strip-prefix" class="block text-xs text-slate-500 mb-1">Strip Prefix</label>
-              <input id="cloudfauxnt-origin-strip-prefix" class="w-full border rounded px-2 py-1 text-sm" placeholder="/s3" />
-            </div>
-            <div>
-              <label for="cloudfauxnt-origin-target-prefix" class="block text-xs text-slate-500 mb-1">Target Prefix</label>
-              <input id="cloudfauxnt-origin-target-prefix" class="w-full border rounded px-2 py-1 text-sm" placeholder="/test-bucket" />
-            </div>
           </div>
           <div class="grid md:grid-cols-2 gap-3">
             <div>

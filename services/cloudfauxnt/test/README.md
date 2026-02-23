@@ -45,16 +45,14 @@ The integration tests verify:
 The `test_per_origin_signing.py` script tests mixed security levels:
 
 ```bash
-# Test with this config
-# signing:
-#   enabled: true
-# origins:
-#   - name: public
-#     path_patterns: ["/public/*"]
-#     require_signature: false
-#   - name: private
-#     path_patterns: ["/private/*"]
-#     require_signature: true
+# Test with this configuration
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
+export ORIGINS='[
+  {"name":"public","url":"http://essthree:9300","path_patterns":["/public/*"],"require_signature":false},
+  {"name":"private","url":"http://essthree:9300","path_patterns":["/private/*"],"require_signature":true}
+]'
 
 python test_per_origin_signing.py
 ```
@@ -70,10 +68,10 @@ Tests include:
 ### Test Unsigned Request
 
 ```bash
-# If signing is disabled in config
+# If SIGNING_ENABLED is not set or false
 curl -v http://localhost:9310/test-bucket/test-file.txt
 
-# If signing is enabled, expect 403
+# If SIGNING_ENABLED=true, expect 403
 ```
 
 ### Test CORS
@@ -138,14 +136,6 @@ print(url)
 " | xargs curl -v
 ```
 
-To adjust clock skew tolerance, edit `config/cloudfauxnt.config.yaml`:
-
-```yaml
-signing:
-  token_options:
-    clock_skew_seconds: 60  # Allow 60-second tolerance instead of 30
-```
-
 Then restart CloudFauxnt: `docker compose restart cloudfauxnt`
 
 ## Testing with ess-three
@@ -189,19 +179,18 @@ docker compose logs cloudfauxnt
 
 ### 403 Forbidden
 
-- Check if signing is enabled in config
-- Verify the key pair ID matches between config and signing code
+- Check if `SIGNING_ENABLED` is set to `true`
+- Verify the `SIGNING_KEY_PAIR_ID` matches between your env config and signing code
 - Check if the signed URL has expired
 
 ### CORS Errors
 
-- Verify CORS is enabled in config
-- Check that your origin is in the `allowed_origins` list
-- Use `["*"]` for development to allow all origins
+- Verify `CORS_ENABLED=true` is set
+- Use `CORS_ENABLED=true` for development to allow all origins
 
 ### Origin Not Found
 
-- Check the `origins` configuration
+- Check the `ORIGINS` environment variable contains valid JSON
 - Verify path patterns match your request path
 - Check logs to see which origin was selected
 

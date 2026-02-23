@@ -8,7 +8,6 @@ require (
 	github.com/tonyellard/cloud-u-l8r/pkg/activity v0.0.0
 	github.com/tonyellard/cloud-u-l8r/pkg/awserrors v0.0.0
 	github.com/tonyellard/cloud-u-l8r/pkg/health v0.0.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 replace (

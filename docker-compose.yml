@@ -24,12 +24,16 @@ services:
     ports:
       - "9310:9310"
     volumes:
-      - ./config:/app/config:ro
       - ./services/cloudfauxnt/keys:/app/keys:ro
     environment:
       - TZ=UTC
+      - PORT=9310
+      - HOST=0.0.0.0
+      - CORS_ENABLED=true
+      - SIGNING_ENABLED=true
+      - SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+      - SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
     restart: unless-stopped
-    command: ["./cloudfauxnt", "--config", "/app/config/cloudfauxnt.config.yaml"]
     depends_on:
       - essthree
     networks:
@@ -46,8 +50,6 @@ services:
       - PORT=9320
     volumes:
       - ./services/ess-queue-ess/data:/app/data
-      - ./config:/app/config:ro
-    command: ["./ess-queue-ess", "--config", "/app/config/ess-queue-ess.config.yaml"]
     networks:
       - shared-network
 
@@ -59,9 +61,16 @@ services:
     ports:
       - "9330:9330"
     volumes:
-      - ./config:/app/config:ro
       - ./services/ess-enn-ess/data:/app/data
-    command: ["-config", "/app/config/ess-enn-ess.config.yaml"]
+    environment:
+      - API_PORT=9330
+      - ADMIN_PORT=9331
+      - HOST=0.0.0.0
+      - REGION=us-east-1
+      - ACCOUNT_ID=123456789012
+      - SQS_ENDPOINT=http://ess-queue-ess:9320
+      - SQS_ENABLED=true
+      - AUTO_CONFIRM_SUBSCRIPTIONS=true
     networks:
       - shared-network
     depends_on:
