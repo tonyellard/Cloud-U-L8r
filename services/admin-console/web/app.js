@@ -76,6 +76,8 @@ function getServiceReadmeURL(serviceName) {
     'ess-enn-ess': 'services/ess-enn-ess/README.md',
     'kay-vee': 'services/kay-vee/README.md',
     'drawbridge': 'services/drawbridge/README.md',
+    'scheduler': 'services/scheduler/README.md',
+    'pipes': 'services/pipes/README.md',
     'admin-console': 'services/admin-console/README.md',
   };
 
@@ -92,6 +94,8 @@ function getAdminViewForService(serviceName) {
     'essthree': 'essthree',
     'cloudfauxnt': 'cloudfauxnt',
     'drawbridge': 'drawbridge',
+    'scheduler': 'scheduler',
+    'pipes': 'pipes',
   };
 
   return viewMap[serviceName] || '';
@@ -3740,7 +3744,7 @@ function renderSchedulerOverview({ summary, resources, activity, nextToken }) {
   let html = '';
 
   // Summary cards
-  html += '<div class="flex gap-4 mb-4">';
+  html += '<div class="flex items-center gap-4 mb-4">';
   if (summary) {
     html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${summary.scheduleGroups ?? 0}</div><div class="text-xs text-slate-500">Groups</div></div>`;
     html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${summary.schedules ?? 0}</div><div class="text-xs text-slate-500">Schedules</div></div>`;
@@ -3971,7 +3975,7 @@ function renderPipesOverview({ summary, resources, activity, nextToken }) {
   let html = '';
 
   // Summary cards
-  html += '<div class="flex gap-4 mb-4">';
+  html += '<div class="flex items-center gap-4 mb-4">';
   html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${s.pipes ?? 0}</div><div class="text-xs text-slate-500">Pipes</div></div>`;
   html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${s.runningPipes ?? 0}</div><div class="text-xs text-slate-500">Running</div></div>`;
   html += `<button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh pipes view" aria-label="Refresh pipes view" onclick="loadPipesOverview()">Refresh</button>`;
