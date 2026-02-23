@@ -334,12 +334,12 @@ type ServiceActivityResponse struct {
 }
 
 type KayVeeParameter struct {
-	Name             string    `json:"Name"`
-	Type             string    `json:"Type"`
-	Value            string    `json:"Value,omitempty"`
-	Version          int64     `json:"Version"`
-	ARN              string    `json:"ARN,omitempty"`
-	LastModifiedDate time.Time `json:"LastModifiedDate,omitempty"`
+	Name             string  `json:"Name"`
+	Type             string  `json:"Type"`
+	Value            string  `json:"Value,omitempty"`
+	Version          int64   `json:"Version"`
+	ARN              string  `json:"ARN,omitempty"`
+	LastModifiedDate float64 `json:"LastModifiedDate,omitempty"`
 }
 
 type KayVeeParametersResponse struct {
@@ -372,12 +372,12 @@ type KayVeeLabelParameterRequest struct {
 }
 
 type KayVeeSecretEntry struct {
-	ARN             string     `json:"ARN"`
-	Name            string     `json:"Name"`
-	Description     string     `json:"Description,omitempty"`
-	CreatedDate     time.Time  `json:"CreatedDate"`
-	LastChangedDate time.Time  `json:"LastChangedDate"`
-	DeletedDate     *time.Time `json:"DeletedDate,omitempty"`
+	ARN             string   `json:"ARN"`
+	Name            string   `json:"Name"`
+	Description     string   `json:"Description,omitempty"`
+	CreatedDate     float64  `json:"CreatedDate"`
+	LastChangedDate float64  `json:"LastChangedDate"`
+	DeletedDate     *float64 `json:"DeletedDate,omitempty"`
 }
 
 type KayVeeSecretsResponse struct {

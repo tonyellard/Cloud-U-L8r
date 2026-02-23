@@ -1067,7 +1067,7 @@ function renderKayVeeOverview(payload) {
       <td class="py-2 pr-2 text-xs">${escapeHTML(parameter.Type || '')}</td>
       <td class="py-2 pr-2 text-xs break-all">${escapeHTML(parameter.Value || '-')}</td>
       <td class="py-2 pr-2 text-xs">${Number(parameter.Version || 0)}</td>
-      <td class="py-2 pr-2 text-xs whitespace-nowrap">${parameter.LastModifiedDate ? escapeHTML(new Date(parameter.LastModifiedDate).toLocaleString()) : '-'}</td>
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${parameter.LastModifiedDate ? escapeHTML(new Date(parameter.LastModifiedDate * 1000).toLocaleString()) : '-'}</td>
       <td class="py-2 text-right">
         <div class="flex justify-end gap-2">
           <button class="px-2 py-1 rounded bg-slate-700 text-white text-xs" title="Update parameter" aria-label="Update parameter" onclick="openKayVeeUpdateParameterModal('${encodeURIComponent(parameter.Name || '')}')">Update</button>
@@ -1093,7 +1093,7 @@ function renderKayVeeOverview(payload) {
         <td class="py-2 pr-2 text-xs break-all">${escapeHTML(secret.Description || '-')}</td>
         <td class="py-2 pr-2 text-xs break-all">${escapeHTML(revealedValue)}</td>
         <td class="py-2 pr-2 text-xs">${isDeleted ? '<span class="px-2 py-1 rounded bg-amber-100 text-amber-800">deleted</span>' : '<span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800">active</span>'}</td>
-        <td class="py-2 pr-2 text-xs whitespace-nowrap">${secret.LastChangedDate ? escapeHTML(new Date(secret.LastChangedDate).toLocaleString()) : '-'}</td>
+        <td class="py-2 pr-2 text-xs whitespace-nowrap">${secret.LastChangedDate ? escapeHTML(new Date(secret.LastChangedDate * 1000).toLocaleString()) : '-'}</td>
         <td class="py-2 text-right">
           <div class="flex justify-end gap-2">
             <button class="px-2 py-1 rounded bg-indigo-700 text-white text-xs" title="${isRevealed ? 'Hide secret value' : 'Reveal secret value'}" aria-label="${isRevealed ? 'Hide secret value' : 'Reveal secret value'}" onclick="revealKayVeeSecretValue('${encodeURIComponent(secretKey)}')">${isRevealed ? 'Hide' : 'Reveal'}</button>
