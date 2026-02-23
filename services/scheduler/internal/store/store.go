@@ -29,10 +29,11 @@ func NewStore(region, accountID string) *Store {
 	}
 	now := time.Now().UTC()
 	s.groups["default"] = &model.ScheduleGroup{
-		Name:         "default",
-		Arn:          s.groupArn("default"),
-		State:        "ACTIVE",
-		CreationDate: now,
+		Name:                 "default",
+		Arn:                  s.groupArn("default"),
+		State:                "ACTIVE",
+		CreationDate:         now,
+		LastModificationDate: now,
 	}
 	s.schedules["default"] = make(map[string]*model.Schedule)
 	return s
@@ -68,11 +69,13 @@ func (s *Store) CreateScheduleGroup(req model.CreateScheduleGroupRequest) (model
 	}
 
 	arn := s.groupArn(req.Name)
+	now := time.Now().UTC()
 	s.groups[req.Name] = &model.ScheduleGroup{
-		Name:         req.Name,
-		Arn:          arn,
-		State:        "ACTIVE",
-		CreationDate: time.Now().UTC(),
+		Name:                 req.Name,
+		Arn:                  arn,
+		State:                "ACTIVE",
+		CreationDate:         now,
+		LastModificationDate: now,
 	}
 	s.schedules[req.Name] = make(map[string]*model.Schedule)
 

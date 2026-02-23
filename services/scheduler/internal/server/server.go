@@ -415,7 +415,7 @@ func (s *Server) handleScheduleGroupsList(w http.ResponseWriter, r *http.Request
 			"Arn":                  g.Arn,
 			"State":                g.State,
 			"CreationDate":         epochSeconds(g.CreationDate),
-			"LastModificationDate": epochSeconds(g.CreationDate),
+			"LastModificationDate": epochSeconds(g.LastModificationDate),
 		})
 	}
 	writeRESTJSON(w, http.StatusOK, map[string]any{
@@ -454,7 +454,7 @@ func (s *Server) handleScheduleGroupRoute(w http.ResponseWriter, r *http.Request
 			"Arn":                  g.Arn,
 			"State":                g.State,
 			"CreationDate":         epochSeconds(g.CreationDate),
-			"LastModificationDate": epochSeconds(g.CreationDate),
+			"LastModificationDate": epochSeconds(g.LastModificationDate),
 		})
 
 	case http.MethodDelete:
