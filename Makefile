@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-.PHONY: all build rebuild up down logs test clean clean-ports stop-service start-service restart-service status help
+.PHONY: all build rebuild up down logs test clean clean-ports stop-service start-service restart-service status help run-config tf-init tf-plan tf-destroy stack
 
 SERVICE ?=
 SERVICE_GOAL := $(word 2,$(MAKECMDGOALS))
@@ -134,6 +134,51 @@ restart-service:
 	@docker compose restart "$(SERVICE)"
 	@echo "✅ Service restarted: $(SERVICE)"
 
+# ============================================================
+# Terraform Config Management
+# ============================================================
+
+CONFIG ?=
+
+# Apply a named Terraform config against running services
+# Usage: make run-config CONFIG=default
+run-config:
+	@if [ -z "$(CONFIG)" ]; then \
+		echo "Usage: make run-config CONFIG=<config-name>"; \
+		echo "Available configs:"; \
+		ls -1 configs/ 2>/dev/null | grep -v '^\.' || echo "  (none found)"; \
+		exit 1; \
+	fi
+	@if [ ! -d "configs/$(CONFIG)" ]; then \
+		echo "Config '$(CONFIG)' not found in configs/"; \
+		exit 1; \
+	fi
+	@echo "Applying config: $(CONFIG)..."
+	cd configs/$(CONFIG) && terraform init -input=false && terraform apply -auto-approve
+	@echo "Config '$(CONFIG)' applied"
+
+# Initialize Terraform for a named config
+tf-init:
+	@if [ -z "$(CONFIG)" ]; then echo "Usage: make tf-init CONFIG=<config-name>"; exit 1; fi
+	cd configs/$(CONFIG) && terraform init
+
+# Plan changes for a named config
+tf-plan:
+	@if [ -z "$(CONFIG)" ]; then echo "Usage: make tf-plan CONFIG=<config-name>"; exit 1; fi
+	cd configs/$(CONFIG) && terraform plan
+
+# Destroy resources for a named config
+tf-destroy:
+	@if [ -z "$(CONFIG)" ]; then echo "Usage: make tf-destroy CONFIG=<config-name>"; exit 1; fi
+	cd configs/$(CONFIG) && terraform destroy -auto-approve
+
+# Full stack: start services, wait for health, apply default config
+stack: up
+	@echo "Waiting for services to become healthy..."
+	@./verify-stack.sh || true
+	@echo "Applying default Terraform config..."
+	@$(MAKE) run-config CONFIG=default
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -150,8 +195,16 @@ help:
 	@echo "  start-service - Start one service (use SERVICE=<name> or positional name)"
 	@echo "  restart-service - Restart one service (use SERVICE=<name> or positional name)"
 	@echo ""
+	@echo "Terraform config targets:"
+	@echo "  run-config   - Apply a named Terraform config (CONFIG=<name>)"
+	@echo "  tf-init      - Initialize Terraform for a config (CONFIG=<name>)"
+	@echo "  tf-plan      - Plan changes for a config (CONFIG=<name>)"
+	@echo "  tf-destroy   - Destroy resources for a config (CONFIG=<name>)"
+	@echo "  stack        - Start services + apply default config (full end-to-end)"
+	@echo ""
 	@echo "Common workflows:"
 	@echo "  make up              - Start fresh with latest code"
+	@echo "  make stack           - Start services and apply default Terraform config"
 	@echo "  make down            - Stop everything cleanly"
 	@echo "  make logs            - View container output"
 	@echo "  make clean && make up - Full reset and restart"

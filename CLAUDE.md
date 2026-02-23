@@ -8,10 +8,8 @@ Cloud-U-L8r is a monorepo of **six interconnected AWS service emulators** for lo
 
 ```
 Cloud-U-L8r/
-├── config/                          # Shared YAML configs for services
-│   ├── cloudfauxnt.config.yaml
-│   ├── ess-enn-ess.config.yaml
-│   └── ess-queue-ess.config.yaml
+├── configs/                         # Named Terraform config sets
+│   └── default/                     # Default dev resource definitions (*.tf)
 ├── docs/                            # Architecture docs (kay-vee planning)
 ├── pkg/                             # Shared Go packages
 │   ├── awserrors/                   # AWS-compatible error formatting (XML, JSON, CloudFront)
@@ -77,6 +75,11 @@ service/
 | `make stop-service SERVICE=<name>` | Stop a single service |
 | `make start-service SERVICE=<name>` | Start a single service |
 | `make restart-service SERVICE=<name>` | Restart a single service |
+| `make stack` | Build + start + apply default Terraform config |
+| `make run-config CONFIG=<name>` | Apply a named Terraform config |
+| `make tf-init CONFIG=<name>` | Initialize Terraform for a config |
+| `make tf-plan CONFIG=<name>` | Plan changes for a config |
+| `make tf-destroy CONFIG=<name>` | Destroy resources for a config |
 
 ## Testing
 
@@ -136,7 +139,7 @@ Services are intentionally minimal in external dependencies:
 |---------|----------------------|
 | essthree | `go-chi/chi` v5, `pkg/awserrors`, `pkg/health` |
 | cloudfauxnt | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3`, `pkg/health` |
-| ess-queue-ess | `go-chi/chi` v5, `google/uuid`, `gopkg.in/yaml.v3`, `pkg/awserrors`, `pkg/health` |
+| ess-queue-ess | `go-chi/chi` v5, `google/uuid`, `pkg/awserrors`, `pkg/health` |
 | ess-enn-ess | `gopkg.in/yaml.v3`, `pkg/health` |
 | kay-vee | `pkg/awserrors`, `pkg/health` |
 | admin-console | `go-chi/chi` v5, `pkg/awserrors`, `pkg/health` |
@@ -167,14 +170,16 @@ Inter-service communication uses container names on `shared-network` (e.g., `htt
 
 ## Configuration
 
-Service configs live in `/config/` using the naming convention `<service>.config.yaml`.
+Services are configured via **environment variables** set in `docker-compose.yml`. AWS resources (buckets, queues, topics, subscriptions) are provisioned via **Terraform** configs in `configs/[config-name]/`.
 
-- **essthree** — No config file; uses CLI flags (`-port`, `-data-dir`)
-- **cloudfauxnt** — `cloudfauxnt.config.yaml` (origins, CORS, signing keys)
-- **ess-queue-ess** — `ess-queue-ess.config.yaml` (bootstrap queue definitions)
-- **ess-enn-ess** — `ess-enn-ess.config.yaml` (pre-seeded topics/subscriptions, SQS integration, admin settings)
-- **kay-vee** — No config file (in-memory only)
-- **admin-console** — No config file (uses hardcoded service endpoints)
+- **essthree** — Env vars: `DATA_DIR`
+- **cloudfauxnt** — Env vars: `PORT`, `HOST`, `CORS_ENABLED`, `SIGNING_ENABLED`, `SIGNING_KEY_PAIR_ID`, `SIGNING_PUBLIC_KEY_PATH`, `ORIGINS` (JSON)
+- **ess-queue-ess** — Env vars: `PORT`
+- **ess-enn-ess** — Env vars: `API_PORT`, `ADMIN_PORT`, `HOST`, `REGION`, `ACCOUNT_ID`, `SQS_ENDPOINT`, `SQS_ENABLED`, `AUTO_CONFIRM_SUBSCRIPTIONS`
+- **kay-vee** — Env vars: `PORT` (in-memory only)
+- **admin-console** — Env vars: `PORT` (uses hardcoded service endpoints)
+
+Named Terraform configs live in `configs/[config-name]/` (e.g., `configs/default/`). Apply with `make run-config CONFIG=default`.
 
 ## Code Conventions
 
@@ -226,7 +231,7 @@ Services return AWS-compatible error formats:
 ### Storage
 
 - **essthree**: Filesystem-based (`/data` directory with bucket/key structure)
-- **ess-queue-ess, ess-enn-ess, kay-vee**: In-memory stores (no persistence across restarts, except config-based bootstrapping)
+- **ess-queue-ess, ess-enn-ess, kay-vee**: In-memory stores (no persistence across restarts; use `make run-config` to re-provision resources)
 
 ### Admin APIs
 
@@ -261,7 +266,7 @@ All services use the 93xx range with 10-port increments:
 | Modify admin dashboard | `services/admin-console/internal/server/server.go`, `web/` directory |
 | Add shared error handling | `pkg/awserrors/errors.go` |
 | Add shared health behavior | `pkg/health/health.go` |
-| Change service config | `config/<service>.config.yaml` |
+| Change service config | `docker-compose.yml` (env vars), `configs/default/*.tf` (resources) |
 | Update Docker build | `services/<service>/Dockerfile`, `docker-compose.yml` |
 | Add integration test | `tests/integration/test_cross_service.sh` |
 

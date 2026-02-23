@@ -5,9 +5,11 @@ package server
 import (
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -31,13 +33,11 @@ type ServerConfig struct {
 
 // Origin represents a backend origin server
 type Origin struct {
-	Name              string   `yaml:"name"`
-	URL               string   `yaml:"url"`
-	PathPatterns      []string `yaml:"path_patterns"`
-	StripPrefix       string   `yaml:"strip_prefix"`        // Optional: remove this prefix from request path
-	TargetPrefix      string   `yaml:"target_prefix"`       // Optional: add this prefix to proxied path
-	RequireSignature  *bool    `yaml:"require_signature"`   // Optional: require CloudFront signature for this origin (null/empty uses global setting)
-	DefaultRootObject *string  `yaml:"default_root_object"` // Optional: default root object for this origin (null/empty uses global setting)
+	Name              string   `yaml:"name" json:"name"`
+	URL               string   `yaml:"url" json:"url"`
+	PathPatterns      []string `yaml:"path_patterns" json:"path_patterns"`
+	RequireSignature  *bool    `yaml:"require_signature" json:"require_signature"`     // Optional: require CloudFront signature for this origin (null/empty uses global setting)
+	DefaultRootObject *string  `yaml:"default_root_object" json:"default_root_object"` // Optional: default root object for this origin (null/empty uses global setting)
 }
 
 // CORSConfig holds CORS policy settings
@@ -95,6 +95,72 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// BuildConfigFromEnv creates a Config from environment variables.
+func BuildConfigFromEnv() (*Config, error) {
+	config := &Config{
+		Server: ServerConfig{
+			Port:           9310,
+			Host:           "0.0.0.0",
+			TimeoutSeconds: 30,
+		},
+		Signing: SigningConfig{},
+	}
+
+	if v := os.Getenv("PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			config.Server.Port = port
+		}
+	}
+	if v := os.Getenv("HOST"); v != "" {
+		config.Server.Host = v
+	}
+	if v := os.Getenv("TIMEOUT_SECONDS"); v != "" {
+		if sec, err := strconv.Atoi(v); err == nil {
+			config.Server.TimeoutSeconds = sec
+		}
+	}
+	if v := os.Getenv("DEFAULT_ROOT_OBJECT"); v != "" {
+		config.Server.DefaultRootObject = v
+	}
+
+	// CORS
+	if os.Getenv("CORS_ENABLED") == "true" || os.Getenv("CORS_ENABLED") == "1" {
+		config.CORS = CORSConfig{
+			Enabled:        true,
+			AllowedOrigins: []string{"*"},
+			AllowedMethods: []string{"GET", "HEAD", "OPTIONS", "PUT", "POST", "DELETE"},
+			AllowedHeaders: []string{"*"},
+			MaxAge:         3600,
+		}
+	}
+
+	// Signing
+	if os.Getenv("SIGNING_ENABLED") == "true" || os.Getenv("SIGNING_ENABLED") == "1" {
+		config.Signing.Enabled = true
+		config.Signing.KeyPairID = os.Getenv("SIGNING_KEY_PAIR_ID")
+		config.Signing.PublicKeyPath = os.Getenv("SIGNING_PUBLIC_KEY_PATH")
+	}
+
+	// Origins from JSON env var
+	if originsJSON := os.Getenv("ORIGINS"); originsJSON != "" {
+		if err := json.Unmarshal([]byte(originsJSON), &config.Origins); err != nil {
+			return nil, fmt.Errorf("failed to parse ORIGINS env var: %w", err)
+		}
+	}
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	if config.Signing.Enabled {
+		if err := config.loadPublicKey(); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
 }
 
 // Validate checks if the configuration is valid

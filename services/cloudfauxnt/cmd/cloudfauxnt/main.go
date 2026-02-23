@@ -3,23 +3,27 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/tonyellard/cloudfauxnt/internal/server"
 )
 
 func main() {
-	// Parse command-line flags
-	configPath := flag.String("config", "config.yaml", "Path to configuration file")
-	flag.Parse()
+	var config *server.Config
+	var err error
 
-	// Load configuration
-	log.Printf("Loading configuration from %s", *configPath)
-	config, err := server.LoadConfig(*configPath)
+	// Use env vars for configuration
+	if configPath := os.Getenv("CONFIG_PATH"); configPath != "" {
+		log.Printf("Loading configuration from %s", configPath)
+		config, err = server.LoadConfig(configPath)
+	} else {
+		log.Println("Building configuration from environment variables")
+		config, err = server.BuildConfigFromEnv()
+	}
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}

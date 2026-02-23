@@ -10,16 +10,18 @@ A lightweight CloudFront emulator for local development, providing CloudFront-li
 - **Multi-Origin Routing** - Route requests to different backends based on path patterns
 - **CloudFront Headers** - Inject realistic CloudFront headers (X-Amz-Cf-Id, Via, X-Cache)
 - **Docker Ready** - Multi-stage Debian builds with minimal image size
-- **Simple Configuration** - YAML-based static configuration
+- **Simple Configuration** - Environment variable configuration with optional YAML fallback
 
 ## Quick Start
 
-### 1. Clone and Setup
+### 1. Configure Environment
+
+Set the required environment variables (e.g., in your `docker-compose.yml` or shell):
 
 ```bash
-cd Cloudfauxnt
-mkdir -p ../../config
-cp config.example.yaml ../../config/cloudfauxnt.config.yaml
+export PORT=9310
+export HOST=0.0.0.0
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"],"require_signature":false,"default_root_object":"index.html"}]'
 ```
 
 ### 2. Create Shared Network
@@ -72,25 +74,15 @@ cd ..
 
 ### 4. Configure
 
-Edit `config/cloudfauxnt.config.yaml` to match your environment:
+Set environment variables to match your environment:
 
-```yaml
-server:
-  port: 9310
-  host: "0.0.0.0"
-
-origins:
-  - name: s3
-    url: http://essthree:9300  # Service name for Docker
-    path_patterns:
-      - "/s3/*"
-    strip_prefix: "/s3"
-    target_prefix: "/test-bucket"
-
-signing:
-  enabled: true
-  key_pair_id: "APKAJEXAMPLE123456"
-  public_key_path: "/app/keys/public.pem"
+```bash
+export PORT=9310
+export HOST=0.0.0.0
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"],"require_signature":false,"default_root_object":"index.html"}]'
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
 ```
 
 ## Examples
@@ -105,10 +97,10 @@ dotnet run
 ```
 
 Outputs:
-- ✓ Health check via unsigned request
-- ✓ File retrieval with path rewriting
-- ✓ Signed URL generation and validation  
-- ✓ Signed cookie generation and usage
+- Health check via unsigned request
+- File retrieval via direct path forwarding
+- Signed URL generation and validation
+- Signed cookie generation and usage
 
 See [dotnet-example/README.md](dotnet-example/README.md) for detailed documentation and code samples.
 
@@ -122,58 +114,46 @@ curl http://localhost:9310/health
 
 **Unsigned request:**
 ```bash
-curl http://localhost:9310/s3/MyTestFile.txt
+curl http://localhost:9310/test-bucket/MyTestFile.txt
 # Hello World
 ```
 
 **Signed URL request:**
 ```bash
 # Generate signature using keys and policy
-curl "http://localhost:9310/s3/file.txt?Expires=1234567890&Signature=...&Key-Pair-Id=APKAJEXAMPLE123456"
+curl "http://localhost:9310/test-bucket/file.txt?Expires=1234567890&Signature=...&Key-Pair-Id=APKAJEXAMPLE123456"
 ```
 
 ## Usage
 
-### Path Rewriting
+### Path Routing
 
-CloudFauxnt supports path rewriting to map incoming paths to different backend paths:
-
-```yaml
-origins:
-  - name: myfiles
-    url: http://essthree:9300
-    path_patterns:
-      - "/s3/*"
-    strip_prefix: "/s3"      # Remove this from the request path
-    target_prefix: "/test-bucket"  # Add this to the proxied path
-```
+CloudFauxnt routes requests to backend origins based on path pattern matching. Paths are forwarded directly to the origin without any rewriting:
 
 **Example flow:**
 ```
-Client request:     http://localhost:9310/s3/document.pdf
-Strip /s3:         /document.pdf
-Add /test-bucket:  /test-bucket/document.pdf
-Proxies to:        http://essthree:9300/test-bucket/document.pdf
+Client request:     http://localhost:9310/test-bucket/document.pdf
+Matches pattern:    /test-bucket/*
+Proxies to:         http://essthree:9300/test-bucket/document.pdf
 ```
 
 ### Without Signature Validation
 
-If signing is disabled in config, CloudFauxnt acts as a simple reverse proxy:
+If signing is disabled, CloudFauxnt acts as a simple reverse proxy:
 
 ```bash
 # Direct request (proxied to origin)
-curl http://localhost:9310/s3/myfile.txt
+curl http://localhost:9310/test-bucket/myfile.txt
 ```
 
 ### With Signed URLs
 
-Enable signing in `config/cloudfauxnt.config.yaml`:
+Enable signing via environment variables:
 
-```yaml
-signing:
-  enabled: true
-  key_pair_id: "APKAJEXAMPLE123456"
-  public_key_path: "/app/keys/public.pem"
+```bash
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
 ```
 
 Generate a signed URL using your private key:
@@ -230,47 +210,50 @@ curl -H "Origin: http://localhost:3000" \
 
 ## Configuration Reference
 
-### Server Settings
+Configuration is done via environment variables. An optional YAML config file can be loaded as a fallback using the `CONFIG_PATH` env var.
 
-```yaml
-server:
-  port: 9310              # Port to listen on
-  host: "0.0.0.0"         # Host to bind to
-  default_root_object: "index.html"  # Optional: global default root object (fallback)
-  timeout_seconds: 30     # Request timeout
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `9310` | Port to listen on |
+| `HOST` | `0.0.0.0` | Host to bind to |
+| `TIMEOUT_SECONDS` | `30` | Request timeout |
+| `CORS_ENABLED` | `false` | Enable CORS handling |
+| `SIGNING_ENABLED` | `false` | Enable CloudFront signature validation |
+| `SIGNING_KEY_PAIR_ID` | | Key pair ID for signature validation |
+| `SIGNING_PUBLIC_KEY_PATH` | | Path to RSA public key PEM file |
+| `ORIGINS` | | JSON array of origin definitions (see below) |
+| `CONFIG_PATH` | | Optional path to a YAML config file (fallback) |
+
+### Origins
+
+Origins are configured via the `ORIGINS` env var as a JSON array:
+
+```bash
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/test-bucket/*"],"require_signature":false,"default_root_object":"index.html"}]'
 ```
 
-### Origins with Path Rewriting and Per-Origin Settings
+Each origin object supports these fields:
 
-Define backend services to proxy to with optional path rewriting and per-origin configuration:
-
-```yaml
-origins:
-  - name: s3              # Friendly name
-    url: http://essthree:9300
-    path_patterns:
-      - "/s3/*"           # Match paths starting with /s3/
-    strip_prefix: "/s3"  # Optional: remove this from request path
-    target_prefix: "/test-bucket"  # Optional: add this to proxied path
-    default_root_object: "index.html"  # Optional: override global default for this origin
-    require_signature: false  # Optional: override global signing requirement for this origin
-  
-  - name: api
-    url: https://api.example.com
-    path_patterns:
-      - "/api/*"
-```
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Friendly name for the origin |
+| `url` | Yes | Backend service URL |
+| `path_patterns` | Yes | Array of path patterns to match |
+| `default_root_object` | No | Override global default root object for this origin |
+| `require_signature` | No | Override global signing requirement for this origin |
 
 #### Per-Origin Configuration
 
 Each origin can override server-level defaults:
 
-- **default_root_object** (optional): If set, this origin will serve this object when "/" is requested, overriding the server-level global setting. Useful when different origins have different directory structures.
-- **require_signature** (optional): If set (true/false), overrides the global `signing.enabled` setting for this origin only. Allows mixed security models where some paths require signatures while others don't.
+- **default_root_object** (optional): If set, this origin will serve this object when "/" is requested. Useful when different origins have different directory structures.
+- **require_signature** (optional): If set (true/false), overrides the global `SIGNING_ENABLED` setting for this origin only. Allows mixed security models where some paths require signatures while others don't.
 
 **Pattern Matching:**
 - Exact match: `/health` matches only `/health`
-- Prefix wildcard: `/s3/*` matches `/s3/bucket/key`
+- Prefix wildcard: `/test-bucket/*` matches `/test-bucket/key`
 - Catch-all: `/*` matches everything
 - Longest pattern wins (first match if equal length)
 
@@ -278,34 +261,25 @@ Each origin can override server-level defaults:
 
 Override the global signature requirement on a per-origin basis to allow mixed security levels:
 
-```yaml
-signing:
-  enabled: true  # Global default
-  # ... other settings ...
+```bash
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
 
-origins:
-  # Public bucket - override to allow unsigned access
-  - name: public-bucket
-    url: http://essthree:9300
-    path_patterns: ["/public/*"]
-    require_signature: false  # Override global: allow unsigned
-  
-  # Private bucket - explicitly require signatures
-  - name: private-bucket
-    url: http://essthree:9300
-    path_patterns: ["/private/*"]
-    require_signature: true   # Override global: require signed
-  
-  # Protected bucket - uses global setting (signing.enabled)
-  - name: protected-bucket
-    url: http://essthree:9300
-    path_patterns: ["/protected/*"]
-    # Omit require_signature to inherit global setting
+export ORIGINS='[
+  {"name":"public-bucket","url":"http://essthree:9300","path_patterns":["/public/*"],"require_signature":false},
+  {"name":"private-bucket","url":"http://essthree:9300","path_patterns":["/private/*"],"require_signature":true},
+  {"name":"protected-bucket","url":"http://essthree:9300","path_patterns":["/protected/*"]}
+]'
 ```
+
+- `public-bucket`: Override global setting, allow unsigned access
+- `private-bucket`: Override global setting, explicitly require signatures
+- `protected-bucket`: Omit `require_signature` to inherit the global `SIGNING_ENABLED` setting
 
 **Signature Requirement Logic:**
 1. If `require_signature` is set on the origin, use that value
-2. Otherwise, use the global `signing.enabled` setting
+2. Otherwise, use the global `SIGNING_ENABLED` setting
 3. When a signature is required but missing/invalid, CloudFauxnt returns 403 Forbidden
 
 **Real-World Example:**
@@ -315,54 +289,21 @@ origins:
 
 ### CORS
 
-```yaml
-cors:
-  enabled: true
-  allowed_origins:
-    - "*"                           # Allow all (dev only!)
-    - "http://localhost:3000"       # Specific origin
-    - "*.example.com"               # Wildcard domain
-  allowed_methods:
-    - "GET"
-    - "HEAD"
-    - "OPTIONS"
-    - "PUT"
-    - "POST"
-    - "DELETE"
-  allowed_headers:
-    - "*"                           # Allow all headers
-  max_age: 3600                     # Preflight cache (seconds)
+CORS is enabled via the `CORS_ENABLED` environment variable:
+
+```bash
+export CORS_ENABLED=true
 ```
 
 ### Signing
 
-```yaml
-signing:
-  enabled: true
-  key_pair_id: "APKAJEXAMPLE123456"
-  public_key_path: "/app/keys/public.pem"
-  
-  # Token options for signed URLs and cookies
-  token_options:
-    # Clock skew tolerance in seconds for expiration validation
-    # Allows for time differences in distributed systems (default: 30)
-    clock_skew_seconds: 30
-    
-    # Default TTL for signed URLs in seconds (default: 3600 = 1 hour)
-    default_url_ttl_seconds: 3600
-    
-    # Default TTL for signed cookies in seconds (default: 86400 = 24 hours)
-    default_cookie_ttl_seconds: 86400
-    
-    # Allow wildcard patterns in signed URLs (default: false)
-    allow_wildcard_patterns: false
-```
+Signing is configured via environment variables:
 
-**Token Options Explained:**
-- **clock_skew_seconds**: Tolerance window for token expiration validation. In distributed systems where server clocks might differ by a few seconds, this prevents legitimate tokens from being rejected. Recommended range: 30-60 seconds.
-- **default_url_ttl_seconds**: Default time-to-live for generated signed URLs if not explicitly specified. Clients can override by specifying custom expiration times.
-- **default_cookie_ttl_seconds**: Default time-to-live for generated signed cookies if not explicitly specified.
-- **allow_wildcard_patterns**: Security setting. Disabled by default since CloudFront doesn't natively support wildcard patterns in signed URLs.
+```bash
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
+```
 
 ## Integration with ess-three
 
@@ -400,8 +341,10 @@ services:
     container_name: cloudfauxnt
     ports:
       - "9310:9310"
+    environment:
+      PORT: "9310"
+      ORIGINS: '[{"name":"s3","url":"http://essthree:9300","path_patterns":["/*"]}]'
     volumes:
-      - ../../config:/app/config:ro
       - ./keys:/app/keys:ro
     networks:
       - shared-network
@@ -423,13 +366,9 @@ cd /path/to/CloudFauxnt && docker compose up -d
 docker ps | grep -E "cloudfauxnt|essthree"
 ```
 
-**CloudFauxnt config (config/cloudfauxnt.config.yaml):**
-```yaml
-origins:
-  - name: s3
-    url: http://essthree:9300  # Service name for Docker network
-    path_patterns:
-      - "/*"
+**CloudFauxnt configuration (via environment):**
+```bash
+export ORIGINS='[{"name":"s3","url":"http://essthree:9300","path_patterns":["/*"]}]'
 ```
 
 ## Architecture
@@ -446,7 +385,7 @@ CloudFauxnt runs as a separate Docker container that proxies requests to origin 
 │  │                      │         │                      │     │
 │  │ • Validate Signature │         │ • S3 Emulator        │     │
 │  │ • Check CORS         │─────────│ • Stores objects     │     │
-│  │ • Rewrite paths      │         │   in ./data dir      │     │
+│  │ • Route paths        │         │   in ./data dir      │     │
 │  │ • Proxy requests     │         │                      │     │
 │  └──────────┬───────────┘         └──────────────────────┘     │
 │             │                                                   │
@@ -463,16 +402,16 @@ CloudFauxnt runs as a separate Docker container that proxies requests to origin 
 ```
 
 **Request Flow:**
-1. Client → CloudFauxnt: `/s3/bucket/key?Signature=...`
+1. Client sends request to CloudFauxnt: `/test-bucket/key?Signature=...`
 2. CloudFauxnt validates signature and CORS
-3. CloudFauxnt rewrites path: `/s3/bucket/key` → `/bucket/key` (using strip_prefix/target_prefix)
-4. CloudFauxnt proxies to: `http://essthree:9300/bucket/key`
+3. CloudFauxnt matches the path to an origin via path patterns
+4. CloudFauxnt proxies the request directly to: `http://essthree:9300/test-bucket/key`
 5. ess-three returns object from local storage
 
 **Key Points:**
 - Both containers run on the same Docker bridge network (`shared-network`)
 - CloudFauxnt accesses ess-three via service name `essthree`, not localhost
-- Path rewriting allows flexible routing (e.g., `/s3/*` → `/test-bucket/*`)
+- Paths are forwarded directly to the origin (no rewriting)
 - Each service has its own docker-compose.yml file in separate directories
 
 ## Testing
@@ -496,14 +435,14 @@ sleep 2
 # Test health endpoint
 curl http://localhost:9310/health
 
-# Test unsigned request with path rewriting
-curl -v http://localhost:9310/s3/MyTestFile.txt
+# Test unsigned request
+curl -v http://localhost:9310/test-bucket/MyTestFile.txt
 
 # Test CORS preflight
 curl -X OPTIONS \
   -H "Origin: http://localhost:3000" \
   -H "Access-Control-Request-Method: GET" \
-  -v http://localhost:9310/s3/MyTestFile.txt
+  -v http://localhost:9310/test-bucket/MyTestFile.txt
 
 # View logs
 docker logs cloudfauxnt -f
@@ -517,41 +456,25 @@ To test expiration validation and clock skew tolerance:
 ```bash
 # Test with a token that expires in 25 seconds
 # (should pass with default 30-second clock skew)
-curl "http://localhost:9310/s3/file.txt?Expires=$(($(date +%s) + 25))&Signature=...&Key-Pair-Id=..."
+curl "http://localhost:9310/test-bucket/file.txt?Expires=$(($(date +%s) + 25))&Signature=...&Key-Pair-Id=..."
 
 # Test with a token that's already expired
 # (should fail)
-curl "http://localhost:9310/s3/file.txt?Expires=$(($(date +%s) - 60))&Signature=...&Key-Pair-Id=..."
-
-# Test with custom clock skew configured
-# Edit config/cloudfauxnt.config.yaml:
-# signing:
-#   token_options:
-#     clock_skew_seconds: 60  # Allow 60-second tolerance
-# Then restart CloudFauxnt: docker compose restart cloudfauxnt
+curl "http://localhost:9310/test-bucket/file.txt?Expires=$(($(date +%s) - 60))&Signature=...&Key-Pair-Id=..."
 ```
 
 ### Testing Per-Origin Signature Enforcement
 
 To test mixed security levels with different paths:
 
-```yaml
-# config/cloudfauxnt.config.yaml example
-signing:
-  enabled: true
-  key_pair_id: "APKAJEXAMPLE123456"
-  public_key_path: "/app/keys/public.pem"
-
-origins:
-  - name: public
-    url: http://essthree:9300
-    path_patterns: ["/public/*"]
-    require_signature: false      # Unsigned access allowed
-  
-  - name: private
-    url: http://essthree:9300
-    path_patterns: ["/private/*"]
-    require_signature: true       # Signature required
+```bash
+export SIGNING_ENABLED=true
+export SIGNING_KEY_PAIR_ID=APKAJEXAMPLE123456
+export SIGNING_PUBLIC_KEY_PATH=/app/keys/public.pem
+export ORIGINS='[
+  {"name":"public","url":"http://essthree:9300","path_patterns":["/public/*"],"require_signature":false},
+  {"name":"private","url":"http://essthree:9300","path_patterns":["/private/*"],"require_signature":true}
+]'
 ```
 
 Test behavior:
@@ -581,7 +504,6 @@ Cloudfauxnt/
 ├── signing.go           # CloudFront signature validation
 ├── cors.go              # CORS middleware
 ├── handlers.go          # HTTP handlers and proxying
-├── config.example.yaml  # Configuration template
 ├── Dockerfile           # Multi-stage Docker build
 ├── docker-compose.yml   # Container orchestration
 ├── go.mod              # Go dependencies
@@ -633,24 +555,13 @@ docker exec cloudfauxnt curl -v http://essthree:9300/health
 docker exec essthree curl -v http://cloudfauxnt:9310/health
 ```
 
-### Path Rewriting Not Working
+### Path Routing Not Working
 
-**Requests still going to wrong path:**
-- Verify `strip_prefix` and `target_prefix` are set in config/cloudfauxnt.config.yaml origins section
-- After changing config, restart CloudFauxnt: `docker compose restart cloudfauxnt`
+**Requests going to wrong origin:**
+- Verify that `path_patterns` in your `ORIGINS` env var match the request paths
+- After changing environment variables, restart CloudFauxnt: `docker compose restart cloudfauxnt`
 - If code changes were made, rebuild without cache: `docker compose build --no-cache && docker compose up -d`
-- Check logs to verify path transformation: `docker logs cloudfauxnt | grep "path"`
-
-**Example configuration:**
-```yaml
-origins:
-  - name: s3
-    url: http://essthree:9300
-    path_patterns: ["/s3/*"]
-    strip_prefix: "/s3"
-    target_prefix: "/test-bucket"
-```
-This transforms `/s3/file.txt` → `/test-bucket/file.txt`
+- Check logs to see which origin was matched: `docker logs cloudfauxnt | grep "path"`
 
 ### Signature Validation Fails
 

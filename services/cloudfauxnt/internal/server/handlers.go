@@ -34,8 +34,6 @@ type AdminOriginUpsertRequest struct {
 	Name              string   `json:"name"`
 	URL               string   `json:"url"`
 	PathPatterns      []string `json:"path_patterns"`
-	StripPrefix       string   `json:"strip_prefix,omitempty"`
-	TargetPrefix      string   `json:"target_prefix,omitempty"`
 	RequireSignature  *bool    `json:"require_signature"`
 	DefaultRootObject *string  `json:"default_root_object"`
 }
@@ -115,22 +113,13 @@ func (ph *ProxyHandler) proxyToOrigin(w http.ResponseWriter, r *http.Request, or
 		// Remove CloudFront signature parameters
 		req.URL = RemoveSignatureParams(req.URL)
 
-		// Apply path rewriting if configured
-		if origin.StripPrefix != "" {
-			req.URL.Path = strings.TrimPrefix(req.URL.Path, origin.StripPrefix)
-		}
-
-		// Apply default root object before adding target prefix.
+		// Apply default root object.
 		// For GET/HEAD, normalize both directory-style paths ending with "/"
 		// and directory-style paths without a trailing slash.
 		if req.Method == http.MethodGet || req.Method == http.MethodHead {
 			if defaultRootObject := ph.defaultRootObjectForOrigin(origin); defaultRootObject != "" {
 				req.URL.Path = applyDefaultRootObject(req.URL.Path, defaultRootObject)
 			}
-		}
-
-		if origin.TargetPrefix != "" {
-			req.URL.Path = origin.TargetPrefix + req.URL.Path
 		}
 
 		// Set proper Host header
@@ -288,8 +277,6 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 			Name              string   `json:"name"`
 			URL               string   `json:"url"`
 			PathPatterns      []string `json:"path_patterns"`
-			StripPrefix       string   `json:"strip_prefix,omitempty"`
-			TargetPrefix      string   `json:"target_prefix,omitempty"`
 			RequireSignature  bool     `json:"require_signature"`
 			DefaultRootObject string   `json:"default_root_object,omitempty"`
 		}
@@ -344,8 +331,6 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 				Name:              origin.Name,
 				URL:               origin.URL,
 				PathPatterns:      origin.PathPatterns,
-				StripPrefix:       origin.StripPrefix,
-				TargetPrefix:      origin.TargetPrefix,
 				RequireSignature:  requireSignature,
 				DefaultRootObject: defaultRootObject,
 			})
@@ -537,8 +522,6 @@ func buildOriginFromAdminRequest(req AdminOriginUpsertRequest) (Origin, error) {
 		Name:             name,
 		URL:              originURL,
 		PathPatterns:     pathPatterns,
-		StripPrefix:      strings.TrimSpace(req.StripPrefix),
-		TargetPrefix:     strings.TrimSpace(req.TargetPrefix),
 		RequireSignature: req.RequireSignature,
 	}
 

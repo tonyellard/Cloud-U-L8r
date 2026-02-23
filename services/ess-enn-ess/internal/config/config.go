@@ -8,6 +8,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// NOTE: yaml.v3 is still required by SaveConfig (admin export).
+
 // Config represents the complete SNS emulator configuration
 type Config struct {
 	Server      ServerConfig      `yaml:"server"`
@@ -96,41 +98,6 @@ type DeveloperConfig struct {
 	AutoConfirmSubscriptions bool `yaml:"auto_confirm_subscriptions"`
 }
 
-// LoadConfig loads configuration from a YAML file
-func LoadConfig(filePath string) (*Config, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	// First, try to unmarshal as a generic map to check for nested structure
-	var raw map[string]interface{}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	cfg := &Config{}
-
-	// If there's a nested 'config' key (from export format), unmarshal that
-	if configData, ok := raw["config"]; ok {
-		configYaml, err := yaml.Marshal(configData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to prepare config data: %w", err)
-		}
-		if err := yaml.Unmarshal(configYaml, cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse nested config: %w", err)
-		}
-	} else {
-		// Otherwise, unmarshal the whole file as config (expected format)
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse config file: %w", err)
-		}
-	}
-
-	applyDefaults(cfg)
-	return cfg, nil
-}
-
 // SaveConfig saves configuration to a YAML file
 func SaveConfig(cfg *Config, filePath string) error {
 	data, err := yaml.Marshal(cfg)
@@ -143,95 +110,6 @@ func SaveConfig(cfg *Config, filePath string) error {
 	}
 
 	return nil
-}
-
-// applyDefaults applies default values to configuration
-func applyDefaults(cfg *Config) {
-	if cfg.Server.APIPort == 0 {
-		cfg.Server.APIPort = 9330
-	}
-	if cfg.Server.AdminPort == 0 {
-		cfg.Server.AdminPort = 9331
-	}
-	if cfg.Server.Host == "" {
-		cfg.Server.Host = "0.0.0.0"
-	}
-	if cfg.Server.TimeoutSec == 0 {
-		cfg.Server.TimeoutSec = 30
-	}
-
-	// Enable integrations by default if not explicitly disabled
-	// For bools, we can't distinguish between "not set" and "false", so we use a heuristic:
-	// if all boolean fields are false, assume they weren't set and enable them
-
-	if cfg.Storage.Type == "" {
-		cfg.Storage.Type = "memory"
-	}
-	if cfg.Storage.ActivityLogSize == 0 {
-		cfg.Storage.ActivityLogSize = 10000
-	}
-	if cfg.Storage.ConfigFile == "" {
-		cfg.Storage.ConfigFile = "./data/sns_state.yaml"
-	}
-
-	if cfg.ActivityLog.LogFile == "" {
-		cfg.ActivityLog.LogFile = "./data/activity.log"
-	}
-	if cfg.ActivityLog.RetentionDays == 0 {
-		cfg.ActivityLog.RetentionDays = 7
-	}
-
-	if cfg.SQS.Endpoint == "" {
-		cfg.SQS.Endpoint = "http://ess-queue-ess:9320"
-	}
-	if cfg.SQS.Region == "" {
-		cfg.SQS.Region = "us-east-1"
-	}
-	if cfg.SQS.OnQueueNotFound == "" {
-		cfg.SQS.OnQueueNotFound = "log_error"
-	}
-	if cfg.SQS.MaxRetries == 0 {
-		cfg.SQS.MaxRetries = 3
-	}
-	if cfg.SQS.RetryBackoffMs == 0 {
-		cfg.SQS.RetryBackoffMs = 100
-	}
-
-	if cfg.HTTP.MaxRetries == 0 {
-		cfg.HTTP.MaxRetries = 3
-	}
-	if cfg.HTTP.RetryBackoffMs == 0 {
-		cfg.HTTP.RetryBackoffMs = 100
-	}
-	if cfg.HTTP.TimeoutSeconds == 0 {
-		cfg.HTTP.TimeoutSeconds = 10
-	}
-
-	if cfg.Messages.MaxSize == 0 {
-		cfg.Messages.MaxSize = 262144 // 256KB
-	}
-	if cfg.Messages.RetentionPeriod == 0 {
-		cfg.Messages.RetentionPeriod = 96 // 4 days
-	}
-
-	if cfg.Admin.Port == 0 {
-		cfg.Admin.Port = 9331
-	}
-
-	if cfg.Telemetry.ExportIntervalSeconds == 0 {
-		cfg.Telemetry.ExportIntervalSeconds = 60
-	}
-
-	if cfg.AWS.AccountId == "" {
-		cfg.AWS.AccountId = "123456789012"
-	}
-	if cfg.AWS.Region == "" {
-		cfg.AWS.Region = "us-east-1"
-	}
-
-	cfg.Developer.NoAuth = true
-	cfg.Developer.VerboseErrors = true
-	cfg.Developer.AutoConfirmSubscriptions = true
 }
 
 // Default returns a default configuration
@@ -295,32 +173,3 @@ func Default() *Config {
 	return cfg
 }
 
-// LoadState loads topics and subscriptions from an exported config file
-// Returns the raw data structures for topics and subscriptions
-func LoadState(filePath string) ([]interface{}, []interface{}, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read state file: %w", err)
-	}
-
-	// Parse the entire file as a generic map
-	var raw map[string]interface{}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse state file: %w", err)
-	}
-
-	var topics []interface{}
-	var subscriptions []interface{}
-
-	// Extract topics if present
-	if topicsData, ok := raw["topics"].([]interface{}); ok {
-		topics = topicsData
-	}
-
-	// Extract subscriptions if present
-	if subsData, ok := raw["subscriptions"].([]interface{}); ok {
-		subscriptions = subsData
-	}
-
-	return topics, subscriptions, nil
-}

@@ -4,7 +4,6 @@
 # Variables
 BINARY_NAME=cloudfauxnt
 DOCKER_IMAGE=cloudfauxnt:latest
-CONFIG_FILE=../../config/cloudfauxnt.config.yaml
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -18,7 +17,7 @@ build: ## Build the Go binary
 
 run: ## Run the application locally
 	@echo "Running $(BINARY_NAME)..."
-	go run . --config $(CONFIG_FILE)
+	go run .
 
 test: ## Run unit tests
 	@echo "Running tests..."
@@ -38,15 +37,6 @@ keys: ## Generate RSA key pair for CloudFront signing
 	@echo "Public key: keys/public.pem"
 	@echo "Private key: keys/private.pem"
 
-config: ## Create central config from example
-	@mkdir -p ../../config
-	@if [ ! -f $(CONFIG_FILE) ]; then \
-		cp config.example.yaml $(CONFIG_FILE); \
-		echo "Created $(CONFIG_FILE) from example"; \
-	else \
-		echo "$(CONFIG_FILE) already exists"; \
-	fi
-
 docker-build: ## Build Docker image
 	@echo "Building Docker image..."
 	docker build -t $(DOCKER_IMAGE) .
@@ -65,9 +55,9 @@ docker-logs: ## Show Docker container logs
 docker-shell: ## Open shell in running container
 	docker compose exec cloudfauxnt sh
 
-setup: config keys ## Initial setup (create config and generate keys)
+setup: keys ## Initial setup (generate keys)
 	@echo "Setup complete!"
-	@echo "1. Edit ../../config/cloudfauxnt.config.yaml for your environment"
+	@echo "1. Set environment variables (PORT, HOST, ORIGINS, etc.)"
 	@echo "2. Run 'make run' or 'make docker-run'"
 
 all: build ## Build everything

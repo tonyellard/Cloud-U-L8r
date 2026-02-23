@@ -207,8 +207,6 @@ type CloudfauxntOriginOverview struct {
 	Name              string   `json:"name"`
 	URL               string   `json:"url"`
 	PathPatterns      []string `json:"path_patterns"`
-	StripPrefix       string   `json:"strip_prefix,omitempty"`
-	TargetPrefix      string   `json:"target_prefix,omitempty"`
 	RequireSignature  bool     `json:"require_signature"`
 	DefaultRootObject string   `json:"default_root_object,omitempty"`
 }
@@ -260,8 +258,6 @@ type CloudfauxntOriginUpsertRequest struct {
 	Name              string   `json:"name"`
 	URL               string   `json:"url"`
 	PathPatterns      []string `json:"path_patterns"`
-	StripPrefix       string   `json:"strip_prefix,omitempty"`
-	TargetPrefix      string   `json:"target_prefix,omitempty"`
 	RequireSignature  *bool    `json:"require_signature"`
 	DefaultRootObject *string  `json:"default_root_object"`
 }
@@ -1119,8 +1115,6 @@ func (s *Server) handleCloudfauxntCreateOrigin(w http.ResponseWriter, r *http.Re
 		"name":                req.Name,
 		"url":                 req.URL,
 		"path_patterns":       req.PathPatterns,
-		"strip_prefix":        req.StripPrefix,
-		"target_prefix":       req.TargetPrefix,
 		"require_signature":   req.RequireSignature,
 		"default_root_object": req.DefaultRootObject,
 	}
@@ -1156,8 +1150,6 @@ func (s *Server) handleCloudfauxntUpdateOrigin(w http.ResponseWriter, r *http.Re
 		"name":                req.Name,
 		"url":                 req.URL,
 		"path_patterns":       req.PathPatterns,
-		"strip_prefix":        req.StripPrefix,
-		"target_prefix":       req.TargetPrefix,
 		"require_signature":   req.RequireSignature,
 		"default_root_object": req.DefaultRootObject,
 	}

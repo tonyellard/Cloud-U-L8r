@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-.PHONY: build run run-with-config test clean docker-build docker-run docker-stop config help
+.PHONY: build run test clean docker-build docker-run docker-stop help
 
 # Variables
 BINARY_NAME=ess-queue-ess
 DOCKER_IMAGE=ess-queue-ess:latest
 PORT=9320
-CONFIG_FILE=../../config/ess-queue-ess.config.yaml
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -20,10 +19,6 @@ build: ## Build the Go binary
 run: ## Run the application locally
 	@echo "Running $(BINARY_NAME) on port $(PORT)..."
 	PORT=$(PORT) go run .
-
-run-with-config: config ## Run with configuration file
-	@echo "Running $(BINARY_NAME) with config on port $(PORT)..."
-	PORT=$(PORT) go run . --config $(CONFIG_FILE)
 
 test: ## Run unit tests
 	@echo "Running tests..."
@@ -64,14 +59,5 @@ deps: ## Download Go dependencies
 	@echo "Downloading dependencies..."
 	go mod download
 	go mod tidy
-
-config: ## Create central config from example
-	@mkdir -p ../../config
-	@if [ ! -f $(CONFIG_FILE) ]; then \
-		cp config.example.yaml $(CONFIG_FILE); \
-		echo "Created $(CONFIG_FILE) from example"; \
-	else \
-		echo "$(CONFIG_FILE) already exists"; \
-	fi
 
 all: build ## Build everything

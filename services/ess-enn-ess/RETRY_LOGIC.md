@@ -10,10 +10,10 @@ Phase 6 implements intelligent retry logic for HTTP/HTTPS endpoint deliveries wi
 
 When an HTTP delivery fails with a retryable error, the system automatically retries with exponentially increasing delays:
 
-- **Base backoff**: Configurable via `http.retry_backoff_ms` (default: 100ms)
+- **Base backoff**: 100ms (default)
 - **Exponential increase**: Each retry doubles the delay (2^attempt)
 - **Maximum backoff**: Capped at 30 seconds to prevent excessive delays
-- **Configurable retries**: Set via `http.max_retries` (default: 3)
+- **Max retries**: 3 (default)
 
 **Example retry timeline with 100ms base:**
 ```
@@ -75,25 +75,12 @@ All delivery attempts are tracked in the activity logger:
 
 ## Configuration
 
-### ess-enn-ess.config.yaml
+HTTP retry behavior is configured via the internal defaults. The default settings are:
 
-```yaml
-http:
-  # Enable/disable HTTP endpoint subscriptions
-  enabled: true
-  
-  # Maximum number of delivery retry attempts
-  # 0 = no retries, just one attempt
-  # 3 = one initial attempt + 3 retries (4 total attempts)
-  max_retries: 3
-  
-  # Base backoff time in milliseconds between retries
-  # Actual delay = retry_backoff_ms * (2 ^ attempt)
-  retry_backoff_ms: 100
-  
-  # HTTP client timeout in seconds
-  timeout_seconds: 5
-```
+- **HTTP subscriptions**: Enabled
+- **Max retries**: 3 (one initial attempt + 3 retries = 4 total attempts)
+- **Base backoff**: 100ms (actual delay = 100ms * 2^attempt)
+- **HTTP client timeout**: 5 seconds
 
 ## Usage Examples
 
@@ -234,22 +221,7 @@ With default settings (3 retries, 100ms base):
 
 ### Tuning Recommendations
 
-**High-volume, low-latency**:
-```yaml
-max_retries: 1
-retry_backoff_ms: 50
-```
-
-**Reliability-focused**:
-```yaml
-max_retries: 5
-retry_backoff_ms: 200
-```
-
-**No retries (fastest, least reliable)**:
-```yaml
-max_retries: 0
-```
+Retry behavior is controlled by internal defaults (max_retries: 3, retry_backoff_ms: 100). For most local development use cases, the defaults provide a good balance between reliability and speed.
 
 ## Future Enhancements
 
@@ -263,6 +235,6 @@ Potential additions for future phases:
 ## Related Files
 
 - Implementation: `internal/delivery/delivery.go`
-- Configuration: `internal/config/config.go`
+- Configuration defaults: `internal/config/config.go`
 - Test: `test_http_retry.sh`
 - Documentation: `README.md`

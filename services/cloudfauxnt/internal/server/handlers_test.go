@@ -30,8 +30,6 @@ func TestDefaultRootObjectAppliedToNestedDirectoryPath(t *testing.T) {
 				Name:              "s3",
 				URL:               origin.URL,
 				PathPatterns:      []string{"/s3/*"},
-				StripPrefix:       "/s3",
-				TargetPrefix:      "/test-bucket",
 				RequireSignature:  boolPtr(false),
 				DefaultRootObject: strPtr("index.html"),
 			},
@@ -51,7 +49,7 @@ func TestDefaultRootObjectAppliedToNestedDirectoryPath(t *testing.T) {
 
 	select {
 	case got := <-requestedPath:
-		want := "/test-bucket/tester-dir/index.html"
+		want := "/s3/tester-dir/index.html"
 		if got != want {
 			t.Fatalf("unexpected proxied path: got=%s want=%s", got, want)
 		}
@@ -78,8 +76,6 @@ func TestDefaultRootObjectAppliedToNestedDirectoryPathWithoutTrailingSlash(t *te
 				Name:              "s3",
 				URL:               origin.URL,
 				PathPatterns:      []string{"/s3/*"},
-				StripPrefix:       "/s3",
-				TargetPrefix:      "/test-bucket",
 				RequireSignature:  boolPtr(false),
 				DefaultRootObject: strPtr("index.html"),
 			},
@@ -99,7 +95,7 @@ func TestDefaultRootObjectAppliedToNestedDirectoryPathWithoutTrailingSlash(t *te
 
 	select {
 	case got := <-requestedPath:
-		want := "/test-bucket/tester-dir/index.html"
+		want := "/s3/tester-dir/index.html"
 		if got != want {
 			t.Fatalf("unexpected proxied path: got=%s want=%s", got, want)
 		}
@@ -126,8 +122,6 @@ func TestDefaultRootObjectAppliedToRootPath(t *testing.T) {
 				Name:              "s3",
 				URL:               origin.URL,
 				PathPatterns:      []string{"/s3/*"},
-				StripPrefix:       "/s3",
-				TargetPrefix:      "/test-bucket",
 				RequireSignature:  boolPtr(false),
 				DefaultRootObject: strPtr("index.html"),
 			},
@@ -147,7 +141,7 @@ func TestDefaultRootObjectAppliedToRootPath(t *testing.T) {
 
 	select {
 	case got := <-requestedPath:
-		want := "/test-bucket/index.html"
+		want := "/s3/index.html"
 		if got != want {
 			t.Fatalf("unexpected proxied path: got=%s want=%s", got, want)
 		}
@@ -173,8 +167,6 @@ func TestContentTypeInferredFromExtensionWhenOriginReturnsOctetStream(t *testing
 				Name:             "s3",
 				URL:              origin.URL,
 				PathPatterns:     []string{"/s3/*"},
-				StripPrefix:      "/s3",
-				TargetPrefix:     "/test-bucket",
 				RequireSignature: boolPtr(false),
 			},
 		},
@@ -213,8 +205,6 @@ func TestContentTypePreservedWhenOriginProvidesSpecificType(t *testing.T) {
 				Name:             "s3",
 				URL:              origin.URL,
 				PathPatterns:     []string{"/s3/*"},
-				StripPrefix:      "/s3",
-				TargetPrefix:     "/test-bucket",
 				RequireSignature: boolPtr(false),
 			},
 		},

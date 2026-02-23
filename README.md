@@ -63,11 +63,18 @@ All services use the 93xx port range with 10-port increments:
 
 ## Configuration
 
-All service configs live in the root `config/` directory using the naming convention
-`[service].config.yaml`:
-- config/ess-enn-ess.config.yaml - SNS configuration
-- config/ess-queue-ess.config.yaml - SQS configuration
-- config/cloudfauxnt.config.yaml - CDN configuration
+Services are configured via **environment variables** (set in `docker-compose.yml`).
+
+AWS resources (buckets, queues, topics, subscriptions) are provisioned via **Terraform**
+configs in `configs/[config-name]/`. The default config creates baseline dev resources:
+
+```bash
+# Start services and apply the default Terraform config
+make stack
+
+# Or apply a config manually against running services
+make run-config CONFIG=default
+```
 
 ## Development
 

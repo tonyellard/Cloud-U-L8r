@@ -15,7 +15,8 @@ A lightweight, developer-friendly AWS SNS (Simple Notification Service) emulator
 - **Admin Dashboard**: Web-based admin UI for monitoring and managing topics/subscriptions
 - **SQS Integration**: Native integration with ess-queue-ess for SQS subscriptions
 - **Developer-First**: No authentication, verbose errors, and auto-confirming subscriptions in dev mode
-- **Configuration-Driven**: YAML-based configuration for reproducible setups
+- **Environment Variable Configuration**: Simple env var-based configuration with sensible defaults
+- **Terraform Provisioning**: Topics and subscriptions provisioned via Terraform for reproducible setups
 
 ## Quick Start
 
@@ -30,7 +31,10 @@ A lightweight, developer-friendly AWS SNS (Simple Notification Service) emulator
 cd /home/tony/Documents/cloud-u-l8r
 
 # Start all services including SNS emulator
-docker-compose up -d
+make up
+
+# Provision topics and subscriptions via Terraform
+make run-config CONFIG=default
 
 # Verify SNS is running
 curl http://localhost:9330/health
@@ -44,63 +48,40 @@ cd services/ess-enn-ess
 # Build
 go build -o ess-enn-ess ./cmd/ess-enn-ess
 
-# Run (uses centralized config)
-./ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
+# Run with default settings
+./ess-enn-ess
+
+# Or run with custom env vars
+API_PORT=9330 ADMIN_PORT=9331 SQS_ENDPOINT=http://localhost:9320 ./ess-enn-ess
 ```
 
 ## Configuration
 
-The SNS emulator uses a centralized YAML configuration file located at `/config/ess-enn-ess.config.yaml` (mounted read-only in Docker containers).
+The SNS emulator is configured entirely via environment variables. All settings have sensible defaults.
 
-### Configuration Structure
+### Environment Variables
 
-The streamlined configuration includes only essential user-configurable settings:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_PORT` | `9330` | SNS API port |
+| `ADMIN_PORT` | `9331` | Admin dashboard port |
+| `HOST` | `0.0.0.0` | Bind address |
+| `REGION` | `us-east-1` | AWS region for ARN generation |
+| `ACCOUNT_ID` | `123456789012` | AWS account ID for ARN generation |
+| `SQS_ENDPOINT` | `http://ess-queue-ess:9320` | SQS emulator endpoint for SQS subscriptions |
+| `SQS_ENABLED` | `true` | Enable/disable SQS integration |
+| `AUTO_CONFIRM_SUBSCRIPTIONS` | `true` | Auto-confirm subscriptions (dev mode) |
 
-```yaml
-sqs:
-  enabled: true
-  endpoint: "http://ess-queue-ess:9320"
+### Provisioning Topics and Subscriptions
 
-http:
-  enabled: true
-  max_retries: 3
-  retry_backoff_ms: 100
+Topics and subscriptions are provisioned via Terraform rather than YAML config files:
 
-admin:
-  enabled: true
-
-storage:
-  activity_log_size: 10000
-
-aws:
-  account_id: "123456789012"
-  region: "us-east-1"
+```bash
+# From the repository root
+make run-config CONFIG=default
 ```
 
-### Configuration Fields
-
-- **SQS**: Enable/disable SQS integration and configure endpoint
-- **HTTP**: Enable/disable HTTP subscriptions and retry behavior
-- **Admin**: Enable/disable admin dashboard
-- **Storage**: Activity log size (circular buffer)
-- **AWS**: Account ID and region for ARN generation
-
-### State Persistence & Export/Import
-
-When you export the configuration through the admin dashboard (`/api/export`), it creates a complete backup including:
-- **Configuration**: All config settings
-- **Topics**: All created topics
-- **Subscriptions**: All subscriptions with their current state
-
-When the service restarts, it automatically loads any topics and subscriptions from the config file, enabling reproducible development environments.
-
-**To export:**
-1. Go to Admin Dashboard → Export/Import tab
-2. Click "Download Export"
-3. Save the YAML file as your backup
-
-**To restore:**
-Simply replace the config file with the exported YAML before restarting the service.
+You can also create topics and subscriptions at runtime using the SNS API or the Admin Dashboard.
 
 ## Admin Dashboard
 
@@ -292,17 +273,15 @@ curl http://localhost:9331/api/export > sns-backup.yaml
 - All topics
 - All subscriptions with full state
 
-## Admin Dashboard Export & Restore
+## Admin Dashboard Export
 
-The admin dashboard includes export functionality for complete state backups:
+The admin dashboard includes export functionality for inspection:
 
 1. **Export**: Go to Admin Dashboard → Export/Import tab → "Download Export"
-   - Creates a complete YAML backup of config + topics + subscriptions
-   - Can be used to restore state after container restart
+   - Creates a YAML snapshot of current topics and subscriptions
+   - Useful for debugging and inspection
 
-2. **Automatic Restore on Startup**: The service automatically loads any topics and subscriptions from the config file when it starts
-
-This enables reproducible development environments where your topics and subscriptions persist across restarts.
+Note: The service does not persist state across restarts. Use Terraform provisioning (`make run-config CONFIG=default`) to recreate topics and subscriptions after a restart.
 
 ## API Endpoints
 
@@ -468,10 +447,14 @@ Check activity logs in the admin dashboard for delivery errors.
 
 ### Configuration Issues
 
-Validate the YAML configuration:
+Verify the environment variables are set correctly:
 
 ```bash
-go run ./cmd/ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
+# Check current env vars
+echo $API_PORT $ADMIN_PORT $SQS_ENDPOINT
+
+# Run with explicit configuration
+API_PORT=9330 ADMIN_PORT=9331 SQS_ENDPOINT=http://localhost:9320 go run ./cmd/ess-enn-ess
 ```
 
 ## Implementation Status
@@ -480,7 +463,7 @@ go run ./cmd/ess-enn-ess -config ../../config/ess-enn-ess.config.yaml
 
 - ✅ Core topic management (CreateTopic, DeleteTopic, ListTopics, etc.)
 - ✅ Activity logging system
-- ✅ Configuration system
+- ✅ Environment variable configuration
 - ✅ HTTP server setup
 - ✅ API handlers for topic operations
 - ✅ Docker setup
@@ -561,7 +544,7 @@ curl http://localhost:9330/health
 
 ### Activity Log Access
 
-The activity logger stores up to 10,000 entries in memory by default, configurable via `storage.activity_log_size` in the config.
+The activity logger stores up to 10,000 entries in memory by default.
 
 Access logs via:
 - Admin dashboard: `http://localhost:9331/logs`
