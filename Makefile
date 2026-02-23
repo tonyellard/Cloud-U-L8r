@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-.PHONY: all build rebuild up down logs test clean clean-ports stop-service start-service restart-service status help run-config tf-init tf-plan tf-destroy stack
+.PHONY: all build rebuild up down logs test clean full-clean clean-ports stop-service start-service restart-service status help run-config tf-init tf-plan tf-destroy stack
 
 SERVICE ?=
 SERVICE_GOAL := $(word 2,$(MAKECMDGOALS))
@@ -98,6 +98,21 @@ clean:
 	@docker network rm cloud-u-l8r_shared-network 2>/dev/null || true
 	@echo "✅ Cleanup complete"
 
+# Full clean: clean + wipe all persisted service data and Terraform state
+full-clean: clean
+	@echo "Removing essthree data (S3 buckets/objects)..."
+	@sudo rm -rf services/essthree/data/*
+	@echo "Removing ess-queue-ess data..."
+	@sudo rm -rf services/ess-queue-ess/data/*
+	@echo "Removing ess-enn-ess data..."
+	@sudo rm -rf services/ess-enn-ess/data/*.db services/ess-enn-ess/data/*.log
+	@echo "Removing Terraform state from all configs..."
+	@find configs -name '.terraform' -type d -exec rm -rf {} + 2>/dev/null || true
+	@find configs -name '.terraform.lock.hcl' -delete 2>/dev/null || true
+	@find configs -name '*.tfstate' -delete 2>/dev/null || true
+	@find configs -name '*.tfstate.backup' -delete 2>/dev/null || true
+	@echo "✅ Full clean complete — all emulator data and Terraform state wiped"
+
 # Kill processes bound to service ports
 clean-ports:
 	@echo "Cleaning service ports with fuser..."
@@ -189,7 +204,8 @@ help:
 	@echo "  logs         - View logs from all services"
 	@echo "  status       - Show status of all Docker containers"
 	@echo "  test         - Run Go tests in all services"
-	@echo "  clean        - Remove containers, volumes, networks, and images (full reset)"
+	@echo "  clean        - Remove containers, volumes, networks, and images"
+	@echo "  full-clean   - clean + wipe all service data and Terraform state"
 	@echo "  clean-ports  - Kill processes using service ports (9300, 9310, 9320, 9330, 9999)"
 	@echo "  stop-service - Stop one service (use SERVICE=<name> or positional name)"
 	@echo "  start-service - Start one service (use SERVICE=<name> or positional name)"
@@ -207,5 +223,5 @@ help:
 	@echo "  make stack           - Start services and apply default Terraform config"
 	@echo "  make down            - Stop everything cleanly"
 	@echo "  make logs            - View container output"
-	@echo "  make clean && make up - Full reset and restart"
+	@echo "  make full-clean && make stack - Nuke everything and start fresh"
 	@echo "  make rebuild         - Force full rebuild (no cache)"
