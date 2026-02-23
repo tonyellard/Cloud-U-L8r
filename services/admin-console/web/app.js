@@ -21,8 +21,33 @@ let kayVeeSecretNextToken = '';
 const kayVeeSecretValues = new Map();
 let kayVeeLabelParameterTarget = '';
 let kayVeeUpdateParameterTarget = null;
+let essThreeActivityRows = [];
+let essThreeActivityNextToken = '';
+let essThreeExpandedBucket = '';
+let essThreeObjectCache = new Map();
 let cloudfauxntSummary = null;
 let cloudfauxntEditingOriginName = '';
+let cloudfauxntActivityRows = [];
+let cloudfauxntActivityNextToken = '';
+let essQueueEssActivityRows = [];
+let essQueueEssActivityNextToken = '';
+let drawbridgeSummary = null;
+let drawbridgeResources = [];
+let drawbridgeActivityRows = [];
+let drawbridgeActivityNextToken = '';
+const expandedDrawbridgeBuses = new Set();
+
+let schedulerSummary = null;
+let schedulerResources = [];
+let schedulerActivityRows = [];
+let schedulerActivityNextToken = '';
+const expandedSchedulerGroups = new Set();
+
+let pipesSummary = null;
+let pipesResources = [];
+let pipesActivityRows = [];
+let pipesActivityNextToken = '';
+const expandedPipes = new Set();
 
 const validViews = new Set([
   'dashboard',
@@ -31,6 +56,9 @@ const validViews = new Set([
   'kay-vee',
   'essthree',
   'cloudfauxnt',
+  'drawbridge',
+  'scheduler',
+  'pipes',
 ]);
 
 function displayServiceName(name) {
@@ -47,6 +75,9 @@ function getServiceReadmeURL(serviceName) {
     'ess-queue-ess': 'services/ess-queue-ess/README.md',
     'ess-enn-ess': 'services/ess-enn-ess/README.md',
     'kay-vee': 'services/kay-vee/README.md',
+    'drawbridge': 'services/drawbridge/README.md',
+    'scheduler': 'services/scheduler/README.md',
+    'pipes': 'services/pipes/README.md',
     'admin-console': 'services/admin-console/README.md',
   };
 
@@ -62,6 +93,9 @@ function getAdminViewForService(serviceName) {
     'kay-vee': 'kay-vee',
     'essthree': 'essthree',
     'cloudfauxnt': 'cloudfauxnt',
+    'drawbridge': 'drawbridge',
+    'scheduler': 'scheduler',
+    'pipes': 'pipes',
   };
 
   return viewMap[serviceName] || '';
@@ -194,12 +228,24 @@ function switchView(view, options = {}) {
     loadKayVeeOverview();
   } else if (nextView === 'essthree') {
     title.textContent = 'ess-three';
-    subtitle.textContent = 'Informational ess-three surface summary (more admin actions coming soon)';
+    subtitle.textContent = 'S3-compatible object storage emulator admin surface';
     loadEssThreeSummary();
-  } else {
+  } else if (nextView === 'cloudfauxnt') {
     title.textContent = 'cloudfauxnt';
     subtitle.textContent = 'Distribution, origin, behavior, and signing administration';
     loadCloudfauxntSummary();
+  } else if (nextView === 'drawbridge') {
+    title.textContent = 'drawbridge';
+    subtitle.textContent = 'EventBridge emulator — event buses, rules, and targets';
+    loadDrawbridgeOverview();
+  } else if (nextView === 'scheduler') {
+    title.textContent = 'scheduler';
+    subtitle.textContent = 'EventBridge Scheduler emulator — schedule groups and schedules';
+    loadSchedulerOverview();
+  } else if (nextView === 'pipes') {
+    title.textContent = 'pipes';
+    subtitle.textContent = 'EventBridge Pipes emulator — point-to-point integrations';
+    loadPipesOverview();
   }
 
     connectSSE(nextView);
@@ -318,6 +364,8 @@ async function loadPubSubState() {
 async function loadEssThreeSummary() {
   try {
     const data = await apiGet('/api/services/essthree/summary');
+    essThreeActivityRows = data.activity || [];
+    essThreeActivityNextToken = data.activityNextToken || '';
     renderEssThreeSummary(data);
   } catch (error) {
     setAlert(error.message);
@@ -584,9 +632,10 @@ function renderKayVeeActivityModalContent() {
       <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
       <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
       <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
-      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.target || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.action || '-')}</td>
       <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
-      <td class="py-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
     </tr>
   `).join('');
 
@@ -598,13 +647,14 @@ function renderKayVeeActivityModalContent() {
             <th class="text-left py-1 pr-2">Timestamp</th>
             <th class="text-left py-1 pr-2">Method</th>
             <th class="text-left py-1 pr-2">Path</th>
-            <th class="text-left py-1 pr-2">Target</th>
+            <th class="text-left py-1 pr-2">Action</th>
             <th class="text-left py-1 pr-2">Status</th>
-            <th class="text-left py-1">Error Type</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="6" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -1253,15 +1303,84 @@ function renderFutureBanner(text) {
 
 function renderEssThreeSummary(data) {
   const buckets = data.buckets || [];
-  const rows = buckets.map((bucket) => `
-    <tr class="border-b">
-      <td class="py-2 pr-2 text-sm">${escapeHTML(bucket.name || '')}</td>
-      <td class="py-2 text-sm text-right">${Number(bucket.object_count || 0)}</td>
-    </tr>
-  `).join('');
+  const rows = buckets.map((bucket) => {
+    const isExpanded = essThreeExpandedBucket === bucket.name;
+    const cached = essThreeObjectCache.get(bucket.name);
+    let objectRows = '';
+    let objectSection = '';
+
+    if (isExpanded) {
+      if (cached && cached.objects) {
+        objectRows = cached.objects.map((obj) => `
+          <tr class="border-b">
+            <td class="py-1 pr-2 text-xs break-all">${escapeHTML(obj.key || '')}</td>
+            <td class="py-1 pr-2 text-xs text-right">${formatObjectSize(obj.size)}</td>
+            <td class="py-1 pr-2 text-xs">${escapeHTML(obj.contentType || '-')}</td>
+            <td class="py-1 pr-2 text-xs whitespace-nowrap">${escapeHTML(obj.lastModified ? new Date(obj.lastModified).toLocaleString() : '-')}</td>
+            <td class="py-1 text-right">
+              <button class="px-2 py-0.5 rounded bg-red-600 text-white text-xs" title="Delete object" aria-label="Delete object ${escapeHTML(obj.key || '')}" onclick="deleteEssThreeObject('${escapeHTML(bucket.name)}', '${escapeAttr(obj.key)}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+
+        const loadMoreBtn = cached.isTruncated
+          ? `<button class="px-3 py-1 rounded bg-indigo-700 text-white text-xs" title="Load more objects" aria-label="Load more objects" onclick="loadMoreEssThreeObjects('${escapeHTML(bucket.name)}')">Load More</button>`
+          : '';
+
+        objectSection = `
+          <tr>
+            <td colspan="3" class="p-0">
+              <div class="bg-slate-50 border-t p-3">
+                <div class="overflow-x-auto">
+                  <table class="w-full">
+                    <thead>
+                      <tr class="text-xs text-slate-500 border-b">
+                        <th class="text-left py-1 pr-2">Key</th>
+                        <th class="text-right py-1 pr-2">Size</th>
+                        <th class="text-left py-1 pr-2">Content Type</th>
+                        <th class="text-left py-1 pr-2">Last Modified</th>
+                        <th class="text-right py-1">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${objectRows || '<tr><td colspan="5" class="py-2 text-xs text-slate-500">No objects in this bucket.</td></tr>'}
+                    </tbody>
+                  </table>
+                </div>
+                <div class="flex justify-end mt-2 gap-2">
+                  ${loadMoreBtn}
+                </div>
+              </div>
+            </td>
+          </tr>
+        `;
+      } else {
+        objectSection = `
+          <tr>
+            <td colspan="3" class="p-0">
+              <div class="bg-slate-50 border-t p-3 text-sm text-slate-500">Loading objects...</div>
+            </td>
+          </tr>
+        `;
+      }
+    }
+
+    return `
+      <tr class="border-b">
+        <td class="py-2 pr-2 text-sm">
+          <button class="text-left font-medium hover:underline" title="Browse bucket contents" aria-label="Browse bucket ${escapeHTML(bucket.name)}" onclick="toggleEssThreeBucket('${escapeHTML(bucket.name)}')">${isExpanded ? '▾' : '▸'} ${escapeHTML(bucket.name || '')}</button>
+        </td>
+        <td class="py-2 pr-2 text-sm text-right">${Number(bucket.object_count || 0)}</td>
+        <td class="py-2 text-right whitespace-nowrap">
+          <button class="px-2 py-0.5 rounded bg-amber-600 text-white text-xs" title="Delete all objects in bucket" aria-label="Purge bucket ${escapeHTML(bucket.name || '')}" onclick="purgeEssThreeBucket('${escapeHTML(bucket.name)}')">Purge</button>
+          <button class="px-2 py-0.5 rounded bg-red-600 text-white text-xs" title="Delete bucket" aria-label="Delete bucket ${escapeHTML(bucket.name || '')}" onclick="deleteEssThreeBucket('${escapeHTML(bucket.name)}')">Delete</button>
+        </td>
+      </tr>
+      ${objectSection}
+    `;
+  }).join('');
 
   document.getElementById('view-content').innerHTML = `
-    ${renderFutureBanner('ess-three admin is currently informational. Additional admin actions will be added in a future update.')}
     <div class="grid grid-cols-2 gap-4">
       <div class="bg-white rounded border p-4">
         <div class="text-sm text-slate-500">Buckets</div>
@@ -1272,6 +1391,28 @@ function renderEssThreeSummary(data) {
         <div class="text-2xl font-semibold">${Number(data.stats?.objects || 0)}</div>
       </div>
     </div>
+
+    <div class="bg-white rounded border p-4">
+      <div class="flex items-center justify-end gap-2 mb-3">
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="View activity log" aria-label="View activity log" onclick="openEssThreeActivityModal()">Activity Log</button>
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh view" aria-label="Refresh ess-three view" onclick="loadEssThreeSummary()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="bg-slate-900 text-white rounded border border-slate-900 px-4 py-2 text-sm font-semibold tracking-wide uppercase">Buckets</div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <div class="bg-white rounded border p-4">
+        <h3 class="font-semibold mb-2">Create Bucket</h3>
+        <div class="grid gap-2">
+          <input id="s3-create-bucket-name" class="border rounded px-2 py-1 text-sm" placeholder="my-bucket-name" />
+          <div class="flex justify-end">
+            <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Create bucket" aria-label="Create bucket" onclick="createEssThreeBucket()">Create Bucket</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="bg-white rounded border p-4">
       <div class="flex items-center justify-between mb-2">
         <h3 class="font-semibold">Bucket Overview</h3>
@@ -1282,16 +1423,212 @@ function renderEssThreeSummary(data) {
           <thead>
             <tr class="text-xs text-slate-500 border-b">
               <th class="text-left py-1 pr-2">Bucket</th>
-              <th class="text-right py-1">Object Count</th>
+              <th class="text-right py-1 pr-2">Object Count</th>
+              <th class="text-right py-1">Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${rows || '<tr><td colspan="2" class="py-2 text-sm text-slate-500">No buckets found.</td></tr>'}
+            ${rows || '<tr><td colspan="3" class="py-2 text-sm text-slate-500">No buckets found.</td></tr>'}
           </tbody>
         </table>
       </div>
     </div>
+
+    <div id="essthree-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeEssThreeActivityModal()">
+      <div class="bg-white w-full max-w-5xl rounded border shadow-lg">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+          <h3 class="font-semibold">ess-three Activity Log</h3>
+          <div class="flex items-center gap-2">
+            <button id="essthree-activity-load-more" class="hidden px-3 py-1 rounded bg-indigo-700 text-white text-sm" title="Load more activity" aria-label="Load more activity" onclick="loadMoreEssThreeActivity()">Load More</button>
+            <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity log" aria-label="Close activity log" onclick="closeEssThreeActivityModal()">✕</button>
+          </div>
+        </div>
+        <div class="p-4 max-h-[70vh] overflow-auto" id="essthree-activity-body">
+          <p class="text-sm text-slate-500">No activity entries.</p>
+        </div>
+      </div>
+    </div>
   `;
+}
+
+function formatObjectSize(bytes) {
+  if (bytes == null) return '-';
+  const b = Number(bytes);
+  if (b === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), units.length - 1);
+  const val = b / Math.pow(1024, i);
+  return `${i === 0 ? val : val.toFixed(1)} ${units[i]}`;
+}
+
+function escapeAttr(str) {
+  return (str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+async function toggleEssThreeBucket(bucketName) {
+  if (essThreeExpandedBucket === bucketName) {
+    essThreeExpandedBucket = '';
+    loadEssThreeSummary();
+    return;
+  }
+
+  essThreeExpandedBucket = bucketName;
+  essThreeObjectCache.delete(bucketName);
+  loadEssThreeSummary();
+
+  try {
+    const data = await apiGet(`/api/services/essthree/buckets/${encodeURIComponent(bucketName)}/objects?maxKeys=50`);
+    essThreeObjectCache.set(bucketName, data);
+    if (essThreeExpandedBucket === bucketName) {
+      loadEssThreeSummary();
+    }
+  } catch (error) {
+    setAlert(`Failed to list objects: ${error.message}`);
+  }
+}
+
+async function loadMoreEssThreeObjects(bucketName) {
+  const cached = essThreeObjectCache.get(bucketName);
+  if (!cached || !cached.nextContinuationToken) return;
+
+  try {
+    const data = await apiGet(`/api/services/essthree/buckets/${encodeURIComponent(bucketName)}/objects?maxKeys=50&continuationToken=${encodeURIComponent(cached.nextContinuationToken)}`);
+    cached.objects = (cached.objects || []).concat(data.objects || []);
+    cached.isTruncated = data.isTruncated;
+    cached.nextContinuationToken = data.nextContinuationToken;
+    essThreeObjectCache.set(bucketName, cached);
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to load more objects: ${error.message}`);
+  }
+}
+
+async function createEssThreeBucket() {
+  const nameInput = document.getElementById('s3-create-bucket-name');
+  const name = (nameInput?.value || '').trim();
+  if (!name) {
+    setAlert('Bucket name is required');
+    return;
+  }
+
+  try {
+    await apiPost('/api/services/essthree/actions/create-bucket', { name });
+    nameInput.value = '';
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to create bucket: ${error.message}`);
+  }
+}
+
+async function deleteEssThreeBucket(bucketName) {
+  if (!window.confirm(`Delete bucket "${bucketName}"? The bucket must be empty.`)) return;
+
+  try {
+    await apiPost('/api/services/essthree/actions/delete-bucket', { name: bucketName });
+    if (essThreeExpandedBucket === bucketName) {
+      essThreeExpandedBucket = '';
+      essThreeObjectCache.delete(bucketName);
+    }
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to delete bucket: ${error.message}`);
+  }
+}
+
+async function purgeEssThreeBucket(bucketName) {
+  if (!window.confirm(`Purge ALL objects from bucket "${bucketName}"? This cannot be undone.`)) return;
+
+  try {
+    await apiPost('/api/services/essthree/actions/purge-bucket', { name: bucketName });
+    essThreeObjectCache.delete(bucketName);
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to purge bucket: ${error.message}`);
+  }
+}
+
+async function deleteEssThreeObject(bucketName, key) {
+  if (!window.confirm(`Delete object "${key}" from bucket "${bucketName}"?`)) return;
+
+  try {
+    await apiPost('/api/services/essthree/actions/delete-object', { bucket: bucketName, key });
+    const cached = essThreeObjectCache.get(bucketName);
+    if (cached && cached.objects) {
+      cached.objects = cached.objects.filter((o) => o.key !== key);
+      essThreeObjectCache.set(bucketName, cached);
+    }
+    loadEssThreeSummary();
+  } catch (error) {
+    setAlert(`Failed to delete object: ${error.message}`);
+  }
+}
+
+function openEssThreeActivityModal() {
+  const modal = document.getElementById('essthree-activity-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderEssThreeActivityModalContent();
+}
+
+function closeEssThreeActivityModal() {
+  const modal = document.getElementById('essthree-activity-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function renderEssThreeActivityModalContent() {
+  const body = document.getElementById('essthree-activity-body');
+  if (!body) return;
+
+  const rows = (essThreeActivityRows || []).map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.action || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Method</th>
+            <th class="text-left py-1 pr-2">Path</th>
+            <th class="text-left py-1 pr-2">Action</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const loadMore = document.getElementById('essthree-activity-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !essThreeActivityNextToken);
+  }
+}
+
+async function loadMoreEssThreeActivity() {
+  if (!essThreeActivityNextToken) return;
+  try {
+    const activityData = await apiGet(`/api/services/essthree/activity?maxResults=25&nextToken=${encodeURIComponent(essThreeActivityNextToken)}`);
+    essThreeActivityRows = essThreeActivityRows.concat(activityData.activity || []);
+    essThreeActivityNextToken = activityData.nextToken || '';
+    renderEssThreeActivityModalContent();
+  } catch (error) {
+    setAlert(`Failed to load activity: ${error.message}`);
+  }
 }
 
 function getCloudfauxntDistributionURL(data) {
@@ -1372,6 +1709,7 @@ function renderCloudfauxntSummary(data) {
       <div class="flex items-center justify-between mb-2">
         <h3 class="font-semibold">Origin & Behavior Overview</h3>
         <div class="flex items-center gap-2">
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="View activity log" aria-label="View activity log" onclick="openCloudfauxntActivityModal()">Activity Log</button>
           <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" title="Add origin and behavior" aria-label="Add origin and behavior" onclick="openCloudfauxntOriginModal()">Add Origin</button>
           <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh cloudfauxnt overview" aria-label="Refresh cloudfauxnt overview" onclick="loadCloudfauxntSummary()">↻</button>
         </div>
@@ -1490,7 +1828,172 @@ function renderCloudfauxntSummary(data) {
       </div>
       </div>
     </div>
+
+    <div id="cloudfauxnt-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeCloudfauxntActivityModal()">
+      <div class="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[80vh] overflow-y-auto p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold">cloudfauxnt Activity Log</h3>
+          <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity log" aria-label="Close activity log" onclick="closeCloudfauxntActivityModal()">✕</button>
+        </div>
+        <div id="cloudfauxnt-activity-body"></div>
+        <div id="cloudfauxnt-activity-load-more" class="hidden mt-3 text-center">
+          <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" onclick="loadMoreCloudfauxntActivity()">Load more</button>
+        </div>
+      </div>
+    </div>
   `;
+}
+
+// ess-queue-ess Activity Log
+async function openEssQueueEssActivityModal() {
+  const modal = document.getElementById('ess-queue-ess-activity-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  try {
+    const data = await apiGet('/api/services/ess-queue-ess/activity?maxResults=25');
+    essQueueEssActivityRows = data.activity || [];
+    essQueueEssActivityNextToken = data.nextToken || '';
+    renderEssQueueEssActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function closeEssQueueEssActivityModal() {
+  const modal = document.getElementById('ess-queue-ess-activity-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function renderEssQueueEssActivityModalContent() {
+  const body = document.getElementById('ess-queue-ess-activity-body');
+  if (!body) return;
+
+  const rows = (essQueueEssActivityRows || []).map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.action || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Method</th>
+            <th class="text-left py-1 pr-2">Path</th>
+            <th class="text-left py-1 pr-2">Action</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const loadMore = document.getElementById('ess-queue-ess-activity-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !essQueueEssActivityNextToken);
+  }
+}
+
+async function loadMoreEssQueueEssActivity() {
+  if (!essQueueEssActivityNextToken) return;
+  try {
+    const data = await apiGet(`/api/services/ess-queue-ess/activity?maxResults=25&nextToken=${encodeURIComponent(essQueueEssActivityNextToken)}`);
+    essQueueEssActivityRows = essQueueEssActivityRows.concat(data.activity || []);
+    essQueueEssActivityNextToken = data.nextToken || '';
+    renderEssQueueEssActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+// cloudfauxnt Activity Log
+async function openCloudfauxntActivityModal() {
+  const modal = document.getElementById('cloudfauxnt-activity-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  try {
+    const data = await apiGet('/api/services/cloudfauxnt/activity?maxResults=25');
+    cloudfauxntActivityRows = data.activity || [];
+    cloudfauxntActivityNextToken = data.nextToken || '';
+    renderCloudfauxntActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
+}
+
+function closeCloudfauxntActivityModal() {
+  const modal = document.getElementById('cloudfauxnt-activity-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+}
+
+function renderCloudfauxntActivityModalContent() {
+  const body = document.getElementById('cloudfauxnt-activity-body');
+  if (!body) return;
+
+  const rows = (cloudfauxntActivityRows || []).map((entry) => `
+    <tr class="border-b align-top">
+      <td class="py-2 pr-2 text-xs whitespace-nowrap">${escapeHTML(new Date(entry.timestamp).toLocaleString())}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.method || '-')}</td>
+      <td class="py-2 pr-2 text-xs break-all">${escapeHTML(entry.path || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${escapeHTML(entry.action || '-')}</td>
+      <td class="py-2 pr-2 text-xs">${Number(entry.statusCode || 0)}</td>
+      <td class="py-2 pr-2 text-xs text-red-700">${escapeHTML(entry.errorType || '-')}</td>
+      <td class="py-2 text-xs text-slate-500">${escapeHTML(entry.detail || '-')}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead>
+          <tr class="text-xs text-slate-500 border-b">
+            <th class="text-left py-1 pr-2">Timestamp</th>
+            <th class="text-left py-1 pr-2">Method</th>
+            <th class="text-left py-1 pr-2">Path</th>
+            <th class="text-left py-1 pr-2">Action</th>
+            <th class="text-left py-1 pr-2">Status</th>
+            <th class="text-left py-1 pr-2">Error Type</th>
+            <th class="text-left py-1">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || '<tr><td colspan="7" class="py-2 text-sm text-slate-500">No activity entries.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const loadMore = document.getElementById('cloudfauxnt-activity-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !cloudfauxntActivityNextToken);
+  }
+}
+
+async function loadMoreCloudfauxntActivity() {
+  if (!cloudfauxntActivityNextToken) return;
+  try {
+    const data = await apiGet(`/api/services/cloudfauxnt/activity?maxResults=25&nextToken=${encodeURIComponent(cloudfauxntActivityNextToken)}`);
+    cloudfauxntActivityRows = cloudfauxntActivityRows.concat(data.activity || []);
+    cloudfauxntActivityNextToken = data.nextToken || '';
+    renderCloudfauxntActivityModalContent();
+  } catch (error) {
+    setAlert(error.message);
+  }
 }
 
 function renderPubSubState(data) {
@@ -2204,7 +2707,23 @@ function renderQueuesIncremental(queues) {
           </div>
         </details>
       </div>
+      <div class="flex justify-end gap-2 mb-2">
+        <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="View activity log" aria-label="View activity log" onclick="openEssQueueEssActivityModal()">Activity Log</button>
+        <button class="h-7 w-7 rounded bg-slate-700 text-white text-sm" title="Refresh queues" aria-label="Refresh queues" onclick="loadQueues()">↻</button>
+      </div>
       <div id="queue-list" class="space-y-3"></div>
+      <div id="ess-queue-ess-activity-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50" onclick="if (event.target === this) closeEssQueueEssActivityModal()">
+        <div class="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[80vh] overflow-y-auto p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold">ess-queue-ess Activity Log</h3>
+            <button class="h-7 w-7 rounded bg-slate-200 text-slate-700 text-sm" title="Close activity log" aria-label="Close activity log" onclick="closeEssQueueEssActivityModal()">✕</button>
+          </div>
+          <div id="ess-queue-ess-activity-body"></div>
+          <div id="ess-queue-ess-activity-load-more" class="hidden mt-3 text-center">
+            <button class="px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" onclick="loadMoreEssQueueEssActivity()">Load more</button>
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -2669,6 +3188,919 @@ async function loadPeekMessages(queueId) {
   }
 }
 
+// --- Drawbridge (EventBridge) ---
+
+async function loadDrawbridgeOverview() {
+  const container = document.getElementById('view-content');
+  container.innerHTML = '<p class="text-slate-400">Loading drawbridge overview...</p>';
+  try {
+    const [summary, resources, activityData] = await Promise.all([
+      apiGet('/api/services/drawbridge/summary'),
+      apiGet('/api/services/drawbridge/resources'),
+      apiGet('/api/services/drawbridge/activity?maxResults=25'),
+    ]);
+    drawbridgeSummary = summary;
+    drawbridgeResources = resources;
+    drawbridgeActivityRows = activityData.activity || [];
+    drawbridgeActivityNextToken = activityData.nextToken || '';
+    renderDrawbridgeOverview({ summary, resources, activity: drawbridgeActivityRows, nextToken: drawbridgeActivityNextToken });
+  } catch (err) {
+    container.innerHTML = `<p class="text-red-600">Failed to load drawbridge: ${err.message}</p>`;
+  }
+}
+
+function drawbridgeRuleKey(bus, rule) {
+  return `db-target-${encodeURIComponent(bus)}-${encodeURIComponent(rule)}`;
+}
+
+function toggleDrawbridgeBus(encodedBusName) {
+  if (expandedDrawbridgeBuses.has(encodedBusName)) {
+    expandedDrawbridgeBuses.delete(encodedBusName);
+  } else {
+    expandedDrawbridgeBuses.add(encodedBusName);
+  }
+  renderDrawbridgeOverview({
+    summary: drawbridgeSummary,
+    resources: drawbridgeResources,
+    activity: drawbridgeActivityRows,
+    nextToken: drawbridgeActivityNextToken,
+  });
+}
+
+async function createDrawbridgeEventBus() {
+  const nameInput = document.getElementById('db-create-bus-name');
+  const descInput = document.getElementById('db-create-bus-desc');
+  const name = (nameInput?.value || '').trim();
+  if (!name) { setAlert('Event bus name is required.'); return; }
+  try {
+    await apiPost('/api/services/drawbridge/actions/create-event-bus', {
+      name,
+      description: (descInput?.value || '').trim(),
+    });
+    if (nameInput) nameInput.value = '';
+    if (descInput) descInput.value = '';
+    setAlert(`Event bus "${name}" created.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteDrawbridgeEventBus(name) {
+  if (!confirm(`Delete event bus "${name}"? This cannot be undone.`)) return;
+  try {
+    expandedDrawbridgeBuses.delete(encodeURIComponent(name));
+    await apiPost('/api/services/drawbridge/actions/delete-event-bus', { name });
+    setAlert(`Event bus "${name}" deleted.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function putDrawbridgeRuleForBus(encodedBusName) {
+  const busKey = encodedBusName;
+  const bus = decodeURIComponent(encodedBusName);
+  const name = (document.getElementById(`db-rule-name-${busKey}`)?.value || '').trim();
+  const pattern = (document.getElementById(`db-rule-pattern-${busKey}`)?.value || '').trim();
+  const scheduleExpr = (document.getElementById(`db-rule-schedule-${busKey}`)?.value || '').trim();
+  const desc = (document.getElementById(`db-rule-desc-${busKey}`)?.value || '').trim();
+  if (!name) { setAlert('Rule name is required.'); return; }
+  if (!pattern && !scheduleExpr) { setAlert('Either Event Pattern or Schedule Expression is required.'); return; }
+  if (pattern) {
+    try { JSON.parse(pattern); } catch { setAlert('Event pattern must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/drawbridge/actions/put-rule', {
+      name,
+      event_bus_name: bus,
+      event_pattern: pattern,
+      schedule_expression: scheduleExpr,
+      description: desc,
+    });
+    const nameEl = document.getElementById(`db-rule-name-${busKey}`);
+    const patternEl = document.getElementById(`db-rule-pattern-${busKey}`);
+    const schedEl = document.getElementById(`db-rule-schedule-${busKey}`);
+    const descEl = document.getElementById(`db-rule-desc-${busKey}`);
+    if (nameEl) nameEl.value = '';
+    if (patternEl) patternEl.value = '';
+    if (schedEl) schedEl.value = '';
+    if (descEl) descEl.value = '';
+    setAlert(`Rule "${name}" saved on bus "${bus}".`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteDrawbridgeRule(name, bus) {
+  if (!confirm(`Delete rule "${name}" on bus "${bus}"?`)) return;
+  try {
+    await apiPost('/api/services/drawbridge/actions/delete-rule', { name, event_bus_name: bus });
+    setAlert(`Rule "${name}" deleted.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function toggleDrawbridgeRule(name, bus, currentState) {
+  const action = currentState === 'ENABLED' ? 'disable-rule' : 'enable-rule';
+  const label = currentState === 'ENABLED' ? 'Disabled' : 'Enabled';
+  try {
+    await apiPost(`/api/services/drawbridge/actions/${action}`, { name, event_bus_name: bus });
+    setAlert(`Rule "${name}" ${label}.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function putDrawbridgeTarget(rule, bus, ruleKey) {
+  const idInput = document.getElementById(`${ruleKey}-id`);
+  const arnInput = document.getElementById(`${ruleKey}-arn`);
+  const inputInput = document.getElementById(`${ruleKey}-input`);
+  const targetId = (idInput?.value || '').trim();
+  const targetArn = (arnInput?.value || '').trim();
+  const targetInput = (inputInput?.value || '').trim();
+  if (!targetId) { setAlert('Target ID is required.'); return; }
+  if (!targetArn) { setAlert('Target ARN is required.'); return; }
+  if (targetInput) {
+    try { JSON.parse(targetInput); } catch { setAlert('Target input must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/drawbridge/actions/put-target', {
+      rule,
+      event_bus_name: bus,
+      target_id: targetId,
+      target_arn: targetArn,
+      input: targetInput,
+    });
+    if (idInput) idInput.value = '';
+    if (arnInput) arnInput.value = '';
+    if (inputInput) inputInput.value = '';
+    setAlert(`Target "${targetId}" added to rule "${rule}".`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function removeDrawbridgeTarget(rule, bus, targetId) {
+  if (!confirm(`Remove target "${targetId}" from rule "${rule}"?`)) return;
+  try {
+    await apiPost('/api/services/drawbridge/actions/remove-target', {
+      rule,
+      event_bus_name: bus,
+      target_id: targetId,
+    });
+    setAlert(`Target "${targetId}" removed.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function putDrawbridgeEvent() {
+  const bus = document.getElementById('db-event-bus')?.value || 'default';
+  const source = (document.getElementById('db-event-source')?.value || '').trim();
+  const detailType = (document.getElementById('db-event-detail-type')?.value || '').trim();
+  const detail = (document.getElementById('db-event-detail')?.value || '').trim();
+  if (!source) { setAlert('Event source is required.'); return; }
+  if (!detailType) { setAlert('Detail type is required.'); return; }
+  if (!detail) { setAlert('Detail JSON is required.'); return; }
+  try { JSON.parse(detail); } catch { setAlert('Detail must be valid JSON.'); return; }
+  try {
+    const result = await apiPost('/api/services/drawbridge/actions/put-event', {
+      source,
+      detail_type: detailType,
+      detail,
+      event_bus_name: bus,
+    });
+    document.getElementById('db-event-source').value = '';
+    document.getElementById('db-event-detail-type').value = '';
+    document.getElementById('db-event-detail').value = '';
+    const eid = result.event_id ? ` (ID: ${result.event_id})` : '';
+    setAlert(`Event sent to bus "${bus}"${eid}.`, 'info');
+    await loadDrawbridgeOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function testDrawbridgeEventPattern() {
+  const pattern = (document.getElementById('db-test-pattern')?.value || '').trim();
+  const event = (document.getElementById('db-test-event')?.value || '').trim();
+  const badge = document.getElementById('db-test-result');
+  if (!pattern) { setAlert('Event pattern is required.'); return; }
+  if (!event) { setAlert('Test event JSON is required.'); return; }
+  try { JSON.parse(pattern); } catch { setAlert('Event pattern must be valid JSON.'); return; }
+  try { JSON.parse(event); } catch { setAlert('Test event must be valid JSON.'); return; }
+  try {
+    const result = await apiPost('/api/services/drawbridge/actions/test-event-pattern', {
+      event_pattern: pattern,
+      event,
+    });
+    if (badge) {
+      if (result.result) {
+        badge.className = 'ml-3 px-2 py-1 rounded text-xs bg-emerald-100 text-emerald-800';
+        badge.textContent = 'MATCH';
+      } else {
+        badge.className = 'ml-3 px-2 py-1 rounded text-xs bg-red-100 text-red-800';
+        badge.textContent = 'NO MATCH';
+      }
+    }
+    setAlert('');
+  } catch (err) { setAlert(err.message); }
+}
+
+function renderDrawbridgeOverview(data) {
+  const container = document.getElementById('view-content');
+  const summary = data.summary || drawbridgeSummary || {};
+  const resources = data.resources || drawbridgeResources || [];
+  const activityRows = data.activity || drawbridgeActivityRows || [];
+
+  // Summary cards + Refresh
+  let html = `<div class="flex items-center gap-3 mb-4">
+    <div class="flex gap-4">
+      <div class="bg-white rounded shadow px-4 py-2 text-center">
+        <div class="text-2xl font-bold">${summary.eventBuses || 0}</div>
+        <div class="text-xs text-slate-500">Event Buses</div>
+      </div>
+      <div class="bg-white rounded shadow px-4 py-2 text-center">
+        <div class="text-2xl font-bold">${summary.rules || 0}</div>
+        <div class="text-xs text-slate-500">Rules</div>
+      </div>
+      <div class="bg-white rounded shadow px-4 py-2 text-center">
+        <div class="text-2xl font-bold">${summary.targets || 0}</div>
+        <div class="text-xs text-slate-500">Targets</div>
+      </div>
+    </div>
+    <button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh drawbridge view" aria-label="Refresh drawbridge view" onclick="loadDrawbridgeOverview()">Refresh</button>
+  </div>`;
+
+  // Bus selector options for Send Event form
+  const busOptions = resources.map(b =>
+    `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`
+  ).join('');
+
+  // Two-column top-level forms: Create Event Bus (left) + Send Event (right)
+  html += `<div class="grid grid-cols-2 gap-4 mb-4">
+    <div class="bg-white rounded border p-4">
+      <h3 class="text-sm font-semibold mb-2">Create Event Bus</h3>
+      <div class="mb-2">
+        <label class="text-xs text-slate-500" for="db-create-bus-name">Name</label>
+        <input id="db-create-bus-name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-event-bus">
+      </div>
+      <div class="mb-2">
+        <label class="text-xs text-slate-500" for="db-create-bus-desc">Description (optional)</label>
+        <input id="db-create-bus-desc" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+      </div>
+      <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm whitespace-nowrap" onclick="createDrawbridgeEventBus()">Create</button>
+    </div>
+    <div class="bg-white rounded border p-4">
+      <h3 class="text-sm font-semibold mb-2">Send Event</h3>
+      <div class="grid grid-cols-3 gap-2 mb-2">
+        <div>
+          <label class="text-xs text-slate-500" for="db-event-bus">Event Bus</label>
+          <select id="db-event-bus" class="w-full border rounded px-2 py-1 text-sm">${busOptions}</select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500" for="db-event-source">Source</label>
+          <input id="db-event-source" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="myapp">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500" for="db-event-detail-type">Detail Type</label>
+          <input id="db-event-detail-type" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="OrderCreated">
+        </div>
+      </div>
+      <div class="mb-2">
+        <label class="text-xs text-slate-500" for="db-event-detail">Detail (JSON)</label>
+        <textarea id="db-event-detail" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="3" placeholder='{"orderId": "123"}'></textarea>
+      </div>
+      <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="putDrawbridgeEvent()">Send Event</button>
+    </div>
+  </div>`;
+
+  // Test Event Pattern — collapsible utility
+  html += `<details class="bg-white rounded border mb-4">
+    <summary class="px-4 py-2 cursor-pointer text-sm font-semibold select-none">Test Event Pattern</summary>
+    <div class="px-4 pb-4 pt-2">
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <div>
+          <label class="text-xs text-slate-500" for="db-test-pattern">Event Pattern (JSON)</label>
+          <textarea id="db-test-pattern" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="3" placeholder='{"source": ["myapp"]}'></textarea>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500" for="db-test-event">Test Event (JSON)</label>
+          <textarea id="db-test-event" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="3" placeholder='{"source": "myapp", "detail-type": "OrderCreated", "detail": {}}'></textarea>
+        </div>
+      </div>
+      <div class="flex items-center">
+        <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="testDrawbridgeEventPattern()">Test Pattern</button>
+        <span id="db-test-result"></span>
+      </div>
+    </div>
+  </details>`;
+
+  // Event Buses — expandable cards
+  html += '<h3 class="text-lg font-semibold mt-6 mb-2">Event Buses</h3>';
+  if (resources.length === 0) {
+    html += '<p class="text-slate-400 text-sm">No event buses found.</p>';
+  } else {
+    for (const bus of resources) {
+      const busNameEnc = encodeURIComponent(bus.name);
+      const isExpanded = expandedDrawbridgeBuses.has(busNameEnc);
+      const toggleIcon = isExpanded ? '\u2212' : '+';
+      const deleteBusBtn = bus.name !== 'default'
+        ? `<button class="px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="event.stopPropagation(); deleteDrawbridgeEventBus(decodeURIComponent('${busNameEnc}'))">Delete Bus</button>`
+        : '';
+      html += `<div class="bg-white rounded shadow mb-3">
+        <div class="px-4 py-3 flex items-center justify-between cursor-pointer" onclick="toggleDrawbridgeBus('${busNameEnc}')">
+          <div class="flex items-center gap-2">
+            <span class="h-7 w-7 shrink-0 rounded bg-slate-700 text-white text-sm inline-flex items-center justify-center">${toggleIcon}</span>
+            <span class="font-semibold">${escapeHtml(bus.name)}</span>
+            <span class="text-xs text-slate-400">${escapeHtml(bus.arn || '')}</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-slate-500">${bus.ruleCount || 0} rules &middot; ${bus.targetCount || 0} targets</span>
+            ${deleteBusBtn}
+          </div>
+        </div>`;
+
+      if (isExpanded) {
+        html += `<div class="border-t px-4 py-3">`;
+
+        // Inline Create / Update Rule form (scoped to this bus)
+        html += `<div class="bg-slate-50 rounded border p-3 mb-3">
+          <h4 class="text-xs font-semibold mb-2 text-slate-600">Create / Update Rule</h4>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label class="text-xs text-slate-500" for="db-rule-name-${busNameEnc}">Rule Name</label>
+              <input id="db-rule-name-${busNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-rule">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" for="db-rule-desc-${busNameEnc}">Description (optional)</label>
+              <input id="db-rule-desc-${busNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="text-xs text-slate-500" for="db-rule-pattern-${busNameEnc}">Event Pattern (JSON) — or use Schedule Expression below</label>
+            <textarea id="db-rule-pattern-${busNameEnc}" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="2" placeholder='{"source": ["myapp"]}'></textarea>
+          </div>
+          <div class="mb-2">
+            <label class="text-xs text-slate-500" for="db-rule-schedule-${busNameEnc}">Schedule Expression (alternative to Event Pattern)</label>
+            <input id="db-rule-schedule-${busNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="rate(5 minutes) or cron(0 12 * * ? *)">
+          </div>
+          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="putDrawbridgeRuleForBus('${busNameEnc}')">Save Rule</button>
+        </div>`;
+
+        // Rules listing
+        if (bus.rules && bus.rules.length > 0) {
+          for (const rule of bus.rules) {
+            const stateColor = rule.state === 'ENABLED' ? 'text-green-600' : 'text-red-500';
+            const toggleLabel = rule.state === 'ENABLED' ? 'Disable' : 'Enable';
+            const ruleNameEnc = encodeURIComponent(rule.name);
+            const ruleKey = drawbridgeRuleKey(bus.name, rule.name);
+            const ruleTypeBadge = rule.scheduleExpression
+              ? '<span class="px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800">Schedule</span>'
+              : rule.eventPattern ? '<span class="px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-800">Pattern</span>' : '';
+            html += `<div class="border-l-2 border-slate-200 pl-3 mb-3">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-sm">${escapeHtml(rule.name)}</span>
+                ${ruleTypeBadge}
+                <span class="text-xs ${stateColor}">${rule.state}</span>
+                <span class="text-xs text-slate-400">${rule.targetCount || 0} targets</span>
+                <button class="ml-2 px-2 py-0.5 rounded border border-slate-300 text-slate-600 text-xs hover:bg-slate-50" onclick="toggleDrawbridgeRule(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'), '${rule.state}')">${toggleLabel}</button>
+                <button class="px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="deleteDrawbridgeRule(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'))">Delete</button>
+              </div>`;
+            if (rule.scheduleExpression) {
+              html += `<div class="text-xs text-slate-500 mt-1 font-mono bg-purple-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(rule.scheduleExpression)}</div>`;
+            }
+            if (rule.eventPattern) {
+              html += `<div class="text-xs text-slate-500 mt-1 font-mono bg-slate-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(rule.eventPattern)}</div>`;
+            }
+            // Existing targets with Remove buttons
+            if (rule.targets && rule.targets.length > 0) {
+              html += '<div class="mt-1 ml-4">';
+              for (const t of rule.targets) {
+                const targetIdEnc = encodeURIComponent(t.Id || '');
+                html += `<div class="flex items-center gap-2 text-xs text-slate-500 mb-0.5">
+                  <span class="font-medium">${escapeHtml(t.Id || '')}</span> &rarr; <span class="font-mono">${escapeHtml(t.Arn || '')}</span>
+                  <button class="px-1.5 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="removeDrawbridgeTarget(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'), decodeURIComponent('${targetIdEnc}'))">Remove</button>
+                </div>`;
+              }
+              html += '</div>';
+            }
+            // Add Target inline form
+            html += `<div class="mt-2 ml-4 flex items-end gap-2">
+              <div>
+                <label class="text-xs text-slate-400">Target ID</label>
+                <input id="${ruleKey}-id" type="text" class="border rounded px-2 py-0.5 text-xs w-28" placeholder="target-1">
+              </div>
+              <div>
+                <label class="text-xs text-slate-400">Target ARN</label>
+                <input id="${ruleKey}-arn" type="text" class="border rounded px-2 py-0.5 text-xs w-56" placeholder="arn:aws:sqs:...">
+              </div>
+              <div>
+                <label class="text-xs text-slate-400">Input (JSON, optional)</label>
+                <input id="${ruleKey}-input" type="text" class="border rounded px-2 py-0.5 text-xs w-40" placeholder='{"key":"val"}'>
+              </div>
+              <button class="px-2 py-0.5 rounded bg-slate-800 text-white text-xs whitespace-nowrap" onclick="putDrawbridgeTarget(decodeURIComponent('${ruleNameEnc}'), decodeURIComponent('${busNameEnc}'), '${ruleKey}')">Add Target</button>
+            </div>`;
+            html += '</div>';
+          }
+        } else {
+          html += '<p class="text-slate-400 text-sm">No rules on this bus.</p>';
+        }
+
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  // Activity Log
+  html += '<h3 class="text-lg font-semibold mt-6 mb-2">Recent Activity</h3>';
+  html += renderDrawbridgeActivity(activityRows);
+
+  container.innerHTML = html;
+}
+
+function renderDrawbridgeActivity(rows) {
+  if (!rows || rows.length === 0) {
+    return '<p class="text-slate-400 text-sm">No recent activity.</p>';
+  }
+  let html = `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">
+    <thead class="bg-slate-50"><tr>
+      <th class="text-left px-3 py-1 border-b">Time</th>
+      <th class="text-left px-3 py-1 border-b">Action</th>
+      <th class="text-left px-3 py-1 border-b">Status</th>
+      <th class="text-left px-3 py-1 border-b">Error</th>
+    </tr></thead><tbody>`;
+  for (const row of rows) {
+    const ts = row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '';
+    const statusColor = row.statusCode < 400 ? 'text-green-600' : 'text-red-600';
+    html += `<tr class="border-b border-slate-100">
+      <td class="px-3 py-1 whitespace-nowrap">${ts}</td>
+      <td class="px-3 py-1 font-mono text-xs">${escapeHtml(row.action || row.path || '')}</td>
+      <td class="px-3 py-1 ${statusColor}">${row.statusCode || ''}</td>
+      <td class="px-3 py-1 text-xs text-red-500">${escapeHtml(row.errorType || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// --- Scheduler (EventBridge Scheduler) ---
+
+async function loadSchedulerOverview() {
+  const container = document.getElementById('view-content');
+  container.innerHTML = '<p class="text-slate-400">Loading scheduler overview...</p>';
+  try {
+    const [summary, resources, activityData] = await Promise.all([
+      apiGet('/api/services/scheduler/summary'),
+      apiGet('/api/services/scheduler/resources'),
+      apiGet('/api/services/scheduler/activity?maxResults=25'),
+    ]);
+    schedulerSummary = summary;
+    schedulerResources = resources;
+    schedulerActivityRows = activityData.activity || [];
+    schedulerActivityNextToken = activityData.nextToken || '';
+    renderSchedulerOverview({ summary, resources, activity: schedulerActivityRows, nextToken: schedulerActivityNextToken });
+  } catch (err) {
+    container.innerHTML = `<p class="text-red-600">Failed to load scheduler: ${err.message}</p>`;
+  }
+}
+
+function toggleSchedulerGroup(encodedGroupName) {
+  if (expandedSchedulerGroups.has(encodedGroupName)) {
+    expandedSchedulerGroups.delete(encodedGroupName);
+  } else {
+    expandedSchedulerGroups.add(encodedGroupName);
+  }
+  renderSchedulerOverview({
+    summary: schedulerSummary,
+    resources: schedulerResources,
+    activity: schedulerActivityRows,
+    nextToken: schedulerActivityNextToken,
+  });
+}
+
+async function createSchedulerGroup() {
+  const nameInput = document.getElementById('sch-create-group-name');
+  const name = (nameInput?.value || '').trim();
+  if (!name) { setAlert('Group name is required.'); return; }
+  try {
+    await apiPost('/api/services/scheduler/actions/create-group', { name });
+    if (nameInput) nameInput.value = '';
+    setAlert(`Schedule group "${name}" created.`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteSchedulerGroup(name) {
+  if (!confirm(`Delete schedule group "${name}"? This will delete all schedules in it.`)) return;
+  try {
+    expandedSchedulerGroups.delete(encodeURIComponent(name));
+    await apiPost('/api/services/scheduler/actions/delete-group', { name });
+    setAlert(`Schedule group "${name}" deleted.`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function createSchedulerSchedule(encodedGroupName) {
+  const groupKey = encodedGroupName;
+  const group = decodeURIComponent(encodedGroupName);
+  const name = (document.getElementById(`sch-sched-name-${groupKey}`)?.value || '').trim();
+  const expr = (document.getElementById(`sch-sched-expr-${groupKey}`)?.value || '').trim();
+  const targetArn = (document.getElementById(`sch-sched-target-${groupKey}`)?.value || '').trim();
+  const targetInput = (document.getElementById(`sch-sched-input-${groupKey}`)?.value || '').trim();
+  const desc = (document.getElementById(`sch-sched-desc-${groupKey}`)?.value || '').trim();
+  if (!name) { setAlert('Schedule name is required.'); return; }
+  if (!expr) { setAlert('Schedule expression is required.'); return; }
+  if (targetInput) {
+    try { JSON.parse(targetInput); } catch { setAlert('Target input must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/scheduler/actions/create-schedule', {
+      name,
+      group_name: group,
+      schedule_expression: expr,
+      target_arn: targetArn,
+      target_input: targetInput,
+      description: desc,
+    });
+    const nameEl = document.getElementById(`sch-sched-name-${groupKey}`);
+    const exprEl = document.getElementById(`sch-sched-expr-${groupKey}`);
+    const targetEl = document.getElementById(`sch-sched-target-${groupKey}`);
+    const inputEl = document.getElementById(`sch-sched-input-${groupKey}`);
+    const descEl = document.getElementById(`sch-sched-desc-${groupKey}`);
+    if (nameEl) nameEl.value = '';
+    if (exprEl) exprEl.value = '';
+    if (targetEl) targetEl.value = '';
+    if (inputEl) inputEl.value = '';
+    if (descEl) descEl.value = '';
+    setAlert(`Schedule "${name}" created in group "${group}".`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deleteSchedulerSchedule(name, group) {
+  if (!confirm(`Delete schedule "${name}" in group "${group}"?`)) return;
+  try {
+    await apiPost('/api/services/scheduler/actions/delete-schedule', { name, group_name: group });
+    setAlert(`Schedule "${name}" deleted.`, 'info');
+    await loadSchedulerOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+function renderSchedulerOverview({ summary, resources, activity, nextToken }) {
+  const container = document.getElementById('view-content');
+  let html = '';
+
+  // Summary cards
+  html += '<div class="flex items-center gap-4 mb-4">';
+  if (summary) {
+    html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${summary.scheduleGroups ?? 0}</div><div class="text-xs text-slate-500">Groups</div></div>`;
+    html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${summary.schedules ?? 0}</div><div class="text-xs text-slate-500">Schedules</div></div>`;
+  }
+  html += `<button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh scheduler view" aria-label="Refresh scheduler view" onclick="loadSchedulerOverview()">Refresh</button>`;
+  html += '</div>';
+
+  // Create group form
+  html += `<div class="bg-white rounded shadow p-4 mb-4">
+    <h3 class="font-semibold text-sm mb-2">Create Schedule Group</h3>
+    <div class="flex gap-2 items-end">
+      <div>
+        <label class="text-xs text-slate-500" for="sch-create-group-name">Group Name</label>
+        <input id="sch-create-group-name" type="text" class="border rounded px-2 py-1 text-sm" placeholder="my-group">
+      </div>
+      <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="createSchedulerGroup()">Create Group</button>
+    </div>
+  </div>`;
+
+  // Groups as expandable cards
+  if (resources && resources.length > 0) {
+    for (const group of resources) {
+      const groupNameEnc = encodeURIComponent(group.name);
+      const isExpanded = expandedSchedulerGroups.has(groupNameEnc);
+      const chevron = isExpanded ? '&#9660;' : '&#9654;';
+      const schedCount = group.schedules ? group.schedules.length : 0;
+      const isDefault = group.name === 'default';
+
+      html += `<div class="bg-white rounded shadow mb-3">
+        <div class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50" onclick="toggleSchedulerGroup('${groupNameEnc}')">
+          <span class="text-slate-400">${chevron}</span>
+          <span class="font-semibold">${escapeHtml(group.name)}</span>
+          <span class="text-xs text-slate-400">${schedCount} schedules</span>
+          <span class="text-xs px-1.5 py-0.5 rounded ${group.state === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'}">${group.state}</span>
+          ${!isDefault ? `<button class="ml-auto px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="event.stopPropagation(); deleteSchedulerGroup(decodeURIComponent('${groupNameEnc}'))">Delete Group</button>` : ''}
+        </div>`;
+
+      if (isExpanded) {
+        // Create schedule form inside group
+        html += `<div class="border-t px-4 py-3 bg-slate-50">
+          <h4 class="text-sm font-medium mb-2">Create Schedule in "${escapeHtml(group.name)}"</h4>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-name-${groupNameEnc}">Schedule Name</label>
+              <input id="sch-sched-name-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-schedule">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-expr-${groupNameEnc}">Schedule Expression</label>
+              <input id="sch-sched-expr-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="rate(5 minutes) or cron(...) or at(...)">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-target-${groupNameEnc}">Target ARN (optional)</label>
+              <input id="sch-sched-target-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="arn:aws:sqs:us-east-1:000000000000:queue-name">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500" for="sch-sched-desc-${groupNameEnc}">Description (optional)</label>
+              <input id="sch-sched-desc-${groupNameEnc}" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="text-xs text-slate-500" for="sch-sched-input-${groupNameEnc}">Target Input JSON (optional)</label>
+            <textarea id="sch-sched-input-${groupNameEnc}" class="w-full border rounded px-2 py-1 text-sm font-mono" rows="1" placeholder='{"key": "value"}'></textarea>
+          </div>
+          <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="createSchedulerSchedule('${groupNameEnc}')">Create Schedule</button>
+        </div>`;
+
+        // Schedules listing
+        if (group.schedules && group.schedules.length > 0) {
+          html += '<div class="border-t px-4 py-3">';
+          for (const sched of group.schedules) {
+            const schedNameEnc = encodeURIComponent(sched.name);
+            const stateColor = sched.state === 'ENABLED' ? 'text-green-600' : 'text-red-500';
+            const exprType = sched.scheduleExpression.startsWith('at(') ? 'at'
+              : sched.scheduleExpression.startsWith('cron(') ? 'cron' : 'rate';
+            const typeBadgeColor = exprType === 'at' ? 'bg-amber-100 text-amber-800'
+              : exprType === 'cron' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
+
+            html += `<div class="border-l-2 border-slate-200 pl-3 mb-3">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-sm">${escapeHtml(sched.name)}</span>
+                <span class="px-1.5 py-0.5 rounded text-xs ${typeBadgeColor}">${exprType}</span>
+                <span class="text-xs ${stateColor}">${sched.state}</span>
+                <button class="ml-2 px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="deleteSchedulerSchedule(decodeURIComponent('${schedNameEnc}'), decodeURIComponent('${groupNameEnc}'))">Delete</button>
+              </div>
+              <div class="text-xs text-slate-500 mt-1 font-mono bg-slate-50 rounded p-1 max-w-2xl overflow-x-auto">${escapeHtml(sched.scheduleExpression)}</div>`;
+            if (sched.targetArn) {
+              html += `<div class="text-xs text-slate-400 mt-1">Target: <span class="font-mono">${escapeHtml(sched.targetArn)}</span></div>`;
+            }
+            if (sched.description) {
+              html += `<div class="text-xs text-slate-400 mt-0.5">${escapeHtml(sched.description)}</div>`;
+            }
+            html += '</div>';
+          }
+          html += '</div>';
+        } else {
+          html += '<div class="border-t px-4 py-3 text-sm text-slate-400">No schedules in this group.</div>';
+        }
+      }
+
+      html += '</div>';
+    }
+  }
+
+  // Activity log
+  html += '<div class="bg-white rounded shadow p-4 mt-4"><h3 class="font-semibold text-sm mb-2">Recent Activity</h3>';
+  html += renderSchedulerActivity(activity || []);
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function renderSchedulerActivity(rows) {
+  if (!rows || rows.length === 0) {
+    return '<p class="text-slate-400 text-sm">No recent activity.</p>';
+  }
+  let html = `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">
+    <thead class="bg-slate-50"><tr>
+      <th class="text-left px-3 py-1 border-b">Time</th>
+      <th class="text-left px-3 py-1 border-b">Action</th>
+      <th class="text-left px-3 py-1 border-b">Status</th>
+      <th class="text-left px-3 py-1 border-b">Error</th>
+    </tr></thead><tbody>`;
+  for (const row of rows) {
+    const ts = row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '';
+    const statusColor = row.statusCode < 400 ? 'text-green-600' : 'text-red-600';
+    html += `<tr class="border-b border-slate-100">
+      <td class="px-3 py-1 whitespace-nowrap">${ts}</td>
+      <td class="px-3 py-1 font-mono text-xs">${escapeHtml(row.action || row.path || '')}</td>
+      <td class="px-3 py-1 ${statusColor}">${row.statusCode || ''}</td>
+      <td class="px-3 py-1 text-xs text-red-500">${escapeHtml(row.errorType || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// --- Pipes view ---
+
+async function loadPipesOverview() {
+  const container = document.getElementById('view-content');
+  container.innerHTML = '<p class="text-slate-400">Loading pipes overview...</p>';
+  try {
+    const [summary, resources, activityData] = await Promise.all([
+      apiGet('/api/services/pipes/summary'),
+      apiGet('/api/services/pipes/resources'),
+      apiGet('/api/services/pipes/activity?maxResults=25'),
+    ]);
+    pipesSummary = summary;
+    pipesResources = resources || [];
+    pipesActivityRows = activityData.activity || [];
+    pipesActivityNextToken = activityData.nextToken || '';
+    renderPipesOverview({ summary, resources: pipesResources, activity: pipesActivityRows, nextToken: pipesActivityNextToken });
+  } catch (err) {
+    container.innerHTML = `<p class="text-red-600">Failed to load pipes: ${err.message}</p>`;
+  }
+}
+
+function togglePipe(encodedName) {
+  if (expandedPipes.has(encodedName)) {
+    expandedPipes.delete(encodedName);
+  } else {
+    expandedPipes.add(encodedName);
+  }
+  renderPipesOverview({
+    summary: pipesSummary,
+    resources: pipesResources,
+    activity: pipesActivityRows,
+    nextToken: pipesActivityNextToken,
+  });
+}
+
+async function createPipe() {
+  const name = (document.getElementById('pipes-create-name')?.value || '').trim();
+  const source = (document.getElementById('pipes-create-source')?.value || '').trim();
+  const target = (document.getElementById('pipes-create-target')?.value || '').trim();
+  const filter = (document.getElementById('pipes-create-filter')?.value || '').trim();
+  const enrichment = (document.getElementById('pipes-create-enrichment')?.value || '').trim();
+  const desc = (document.getElementById('pipes-create-desc')?.value || '').trim();
+  if (!name) { setAlert('Pipe name is required.'); return; }
+  if (!source) { setAlert('Source ARN is required.'); return; }
+  if (!target) { setAlert('Target ARN is required.'); return; }
+  if (filter) {
+    try { JSON.parse(filter); } catch { setAlert('Filter pattern must be valid JSON.'); return; }
+  }
+  try {
+    await apiPost('/api/services/pipes/actions/create-pipe', { name, source, target, filter, enrichment, description: desc });
+    ['pipes-create-name', 'pipes-create-source', 'pipes-create-target', 'pipes-create-filter', 'pipes-create-enrichment', 'pipes-create-desc'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    setAlert(`Pipe "${name}" created.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function deletePipe(name) {
+  if (!confirm(`Delete pipe "${name}"?`)) return;
+  try {
+    expandedPipes.delete(encodeURIComponent(name));
+    await apiPost('/api/services/pipes/actions/delete-pipe', { name });
+    setAlert(`Pipe "${name}" deleted.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function startPipe(name) {
+  try {
+    await apiPost('/api/services/pipes/actions/start-pipe', { name });
+    setAlert(`Pipe "${name}" started.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+async function stopPipe(name) {
+  try {
+    await apiPost('/api/services/pipes/actions/stop-pipe', { name });
+    setAlert(`Pipe "${name}" stopped.`, 'info');
+    await loadPipesOverview();
+  } catch (err) { setAlert(err.message); }
+}
+
+function renderPipesOverview({ summary, resources, activity, nextToken }) {
+  const container = document.getElementById('view-content');
+  const s = summary || pipesSummary || {};
+  const pipes = resources || pipesResources || [];
+  const activityRows = activity || pipesActivityRows || [];
+  let html = '';
+
+  // Summary cards
+  html += '<div class="flex items-center gap-4 mb-4">';
+  html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${s.pipes ?? 0}</div><div class="text-xs text-slate-500">Pipes</div></div>`;
+  html += `<div class="bg-white rounded shadow px-4 py-3 min-w-[120px]"><div class="text-2xl font-bold">${s.runningPipes ?? 0}</div><div class="text-xs text-slate-500">Running</div></div>`;
+  html += `<button class="ml-auto px-3 py-1 rounded border border-slate-300 text-slate-700 text-sm" title="Refresh pipes view" aria-label="Refresh pipes view" onclick="loadPipesOverview()">Refresh</button>`;
+  html += '</div>';
+
+  // Create pipe form
+  html += `<div class="bg-white rounded shadow p-4 mb-4">
+    <h3 class="font-semibold text-sm mb-2">Create Pipe</h3>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-name">Pipe Name</label>
+        <input id="pipes-create-name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="my-pipe">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-source">Source ARN (SQS)</label>
+        <input id="pipes-create-source" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="arn:aws:sqs:us-east-1:000000000000:source-queue">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-target">Target ARN</label>
+        <input id="pipes-create-target" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="arn:aws:sqs:us-east-1:000000000000:target-queue">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-desc">Description (optional)</label>
+        <input id="pipes-create-desc" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Optional description">
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-filter">Filter Pattern JSON (optional)</label>
+        <input id="pipes-create-filter" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder='{"body": {"priority": ["high"]}}'>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500" for="pipes-create-enrichment">Enrichment URL (optional)</label>
+        <input id="pipes-create-enrichment" type="text" class="w-full border rounded px-2 py-1 text-sm font-mono" placeholder="https://api.example.com/enrich">
+      </div>
+    </div>
+    <button class="px-3 py-1 rounded bg-slate-900 text-white text-sm" onclick="createPipe()">Create Pipe</button>
+  </div>`;
+
+  // Pipes as expandable cards
+  if (pipes && pipes.length > 0) {
+    for (const pipe of pipes) {
+      const nameEnc = encodeURIComponent(pipe.name);
+      const isExpanded = expandedPipes.has(nameEnc);
+      const chevron = isExpanded ? '&#9660;' : '&#9654;';
+      const stateColor = pipe.currentState === 'RUNNING' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600';
+      const isRunning = pipe.currentState === 'RUNNING';
+
+      html += `<div class="bg-white rounded shadow mb-3">
+        <div class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50" onclick="togglePipe('${nameEnc}')">
+          <span class="text-slate-400">${chevron}</span>
+          <span class="font-semibold">${escapeHtml(pipe.name)}</span>
+          <span class="text-xs px-1.5 py-0.5 rounded ${stateColor}">${pipe.currentState}</span>
+          ${pipe.filterCount > 0 ? `<span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">${pipe.filterCount} filter${pipe.filterCount > 1 ? 's' : ''}</span>` : ''}
+          ${pipe.enrichment ? '<span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">enriched</span>' : ''}
+          <div class="ml-auto flex gap-1">
+            ${isRunning
+              ? `<button class="px-2 py-0.5 rounded border border-amber-300 text-amber-600 text-xs hover:bg-amber-50" onclick="event.stopPropagation(); stopPipe(decodeURIComponent('${nameEnc}'))">Stop</button>`
+              : `<button class="px-2 py-0.5 rounded border border-green-300 text-green-600 text-xs hover:bg-green-50" onclick="event.stopPropagation(); startPipe(decodeURIComponent('${nameEnc}'))">Start</button>`
+            }
+            <button class="px-2 py-0.5 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50" onclick="event.stopPropagation(); deletePipe(decodeURIComponent('${nameEnc}'))">Delete</button>
+          </div>
+        </div>`;
+
+      if (isExpanded) {
+        html += '<div class="border-t px-4 py-3 space-y-2">';
+        html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Source:</span> <span class="font-mono">${escapeHtml(pipe.source)}</span></div>`;
+        html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Target:</span> <span class="font-mono">${escapeHtml(pipe.target)}</span></div>`;
+        if (pipe.enrichment) {
+          html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Enrichment:</span> <span class="font-mono">${escapeHtml(pipe.enrichment)}</span></div>`;
+        }
+        if (pipe.description) {
+          html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">Description:</span> ${escapeHtml(pipe.description)}</div>`;
+        }
+        html += `<div class="text-xs text-slate-500"><span class="font-medium text-slate-700">ARN:</span> <span class="font-mono">${escapeHtml(pipe.arn)}</span></div>`;
+        html += `<div class="text-xs text-slate-400">Created: ${pipe.creationTime} | Modified: ${pipe.lastModifiedTime}</div>`;
+        html += '</div>';
+      }
+
+      html += '</div>';
+    }
+  } else {
+    html += '<div class="bg-white rounded shadow p-4 text-sm text-slate-400">No pipes created yet.</div>';
+  }
+
+  // Activity log
+  html += '<div class="bg-white rounded shadow p-4 mt-4"><h3 class="font-semibold text-sm mb-2">Recent Activity</h3>';
+  html += renderPipesActivity(activityRows);
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function renderPipesActivity(rows) {
+  if (!rows || rows.length === 0) {
+    return '<p class="text-slate-400 text-sm">No recent activity.</p>';
+  }
+  let html = `<div class="overflow-x-auto"><table class="w-full text-sm border border-slate-200">
+    <thead class="bg-slate-50"><tr>
+      <th class="text-left px-3 py-1 border-b">Time</th>
+      <th class="text-left px-3 py-1 border-b">Action</th>
+      <th class="text-left px-3 py-1 border-b">Status</th>
+      <th class="text-left px-3 py-1 border-b">Error</th>
+    </tr></thead><tbody>`;
+  for (const row of rows) {
+    const ts = row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '';
+    const statusColor = row.statusCode < 400 ? 'text-green-600' : 'text-red-600';
+    html += `<tr class="border-b border-slate-100">
+      <td class="px-3 py-1 whitespace-nowrap">${ts}</td>
+      <td class="px-3 py-1 font-mono text-xs">${escapeHtml(row.action || row.path || '')}</td>
+      <td class="px-3 py-1 ${statusColor}">${row.statusCode || ''}</td>
+      <td class="px-3 py-1 text-xs text-red-500">${escapeHtml(row.errorType || '')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function connectSSE(view) {
   if (eventSource) {
     eventSource.close();
@@ -2700,9 +4132,29 @@ function connectSSE(view) {
         kayVeeSecretNextToken = payload.secretsNextToken || kayVeeSecretNextToken;
         renderKayVeeOverview(payload);
       } else if (view === 'essthree') {
+        essThreeActivityRows = payload.activity || [];
+        essThreeActivityNextToken = payload.activityNextToken || '';
         renderEssThreeSummary(payload);
-      } else {
+      } else if (view === 'cloudfauxnt') {
         renderCloudfauxntSummary(payload);
+      } else if (view === 'drawbridge') {
+        drawbridgeSummary = payload.summary || null;
+        drawbridgeResources = payload.resources || [];
+        drawbridgeActivityRows = payload.activity || [];
+        drawbridgeActivityNextToken = payload.nextToken || '';
+        renderDrawbridgeOverview(payload);
+      } else if (view === 'scheduler') {
+        schedulerSummary = payload.summary || null;
+        schedulerResources = payload.resources || [];
+        schedulerActivityRows = payload.activity || [];
+        schedulerActivityNextToken = payload.nextToken || '';
+        renderSchedulerOverview(payload);
+      } else if (view === 'pipes') {
+        pipesSummary = payload.summary || null;
+        pipesResources = payload.resources || [];
+        pipesActivityRows = payload.activity || [];
+        pipesActivityNextToken = payload.nextToken || '';
+        renderPipesOverview(payload);
       }
     } catch (error) {
       setAlert(`Failed to parse stream data: ${error.message}`);
@@ -2720,6 +4172,9 @@ document.getElementById('menu-ess-enn-ess').addEventListener('click', () => swit
 document.getElementById('menu-kay-vee').addEventListener('click', () => switchView('kay-vee'));
 document.getElementById('menu-essthree').addEventListener('click', () => switchView('essthree'));
 document.getElementById('menu-cloudfauxnt').addEventListener('click', () => switchView('cloudfauxnt'));
+document.getElementById('menu-drawbridge').addEventListener('click', () => switchView('drawbridge'));
+document.getElementById('menu-scheduler').addEventListener('click', () => switchView('scheduler'));
+document.getElementById('menu-pipes').addEventListener('click', () => switchView('pipes'));
 
 window.addEventListener('popstate', (event) => {
   const stateView = event.state?.view;

@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -18,11 +19,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/tonyellard/cloud-u-l8r/pkg/activity"
 	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 )
 
 var queueManager = NewQueueManager()
+
+var activityLog = activity.NewLogger(activity.WithExcludeFunc(func(e activity.Entry) bool {
+	return strings.HasPrefix(e.Path, "/admin/") || e.Path == "/health"
+}))
 
 // SetupRouter creates and configures the chi router with all routes
 func SetupRouter() *chi.Mux {
@@ -32,6 +38,7 @@ func SetupRouter() *chi.Mux {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
+	r.Use(sqsActivityMiddleware)
 
 	// Routes
 	r.Get("/health", health.Handler("ess-queue-ess"))
@@ -40,6 +47,7 @@ func SetupRouter() *chi.Mux {
 	r.Delete("/admin/api/queue", adminDeleteQueueHandler)
 	r.Post("/admin/api/message", adminSendMessageHandler)
 	r.Get("/admin/api/config/export", adminExportConfigHandler)
+	r.Get("/admin/api/activity", adminActivityHandler)
 	r.HandleFunc("/*", rootHandler)
 
 	return r
@@ -842,6 +850,116 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	io.WriteString(w, "Ess-Queue-Ess - AWS SQS Emulator\n")
+}
+
+// sqsActivityMiddleware records each SQS API request in the activity log.
+func sqsActivityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &sqsStatusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		action := describeSQSAction(r)
+		entry := activity.Entry{
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			Action:     action,
+			StatusCode: rec.status,
+		}
+
+		if rec.status >= 400 {
+			if errCode, errMsg := parseSQSError(rec.errBody.Bytes()); errCode != "" {
+				entry.ErrorType = errCode
+				entry.Detail = errMsg
+			}
+		}
+
+		activityLog.Record(entry)
+	})
+}
+
+type sqsStatusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+	errBody     bytes.Buffer
+}
+
+func (r *sqsStatusRecorder) WriteHeader(code int) {
+	if !r.wroteHeader {
+		r.status = code
+		r.wroteHeader = true
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *sqsStatusRecorder) Write(b []byte) (int, error) {
+	if !r.wroteHeader {
+		r.wroteHeader = true
+	}
+	if r.status >= 400 {
+		r.errBody.Write(b)
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+// describeSQSAction extracts the SQS action name from the request.
+func describeSQSAction(r *http.Request) string {
+	if target := r.Header.Get("X-Amz-Target"); target != "" {
+		if parts := strings.Split(target, "."); len(parts) == 2 {
+			return parts[1]
+		}
+	}
+	if r.Form != nil {
+		if action := r.Form.Get("Action"); action != "" {
+			return action
+		}
+	}
+	return ""
+}
+
+// parseSQSError extracts error code and message from SQS XML or JSON error responses.
+func parseSQSError(body []byte) (string, string) {
+	if len(body) == 0 {
+		return "", ""
+	}
+	// Try SQS-style wrapped XML: <ErrorResponse><Error><Code>...</Code><Message>...</Message></Error></ErrorResponse>
+	var xmlErr awserrors.XMLErrorResponse
+	if err := xml.Unmarshal(body, &xmlErr); err == nil && xmlErr.Error.Code != "" {
+		return xmlErr.Error.Code, xmlErr.Error.Message
+	}
+	// Try JSON error: {"__type": "...", "message": "..."}
+	var jsonErr struct {
+		Type    string `json:"__type"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &jsonErr); err == nil && jsonErr.Type != "" {
+		return jsonErr.Type, jsonErr.Message
+	}
+	return "", ""
+}
+
+func adminActivityHandler(w http.ResponseWriter, r *http.Request) {
+	maxResultsStr := r.URL.Query().Get("maxResults")
+	nextToken := r.URL.Query().Get("nextToken")
+
+	maxResults := 50
+	if maxResultsStr != "" {
+		if v, err := strconv.Atoi(maxResultsStr); err == nil && v > 0 {
+			maxResults = v
+		}
+	}
+
+	entries, token, err := activityLog.List(maxResults, nextToken)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"activity":  entries,
+		"nextToken": token,
+	})
 }
 
 // Admin API: Queue details

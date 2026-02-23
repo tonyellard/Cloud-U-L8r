@@ -3,7 +3,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"mime"
 	"net/http"
@@ -11,11 +13,13 @@ import (
 	"net/url"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/tonyellard/cloud-u-l8r/pkg/activity"
 	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 )
@@ -233,6 +237,10 @@ func generateCloudFrontID() string {
 	return strings.ToUpper(strings.ReplaceAll(id, "-", ""))
 }
 
+var cfActivityLog = activity.NewLogger(activity.WithExcludeFunc(func(e activity.Entry) bool {
+	return strings.HasPrefix(e.Path, "/admin/") || e.Path == "/health"
+}))
+
 // SetupRouter configures the Chi router with all routes
 func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 	r := chi.NewRouter()
@@ -270,8 +278,11 @@ func SetupRouter(config *Config, validator *SignatureValidator) chi.Router {
 		r.Use(corsMiddleware.Handler)
 	}
 
+	r.Use(cfActivityMiddleware)
+
 	// Health check endpoint
 	r.Get("/health", health.Handler("cloudfauxnt"))
+	r.Get("/admin/api/activity", cfAdminActivityHandler)
 	r.Get("/admin/api/overview", func(w http.ResponseWriter, r *http.Request) {
 		type originOverview struct {
 			Name              string   `json:"name"`
@@ -542,4 +553,93 @@ func buildOriginFromAdminRequest(req AdminOriginUpsertRequest) (Origin, error) {
 	}
 
 	return origin, nil
+}
+
+// cfActivityMiddleware records each CloudFront request in the activity log.
+func cfActivityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &cfStatusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		entry := activity.Entry{
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			Action:     "Proxy",
+			StatusCode: rec.status,
+		}
+
+		if rec.status >= 400 {
+			if errCode, errMsg := parseCFXMLError(rec.errBody.Bytes()); errCode != "" {
+				entry.ErrorType = errCode
+				entry.Detail = errMsg
+			}
+		}
+
+		cfActivityLog.Record(entry)
+	})
+}
+
+type cfStatusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+	errBody     bytes.Buffer
+}
+
+func (r *cfStatusRecorder) WriteHeader(code int) {
+	if !r.wroteHeader {
+		r.status = code
+		r.wroteHeader = true
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *cfStatusRecorder) Write(b []byte) (int, error) {
+	if !r.wroteHeader {
+		r.wroteHeader = true
+	}
+	if r.status >= 400 {
+		r.errBody.Write(b)
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+// parseCFXMLError extracts the Code and Message from a CloudFront-style XML error body.
+func parseCFXMLError(body []byte) (string, string) {
+	if len(body) == 0 {
+		return "", ""
+	}
+	var xmlErr struct {
+		XMLName xml.Name `xml:"Error"`
+		Code    string   `xml:"Code"`
+		Message string   `xml:"Message"`
+	}
+	if err := xml.Unmarshal(body, &xmlErr); err != nil {
+		return "", ""
+	}
+	return xmlErr.Code, xmlErr.Message
+}
+
+func cfAdminActivityHandler(w http.ResponseWriter, r *http.Request) {
+	maxResultsStr := r.URL.Query().Get("maxResults")
+	nextToken := r.URL.Query().Get("nextToken")
+
+	maxResults := 50
+	if maxResultsStr != "" {
+		if v, err := strconv.Atoi(maxResultsStr); err == nil && v > 0 {
+			maxResults = v
+		}
+	}
+
+	entries, token, err := cfActivityLog.List(maxResults, nextToken)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"activity":  entries,
+		"nextToken": token,
+	})
 }

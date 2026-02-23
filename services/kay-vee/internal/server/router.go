@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tonyellard/cloud-u-l8r/pkg/activity"
 	"github.com/tonyellard/cloud-u-l8r/pkg/awserrors"
 	"github.com/tonyellard/cloud-u-l8r/pkg/health"
 	"github.com/tonyellard/kay-vee/internal/model"
@@ -18,12 +19,19 @@ import (
 )
 
 type Server struct {
-	logger *slog.Logger
-	store  *storage.Store
+	logger      *slog.Logger
+	store       *storage.Store
+	activityLog *activity.Logger
 }
 
 func NewRouter(logger *slog.Logger) http.Handler {
-	srv := &Server{logger: logger, store: storage.NewStore("us-east-1", "000000000000")}
+	srv := &Server{
+		logger: logger,
+		store:  storage.NewStore("us-east-1", "000000000000"),
+		activityLog: activity.NewLogger(activity.WithExcludeFunc(func(e activity.Entry) bool {
+			return strings.HasPrefix(e.Path, "/admin/") || e.Path == "/health"
+		})),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health.Handler("kay-vee"))
 	mux.HandleFunc("/admin/api/summary", srv.handleAdminSummary)
@@ -39,12 +47,14 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 	target := r.Header.Get("X-Amz-Target")
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	defer func() {
-		s.store.RecordActivity(model.AdminActivityEntry{
+		errType, errDetail := parseJSONError(recorder.body.Bytes())
+		s.activityLog.Record(activity.Entry{
 			Method:     r.Method,
 			Path:       r.URL.Path,
-			Target:     target,
+			Action:     target,
 			StatusCode: recorder.status,
-			ErrorType:  parseErrorType(recorder.body.Bytes()),
+			ErrorType:  errType,
+			Detail:     errDetail,
 		})
 	}()
 
@@ -119,55 +129,42 @@ func (s *Server) handleAWSJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminSummary(w http.ResponseWriter, r *http.Request) {
-	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-	defer func() {
-		s.store.RecordActivity(model.AdminActivityEntry{
-			Method:     r.Method,
-			Path:       r.URL.Path,
-			Target:     "admin.summary",
-			StatusCode: recorder.status,
-			ErrorType:  parseErrorType(recorder.body.Bytes()),
-		})
-	}()
-
 	if r.Method != http.MethodGet {
-		recorder.WriteHeader(http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(recorder, http.StatusOK, s.store.Summary())
+	writeJSON(w, http.StatusOK, s.store.Summary())
 }
 
 func (s *Server) handleAdminActivity(w http.ResponseWriter, r *http.Request) {
-	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-
 	if r.Method != http.MethodGet {
-		recorder.WriteHeader(http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	maxResults := 0
+	maxResults := 50
 	if maxStr := r.URL.Query().Get("maxResults"); maxStr != "" {
-		parsed, err := strconv.Atoi(maxStr)
-		if err != nil {
-			awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid maxResults query parameter")
-			return
+		if v, err := strconv.Atoi(maxStr); err == nil && v > 0 {
+			maxResults = v
 		}
-		maxResults = parsed
 	}
 
-	entries, token, err := s.store.ListActivity(maxResults, r.URL.Query().Get("nextToken"))
+	entries, token, err := s.activityLog.List(maxResults, r.URL.Query().Get("nextToken"))
 	if err != nil {
-		awserrors.MapGoErrorToAWS(recorder, err)
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", err.Error())
 		return
 	}
-	writeJSON(recorder, http.StatusOK, model.AdminActivityResponse{Activity: entries, NextToken: token})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"activity":  entries,
+		"nextToken": token,
+	})
 }
 
 func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
-	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-
 	if r.Method != http.MethodGet {
-		recorder.WriteHeader(http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -175,7 +172,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("includeParameters")); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid includeParameters query parameter")
+			awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid includeParameters query parameter")
 			return
 		}
 		includeParameters = parsed
@@ -185,7 +182,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("includeSecrets")); raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid includeSecrets query parameter")
+			awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid includeSecrets query parameter")
 			return
 		}
 		includeSecrets = parsed
@@ -203,7 +200,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("recursive")); raw != "" {
 			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
-				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid recursive query parameter")
+				awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid recursive query parameter")
 				return
 			}
 			recursive = parsed
@@ -213,7 +210,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("withDecryption")); raw != "" {
 			parsed, err := strconv.ParseBool(raw)
 			if err != nil {
-				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid withDecryption query parameter")
+				awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid withDecryption query parameter")
 				return
 			}
 			withDecryption = parsed
@@ -223,7 +220,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("parameterMaxResults")); raw != "" {
 			parsed, err := strconv.Atoi(raw)
 			if err != nil {
-				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid parameterMaxResults query parameter")
+				awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid parameterMaxResults query parameter")
 				return
 			}
 			parameterMaxResults = parsed
@@ -239,7 +236,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 
 		params, nextToken, err := s.store.GetParametersByPath(parameterPath, recursive, withDecryption, parameterMaxResults, strings.TrimSpace(r.URL.Query().Get("parametersNextToken")), parameterFilters)
 		if err != nil {
-			awserrors.MapGoErrorToAWS(recorder, err)
+			awserrors.MapGoErrorToAWS(w, err)
 			return
 		}
 
@@ -252,7 +249,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("secretMaxResults")); raw != "" {
 			parsed, err := strconv.Atoi(raw)
 			if err != nil {
-				awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid secretMaxResults query parameter")
+				awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid secretMaxResults query parameter")
 				return
 			}
 			secretMaxResults = parsed
@@ -265,7 +262,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 
 		secrets, err := s.store.ListSecrets(secretMaxResults, strings.TrimSpace(r.URL.Query().Get("secretsNextToken")), secretFilters)
 		if err != nil {
-			awserrors.MapGoErrorToAWS(recorder, err)
+			awserrors.MapGoErrorToAWS(w, err)
 			return
 		}
 
@@ -273,59 +270,37 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		res.SecretsNextToken = secrets.NextToken
 	}
 
-	writeJSON(recorder, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
-	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-	defer func() {
-		s.store.RecordActivity(model.AdminActivityEntry{
-			Method:     r.Method,
-			Path:       r.URL.Path,
-			Target:     "admin.export",
-			StatusCode: recorder.status,
-			ErrorType:  parseErrorType(recorder.body.Bytes()),
-		})
-	}()
-
 	if r.Method != http.MethodGet {
-		recorder.WriteHeader(http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(recorder, http.StatusOK, s.store.ExportState())
+	writeJSON(w, http.StatusOK, s.store.ExportState())
 }
 
 func (s *Server) handleAdminImport(w http.ResponseWriter, r *http.Request) {
-	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-	defer func() {
-		s.store.RecordActivity(model.AdminActivityEntry{
-			Method:     r.Method,
-			Path:       r.URL.Path,
-			Target:     "admin.import",
-			StatusCode: recorder.status,
-			ErrorType:  parseErrorType(recorder.body.Bytes()),
-		})
-	}()
-
 	if r.Method != http.MethodPost {
-		recorder.WriteHeader(http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "failed to read request body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "failed to read request body")
 		return
 	}
 
 	var req model.AdminImportRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		awserrors.WriteJSON(recorder, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		awserrors.WriteJSON(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 		return
 	}
 
 	res := s.store.ImportState(req)
-	writeJSON(recorder, http.StatusOK, res)
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handlePutParameter(w http.ResponseWriter, body []byte) {
@@ -641,16 +616,18 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	return s.ResponseWriter.Write(b)
 }
 
-func parseErrorType(body []byte) string {
+func parseJSONError(body []byte) (string, string) {
 	if len(body) == 0 {
-		return ""
+		return "", ""
 	}
 
-	var payload map[string]any
+	var payload struct {
+		Type    string `json:"__type"`
+		Message string `json:"message"`
+	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return ""
+		return "", ""
 	}
 
-	errorType, _ := payload["__type"].(string)
-	return errorType
+	return payload.Type, payload.Message
 }

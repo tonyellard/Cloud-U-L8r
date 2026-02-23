@@ -172,6 +172,37 @@ type EssThreeSummaryResponse struct {
 	} `json:"stats"`
 }
 
+type EssThreeActivityEntry struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Action     string    `json:"action,omitempty"`
+	StatusCode int       `json:"statusCode"`
+	ErrorType  string    `json:"errorType,omitempty"`
+	Detail     string    `json:"detail,omitempty"`
+}
+
+type EssThreeActivityResponse struct {
+	Activity  []EssThreeActivityEntry `json:"activity"`
+	NextToken string                  `json:"nextToken,omitempty"`
+}
+
+type EssThreeObjectEntry struct {
+	Key          string `json:"key"`
+	Size         int64  `json:"size"`
+	LastModified string `json:"lastModified"`
+	ETag         string `json:"etag"`
+	ContentType  string `json:"contentType"`
+}
+
+type EssThreeObjectListResponse struct {
+	Bucket                string                `json:"bucket"`
+	Prefix                string                `json:"prefix"`
+	Objects               []EssThreeObjectEntry `json:"objects"`
+	IsTruncated           bool                  `json:"isTruncated"`
+	NextContinuationToken string                `json:"nextContinuationToken,omitempty"`
+}
+
 type CloudfauxntOriginOverview struct {
 	Name              string   `json:"name"`
 	URL               string   `json:"url"`
@@ -288,14 +319,22 @@ type KayVeeActivityEntry struct {
 	Timestamp  time.Time `json:"timestamp"`
 	Method     string    `json:"method"`
 	Path       string    `json:"path"`
-	Target     string    `json:"target,omitempty"`
+	Action     string    `json:"action,omitempty"`
 	StatusCode int       `json:"statusCode"`
 	ErrorType  string    `json:"errorType,omitempty"`
+	Detail     string    `json:"detail,omitempty"`
 }
 
 type KayVeeActivityResponse struct {
 	Activity  []KayVeeActivityEntry `json:"activity"`
 	NextToken string                `json:"nextToken,omitempty"`
+}
+
+// ServiceActivityResponse is a generic activity response type used by
+// services that emit the standard pkg/activity.Entry format.
+type ServiceActivityResponse struct {
+	Activity  []EssThreeActivityEntry `json:"activity"`
+	NextToken string                  `json:"nextToken,omitempty"`
 }
 
 type KayVeeParameter struct {
@@ -392,6 +431,203 @@ type KayVeeSecretValueResponse struct {
 	SecretBinary string `json:"secret_binary,omitempty"`
 }
 
+// --- Drawbridge (EventBridge) types ---
+
+type DrawbridgeSummaryResponse struct {
+	Service    string `json:"service"`
+	EventBuses int    `json:"eventBuses"`
+	Rules      int    `json:"rules"`
+	Targets    int    `json:"targets"`
+}
+
+type DrawbridgeBusDetail struct {
+	Name        string                  `json:"name"`
+	Arn         string                  `json:"arn"`
+	RuleCount   int                     `json:"ruleCount"`
+	TargetCount int                     `json:"targetCount"`
+	Rules       []DrawbridgeRuleDetail  `json:"rules"`
+}
+
+type DrawbridgeRuleDetail struct {
+	Name               string                  `json:"name"`
+	State              string                  `json:"state"`
+	EventPattern       string                  `json:"eventPattern,omitempty"`
+	ScheduleExpression string                  `json:"scheduleExpression,omitempty"`
+	TargetCount        int                     `json:"targetCount"`
+	Targets            []DrawbridgeTarget      `json:"targets"`
+}
+
+type DrawbridgeTarget struct {
+	Id  string `json:"Id"`
+	Arn string `json:"Arn"`
+}
+
+type DrawbridgeActivityResponse struct {
+	Activity  []KayVeeActivityEntry `json:"activity"`
+	NextToken string                `json:"nextToken,omitempty"`
+}
+
+type DrawbridgeCreateEventBusRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type DrawbridgeDeleteEventBusRequest struct {
+	Name string `json:"name"`
+}
+
+type DrawbridgePutRuleRequest struct {
+	Name               string `json:"name"`
+	EventBusName       string `json:"event_bus_name,omitempty"`
+	EventPattern       string `json:"event_pattern,omitempty"`
+	ScheduleExpression string `json:"schedule_expression,omitempty"`
+	State              string `json:"state,omitempty"`
+	Description        string `json:"description,omitempty"`
+}
+
+type DrawbridgeDeleteRuleRequest struct {
+	Name         string `json:"name"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+}
+
+type DrawbridgeToggleRuleRequest struct {
+	Name         string `json:"name"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+}
+
+type DrawbridgePutTargetRequest struct {
+	Rule         string `json:"rule"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+	TargetID     string `json:"target_id"`
+	TargetArn    string `json:"target_arn"`
+	Input        string `json:"input,omitempty"`
+}
+
+type DrawbridgeRemoveTargetRequest struct {
+	Rule         string `json:"rule"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+	TargetID     string `json:"target_id"`
+}
+
+type DrawbridgePutEventRequest struct {
+	Source       string `json:"source"`
+	DetailType   string `json:"detail_type"`
+	Detail       string `json:"detail"`
+	EventBusName string `json:"event_bus_name,omitempty"`
+}
+
+type DrawbridgeTestEventPatternRequest struct {
+	EventPattern string `json:"event_pattern"`
+	Event        string `json:"event"`
+}
+
+// --- Scheduler types ---
+
+type SchedulerSummaryResponse struct {
+	Service        string `json:"service"`
+	ScheduleGroups int    `json:"scheduleGroups"`
+	Schedules      int    `json:"schedules"`
+}
+
+type SchedulerGroupDetail struct {
+	Name      string                   `json:"name"`
+	Arn       string                   `json:"arn"`
+	State     string                   `json:"state"`
+	Schedules []SchedulerScheduleDetail `json:"schedules"`
+}
+
+type SchedulerScheduleDetail struct {
+	Name               string `json:"name"`
+	Arn                string `json:"arn"`
+	State              string `json:"state"`
+	ScheduleExpression string `json:"scheduleExpression"`
+	TargetArn          string `json:"targetArn,omitempty"`
+	Description        string `json:"description,omitempty"`
+}
+
+type SchedulerActivityResponse struct {
+	Activity  []KayVeeActivityEntry `json:"activity"`
+	NextToken string                `json:"nextToken,omitempty"`
+}
+
+type SchedulerCreateGroupRequest struct {
+	Name string `json:"name"`
+}
+
+type SchedulerDeleteGroupRequest struct {
+	Name string `json:"name"`
+}
+
+type SchedulerCreateScheduleRequest struct {
+	Name               string `json:"name"`
+	GroupName          string `json:"group_name,omitempty"`
+	ScheduleExpression string `json:"schedule_expression"`
+	TargetArn          string `json:"target_arn,omitempty"`
+	TargetInput        string `json:"target_input,omitempty"`
+	State              string `json:"state,omitempty"`
+	Description        string `json:"description,omitempty"`
+	ActionAfterCompletion string `json:"action_after_completion,omitempty"`
+}
+
+type SchedulerDeleteScheduleRequest struct {
+	Name      string `json:"name"`
+	GroupName string `json:"group_name,omitempty"`
+}
+
+// --- Pipes types ---
+
+type PipesSummaryResponse struct {
+	Service      string `json:"service"`
+	Pipes        int    `json:"pipes"`
+	RunningPipes int    `json:"runningPipes"`
+}
+
+type PipesPipeDetail struct {
+	Name             string `json:"name"`
+	Arn              string `json:"arn"`
+	CurrentState     string `json:"currentState"`
+	DesiredState     string `json:"desiredState"`
+	Source           string `json:"source"`
+	Target           string `json:"target"`
+	Enrichment       string `json:"enrichment,omitempty"`
+	Description      string `json:"description,omitempty"`
+	FilterCount      int    `json:"filterCount"`
+	CreationTime     string `json:"creationTime"`
+	LastModifiedTime string `json:"lastModifiedTime"`
+}
+
+type PipesActivityResponse struct {
+	Activity  []KayVeeActivityEntry `json:"activity"`
+	NextToken string                `json:"nextToken,omitempty"`
+}
+
+type PipesCreatePipeRequest struct {
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Target      string `json:"target"`
+	RoleArn     string `json:"role_arn,omitempty"`
+	Description string `json:"description,omitempty"`
+	Filter      string `json:"filter,omitempty"`
+	Enrichment  string `json:"enrichment,omitempty"`
+	State       string `json:"state,omitempty"`
+}
+
+type PipesUpdatePipeRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Target      string `json:"target,omitempty"`
+	RoleArn     string `json:"role_arn,omitempty"`
+	State       string `json:"state,omitempty"`
+}
+
+type PipesDeletePipeRequest struct {
+	Name string `json:"name"`
+}
+
+type PipesStartStopPipeRequest struct {
+	Name string `json:"name"`
+}
+
 func NewRouter(logger *slog.Logger) http.Handler {
 	srv := &Server{
 		logger: logger,
@@ -407,7 +643,15 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Get("/api/services/ess-enn-ess/state", srv.handlePubSubState)
 	r.Get("/api/services/ess-enn-ess/topics/{topicARN}/activities", srv.handleTopicActivities)
 	r.Get("/api/services/essthree/summary", srv.handleEssThreeSummary)
+	r.Get("/api/services/essthree/buckets/{bucket}/objects", srv.handleEssThreeListObjects)
+	r.Post("/api/services/essthree/actions/create-bucket", srv.handleEssThreeCreateBucket)
+	r.Post("/api/services/essthree/actions/delete-bucket", srv.handleEssThreeDeleteBucket)
+	r.Post("/api/services/essthree/actions/delete-object", srv.handleEssThreeDeleteObject)
+	r.Post("/api/services/essthree/actions/purge-bucket", srv.handleEssThreePurgeBucket)
+	r.Get("/api/services/essthree/activity", srv.handleEssThreeActivity)
+	r.Get("/api/services/ess-queue-ess/activity", srv.handleEssQueueEssActivity)
 	r.Get("/api/services/cloudfauxnt/summary", srv.handleCloudfauxntSummary)
+	r.Get("/api/services/cloudfauxnt/activity", srv.handleCloudfauxntActivity)
 	r.Post("/api/services/cloudfauxnt/actions/set-signing", srv.handleCloudfauxntSetSigning)
 	r.Post("/api/services/cloudfauxnt/actions/update-signing-config", srv.handleCloudfauxntUpdateSigningConfig)
 	r.Post("/api/services/cloudfauxnt/actions/create-origin", srv.handleCloudfauxntCreateOrigin)
@@ -439,6 +683,34 @@ func NewRouter(logger *slog.Logger) http.Handler {
 	r.Post("/api/services/ess-enn-ess/actions/create-subscription", srv.handleCreateSubscription)
 	r.Post("/api/services/ess-enn-ess/actions/delete-subscription", srv.handleDeleteSubscription)
 	r.Post("/api/services/ess-enn-ess/actions/publish", srv.handlePublishTopicMessage)
+	r.Get("/api/services/drawbridge/summary", srv.handleDrawbridgeSummary)
+	r.Get("/api/services/drawbridge/resources", srv.handleDrawbridgeResources)
+	r.Get("/api/services/drawbridge/activity", srv.handleDrawbridgeActivity)
+	r.Post("/api/services/drawbridge/actions/create-event-bus", srv.handleDrawbridgeCreateEventBus)
+	r.Post("/api/services/drawbridge/actions/delete-event-bus", srv.handleDrawbridgeDeleteEventBus)
+	r.Post("/api/services/drawbridge/actions/put-rule", srv.handleDrawbridgePutRule)
+	r.Post("/api/services/drawbridge/actions/delete-rule", srv.handleDrawbridgeDeleteRule)
+	r.Post("/api/services/drawbridge/actions/enable-rule", srv.handleDrawbridgeEnableRule)
+	r.Post("/api/services/drawbridge/actions/disable-rule", srv.handleDrawbridgeDisableRule)
+	r.Post("/api/services/drawbridge/actions/put-target", srv.handleDrawbridgePutTarget)
+	r.Post("/api/services/drawbridge/actions/remove-target", srv.handleDrawbridgeRemoveTarget)
+	r.Post("/api/services/drawbridge/actions/put-event", srv.handleDrawbridgePutEvent)
+	r.Post("/api/services/drawbridge/actions/test-event-pattern", srv.handleDrawbridgeTestEventPattern)
+	r.Get("/api/services/scheduler/summary", srv.handleSchedulerSummary)
+	r.Get("/api/services/scheduler/resources", srv.handleSchedulerResources)
+	r.Get("/api/services/scheduler/activity", srv.handleSchedulerActivity)
+	r.Post("/api/services/scheduler/actions/create-group", srv.handleSchedulerCreateGroup)
+	r.Post("/api/services/scheduler/actions/delete-group", srv.handleSchedulerDeleteGroup)
+	r.Post("/api/services/scheduler/actions/create-schedule", srv.handleSchedulerCreateSchedule)
+	r.Post("/api/services/scheduler/actions/delete-schedule", srv.handleSchedulerDeleteSchedule)
+	r.Get("/api/services/pipes/summary", srv.handlePipesSummary)
+	r.Get("/api/services/pipes/resources", srv.handlePipesResources)
+	r.Get("/api/services/pipes/activity", srv.handlePipesActivity)
+	r.Post("/api/services/pipes/actions/create-pipe", srv.handlePipesCreatePipe)
+	r.Post("/api/services/pipes/actions/update-pipe", srv.handlePipesUpdatePipe)
+	r.Post("/api/services/pipes/actions/delete-pipe", srv.handlePipesDeletePipe)
+	r.Post("/api/services/pipes/actions/start-pipe", srv.handlePipesStartPipe)
+	r.Post("/api/services/pipes/actions/stop-pipe", srv.handlePipesStopPipe)
 	r.Get("/api/events", srv.handleEvents)
 
 	fs := http.FileServer(http.Dir("./web"))
@@ -555,6 +827,204 @@ func (s *Server) handleEssThreeSummary(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleEssThreeListObjects(w http.ResponseWriter, r *http.Request) {
+	bucket := chi.URLParam(r, "bucket")
+	prefix := strings.TrimSpace(r.URL.Query().Get("prefix"))
+	maxKeys := strings.TrimSpace(r.URL.Query().Get("maxKeys"))
+	continuationToken := strings.TrimSpace(r.URL.Query().Get("continuationToken"))
+
+	objectList, err := s.fetchEssThreeObjectList(bucket, prefix, maxKeys, continuationToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, objectList)
+}
+
+func (s *Server) handleEssThreeCreateBucket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	// Use the S3 API (PUT /{bucket}/) so the operation is recorded in the activity log.
+	s3URL := fmt.Sprintf("http://essthree:9300/%s/", url.PathEscape(req.Name))
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPut, s3URL, nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to create bucket: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
+
+	if resp.StatusCode <= 299 {
+		writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name})
+		return
+	}
+
+	awserrors.WriteJSONGeneric(w, resp.StatusCode, fmt.Errorf("failed to create bucket %q (status %d)", req.Name, resp.StatusCode))
+}
+
+func (s *Server) handleEssThreeDeleteBucket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	// Use the S3 API (DELETE /{bucket}/) so the operation is recorded in the activity log.
+	s3URL := fmt.Sprintf("http://essthree:9300/%s/", url.PathEscape(req.Name))
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, s3URL, nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to delete bucket: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+
+	// S3 returns XML errors; translate to a JSON error for the admin console.
+	message := strings.TrimSpace(string(body))
+	if strings.Contains(message, "BucketNotEmpty") {
+		awserrors.WriteJSONGeneric(w, http.StatusConflict, fmt.Errorf("bucket is not empty"))
+	} else if resp.StatusCode == http.StatusNotFound {
+		awserrors.WriteJSONGeneric(w, http.StatusNotFound, fmt.Errorf("bucket does not exist"))
+	} else {
+		awserrors.WriteJSONGeneric(w, resp.StatusCode, fmt.Errorf("delete failed (status %d)", resp.StatusCode))
+	}
+}
+
+func (s *Server) handleEssThreeDeleteObject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Bucket string `json:"bucket"`
+		Key    string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Bucket == "" || req.Key == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("bucket and key are required"))
+		return
+	}
+
+	// Use the S3 API (DELETE /{bucket}/{key}) so the operation is recorded in the activity log.
+	s3URL := fmt.Sprintf("http://essthree:9300/%s/%s",
+		url.PathEscape(req.Bucket), req.Key)
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodDelete, s3URL, nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to delete object: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+
+	awserrors.WriteJSONGeneric(w, resp.StatusCode, fmt.Errorf("delete failed (status %d)", resp.StatusCode))
+}
+
+func (s *Server) handleEssThreePurgeBucket(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	purgeURL := fmt.Sprintf("http://essthree:9300/admin/api/buckets/%s/purge", url.PathEscape(req.Name))
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, purgeURL, nil)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, fmt.Errorf("failed to purge bucket: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	w.Write(body)
+}
+
+func (s *Server) handleEssThreeActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := strings.TrimSpace(r.URL.Query().Get("maxResults"))
+	if maxResults == "" {
+		maxResults = "25"
+	}
+
+	activityData, err := s.fetchEssThreeActivity(maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, activityData)
+}
+
+func (s *Server) handleEssQueueEssActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := strings.TrimSpace(r.URL.Query().Get("maxResults"))
+	if maxResults == "" {
+		maxResults = "25"
+	}
+
+	data, err := s.fetchServiceActivity("http://ess-queue-ess:9320", "ess-queue-ess", maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleCloudfauxntActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := strings.TrimSpace(r.URL.Query().Get("maxResults"))
+	if maxResults == "" {
+		maxResults = "25"
+	}
+
+	data, err := s.fetchServiceActivity("http://cloudfauxnt:9310", "cloudfauxnt", maxResults, strings.TrimSpace(r.URL.Query().Get("nextToken")))
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, data)
 }
 
 func (s *Server) handleCloudfauxntSummary(w http.ResponseWriter, _ *http.Request) {
@@ -1138,6 +1608,442 @@ func (s *Server) handleKayVeeUpdateSecretVersionStage(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// --- Drawbridge (EventBridge) handlers ---
+
+func (s *Server) handleDrawbridgeSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchDrawbridgeSummary()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleDrawbridgeResources(w http.ResponseWriter, _ *http.Request) {
+	resources, err := s.fetchDrawbridgeResources()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resources)
+}
+
+func (s *Server) handleDrawbridgeActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := r.URL.Query().Get("maxResults")
+	if maxResults == "" {
+		maxResults = "50"
+	}
+	nextToken := r.URL.Query().Get("nextToken")
+	activity, err := s.fetchDrawbridgeActivity(maxResults, nextToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, activity)
+}
+
+func (s *Server) fetchDrawbridgeSummary() (DrawbridgeSummaryResponse, error) {
+	resp, err := s.client.Get("http://drawbridge:9340/admin/api/summary")
+	if err != nil {
+		return DrawbridgeSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return DrawbridgeSummaryResponse{}, fmt.Errorf("drawbridge summary status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var summary DrawbridgeSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return DrawbridgeSummaryResponse{}, err
+	}
+	return summary, nil
+}
+
+func (s *Server) fetchDrawbridgeResources() ([]DrawbridgeBusDetail, error) {
+	resp, err := s.client.Get("http://drawbridge:9340/admin/api/resources")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("drawbridge resources status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var resources []DrawbridgeBusDetail
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+func (s *Server) fetchDrawbridgeActivity(maxResults, nextToken string) (DrawbridgeActivityResponse, error) {
+	u := fmt.Sprintf("http://drawbridge:9340/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	if nextToken != "" {
+		u += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+	resp, err := s.client.Get(u)
+	if err != nil {
+		return DrawbridgeActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return DrawbridgeActivityResponse{}, fmt.Errorf("drawbridge activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var activity DrawbridgeActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return DrawbridgeActivityResponse{}, err
+	}
+	return activity, nil
+}
+
+func (s *Server) handleDrawbridgeCreateEventBus(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeCreateEventBusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.CreateEventBus", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleDrawbridgeDeleteEventBus(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeDeleteEventBusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if name == "default" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("cannot delete the default event bus"))
+		return
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.DeleteEventBus", map[string]any{"Name": name}, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgePutRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgePutRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+	if ep := strings.TrimSpace(req.EventPattern); ep != "" {
+		payload["EventPattern"] = ep
+	}
+	if se := strings.TrimSpace(req.ScheduleExpression); se != "" {
+		payload["ScheduleExpression"] = se
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	state := strings.TrimSpace(req.State)
+	if state == "" {
+		state = "ENABLED"
+	}
+	payload["State"] = state
+
+	if err := s.callDrawbridgeTarget("AWSEvents.PutRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleDrawbridgeDeleteRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeDeleteRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.DeleteRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgeEnableRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeToggleRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.EnableRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgeDisableRule(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeToggleRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	if err := s.callDrawbridgeTarget("AWSEvents.DisableRule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgePutTarget(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgePutTargetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	rule := strings.TrimSpace(req.Rule)
+	if rule == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("rule is required"))
+		return
+	}
+	targetID := strings.TrimSpace(req.TargetID)
+	if targetID == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target_id is required"))
+		return
+	}
+	targetArn := strings.TrimSpace(req.TargetArn)
+	if targetArn == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target_arn is required"))
+		return
+	}
+
+	target := map[string]any{"Id": targetID, "Arn": targetArn}
+	if input := strings.TrimSpace(req.Input); input != "" {
+		target["Input"] = input
+	}
+
+	payload := map[string]any{
+		"Rule":    rule,
+		"Targets": []map[string]any{target},
+	}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	var result struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+		FailedEntries    []struct {
+			TargetId     string `json:"TargetId"`
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"FailedEntries"`
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.PutTargets", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	if result.FailedEntryCount > 0 && len(result.FailedEntries) > 0 {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("%s: %s", result.FailedEntries[0].ErrorCode, result.FailedEntries[0].ErrorMessage))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgeRemoveTarget(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeRemoveTargetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	rule := strings.TrimSpace(req.Rule)
+	if rule == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("rule is required"))
+		return
+	}
+	targetID := strings.TrimSpace(req.TargetID)
+	if targetID == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target_id is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"Rule": rule,
+		"Ids":  []string{targetID},
+	}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		payload["EventBusName"] = bus
+	}
+
+	var result struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+		FailedEntries    []struct {
+			TargetId     string `json:"TargetId"`
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"FailedEntries"`
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.RemoveTargets", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	if result.FailedEntryCount > 0 && len(result.FailedEntries) > 0 {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("%s: %s", result.FailedEntries[0].ErrorCode, result.FailedEntries[0].ErrorMessage))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDrawbridgePutEvent(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgePutEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("source is required"))
+		return
+	}
+	detailType := strings.TrimSpace(req.DetailType)
+	if detailType == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("detail_type is required"))
+		return
+	}
+	detail := strings.TrimSpace(req.Detail)
+	if detail == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("detail is required"))
+		return
+	}
+
+	entry := map[string]any{
+		"Source":     source,
+		"DetailType": detailType,
+		"Detail":     detail,
+	}
+	if bus := strings.TrimSpace(req.EventBusName); bus != "" {
+		entry["EventBusName"] = bus
+	}
+
+	payload := map[string]any{
+		"Entries": []map[string]any{entry},
+	}
+
+	var result struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+		Entries          []struct {
+			EventId      string `json:"EventId"`
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"Entries"`
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.PutEvents", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	if result.FailedEntryCount > 0 && len(result.Entries) > 0 {
+		entry := result.Entries[0]
+		if entry.ErrorCode != "" {
+			awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("%s: %s", entry.ErrorCode, entry.ErrorMessage))
+			return
+		}
+	}
+	eventId := ""
+	if len(result.Entries) > 0 {
+		eventId = result.Entries[0].EventId
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "event_id": eventId})
+}
+
+func (s *Server) handleDrawbridgeTestEventPattern(w http.ResponseWriter, r *http.Request) {
+	var req DrawbridgeTestEventPatternRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	eventPattern := strings.TrimSpace(req.EventPattern)
+	if eventPattern == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("event_pattern is required"))
+		return
+	}
+	event := strings.TrimSpace(req.Event)
+	if event == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("event is required"))
+		return
+	}
+
+	var result struct {
+		Result bool `json:"Result"`
+	}
+	payload := map[string]any{
+		"EventPattern": eventPattern,
+		"Event":        event,
+	}
+	if err := s.callDrawbridgeTarget("AWSEvents.TestEventPattern", payload, &result); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result.Result})
+}
+
 func (s *Server) handleCreateTopic(w http.ResponseWriter, r *http.Request) {
 	var req CreateTopicRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1654,7 +2560,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if view == "" {
 		view = "dashboard"
 	}
-	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" {
+	if view != "dashboard" && view != "ess-queue-ess" && view != "ess-enn-ess" && view != "essthree" && view != "cloudfauxnt" && view != "kay-vee" && view != "drawbridge" && view != "scheduler" && view != "pipes" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid view"})
 		return
 	}
@@ -1728,7 +2634,14 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(summary)
+		activityData, _ := s.fetchEssThreeActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":           summary.Service,
+			"buckets":           summary.Buckets,
+			"stats":             summary.Stats,
+			"activity":          activityData.Activity,
+			"activityNextToken": activityData.NextToken,
+		})
 	}
 	if view == "cloudfauxnt" {
 		summary, err := s.fetchCloudfauxntSummary()
@@ -1763,6 +2676,54 @@ func (s *Server) payloadForView(view string) ([]byte, error) {
 			"parametersNextToken": parameters.NextToken,
 			"secrets":             secrets.Secrets,
 			"secretsNextToken":    secrets.NextToken,
+		})
+	}
+
+	if view == "drawbridge" {
+		summary, err := s.fetchDrawbridgeSummary()
+		if err != nil {
+			return nil, err
+		}
+		resources, _ := s.fetchDrawbridgeResources()
+		activity, _ := s.fetchDrawbridgeActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":   "drawbridge",
+			"summary":   summary,
+			"resources": resources,
+			"activity":  activity.Activity,
+			"nextToken": activity.NextToken,
+		})
+	}
+
+	if view == "scheduler" {
+		summary, err := s.fetchSchedulerSummary()
+		if err != nil {
+			return nil, err
+		}
+		resources, _ := s.fetchSchedulerResources()
+		activity, _ := s.fetchSchedulerActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":   "scheduler",
+			"summary":   summary,
+			"resources": resources,
+			"activity":  activity.Activity,
+			"nextToken": activity.NextToken,
+		})
+	}
+
+	if view == "pipes" {
+		summary, err := s.fetchPipesSummary()
+		if err != nil {
+			return nil, err
+		}
+		resources, _ := s.fetchPipesResources()
+		activity, _ := s.fetchPipesActivity("25", "")
+		return json.Marshal(map[string]any{
+			"service":   "pipes",
+			"summary":   summary,
+			"resources": resources,
+			"activity":  activity.Activity,
+			"nextToken": activity.NextToken,
 		})
 	}
 
@@ -1875,6 +2836,62 @@ func (s *Server) buildDashboardSummary() DashboardSummary {
 	}
 	services = append(services, kayVeeService)
 
+	drawbridgeService := DashboardService{
+		Name:   "drawbridge",
+		Status: s.checkService("http://drawbridge:9340/health"),
+		Stats: []DashboardStat{
+			{Label: "Event Buses", Value: 0},
+			{Label: "Rules", Value: 0},
+			{Label: "Targets", Value: 0},
+		},
+	}
+	if drawbridgeService.Status == "online" {
+		if dbSummary, err := s.fetchDrawbridgeSummary(); err == nil {
+			drawbridgeService.Stats[0].Value = dbSummary.EventBuses
+			drawbridgeService.Stats[1].Value = dbSummary.Rules
+			drawbridgeService.Stats[2].Value = dbSummary.Targets
+		} else {
+			s.logger.Warn("failed to fetch drawbridge dashboard stats", "error", err)
+		}
+	}
+	services = append(services, drawbridgeService)
+
+	schedulerService := DashboardService{
+		Name:   "scheduler",
+		Status: s.checkService("http://scheduler:9342/health"),
+		Stats: []DashboardStat{
+			{Label: "Groups", Value: 0},
+			{Label: "Schedules", Value: 0},
+		},
+	}
+	if schedulerService.Status == "online" {
+		if schSummary, err := s.fetchSchedulerSummary(); err == nil {
+			schedulerService.Stats[0].Value = schSummary.ScheduleGroups
+			schedulerService.Stats[1].Value = schSummary.Schedules
+		} else {
+			s.logger.Warn("failed to fetch scheduler dashboard stats", "error", err)
+		}
+	}
+	services = append(services, schedulerService)
+
+	pipesService := DashboardService{
+		Name:   "pipes",
+		Status: s.checkService("http://pipes:9344/health"),
+		Stats: []DashboardStat{
+			{Label: "Pipes", Value: 0},
+			{Label: "Running", Value: 0},
+		},
+	}
+	if pipesService.Status == "online" {
+		if pipesSummary, err := s.fetchPipesSummary(); err == nil {
+			pipesService.Stats[0].Value = pipesSummary.Pipes
+			pipesService.Stats[1].Value = pipesSummary.RunningPipes
+		} else {
+			s.logger.Warn("failed to fetch pipes dashboard stats", "error", err)
+		}
+	}
+	services = append(services, pipesService)
+
 	summary.Services = services
 	return summary
 }
@@ -1972,6 +2989,62 @@ func (s *Server) fetchEssThreeSummary() (EssThreeSummaryResponse, error) {
 	return summary, nil
 }
 
+func (s *Server) fetchEssThreeObjectList(bucket, prefix, maxKeys, continuationToken string) (EssThreeObjectListResponse, error) {
+	objectURL := fmt.Sprintf("http://essthree:9300/admin/api/buckets/%s/objects", url.PathEscape(bucket))
+	q := url.Values{}
+	if prefix != "" {
+		q.Set("prefix", prefix)
+	}
+	if maxKeys != "" {
+		q.Set("maxKeys", maxKeys)
+	}
+	if continuationToken != "" {
+		q.Set("continuationToken", continuationToken)
+	}
+	if len(q) > 0 {
+		objectURL += "?" + q.Encode()
+	}
+
+	resp, err := s.client.Get(objectURL)
+	if err != nil {
+		return EssThreeObjectListResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return EssThreeObjectListResponse{}, fmt.Errorf("essthree object list status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var objectList EssThreeObjectListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&objectList); err != nil {
+		return EssThreeObjectListResponse{}, err
+	}
+	return objectList, nil
+}
+
+func (s *Server) fetchEssThreeActivity(maxResults, nextToken string) (EssThreeActivityResponse, error) {
+	activityURL := "http://essthree:9300/admin/api/activity?maxResults=" + url.QueryEscape(maxResults)
+	if nextToken != "" {
+		activityURL += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+
+	resp, err := s.client.Get(activityURL)
+	if err != nil {
+		return EssThreeActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return EssThreeActivityResponse{}, fmt.Errorf("essthree activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var activity EssThreeActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return EssThreeActivityResponse{}, err
+	}
+	return activity, nil
+}
+
 func (s *Server) fetchCloudfauxntSummary() (CloudfauxntSummaryResponse, error) {
 	resp, err := s.client.Get("http://cloudfauxnt:9310/admin/api/overview")
 	if err != nil {
@@ -2058,6 +3131,30 @@ func (s *Server) fetchKayVeeSummary() (KayVeeSummaryResponse, error) {
 	}
 
 	return summary, nil
+}
+
+func (s *Server) fetchServiceActivity(baseURL, serviceName, maxResults, nextToken string) (ServiceActivityResponse, error) {
+	activityURL := baseURL + "/admin/api/activity?maxResults=" + url.QueryEscape(maxResults)
+	if nextToken != "" {
+		activityURL += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+
+	resp, err := s.client.Get(activityURL)
+	if err != nil {
+		return ServiceActivityResponse{}, fmt.Errorf("failed to fetch %s activity: %w", serviceName, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return ServiceActivityResponse{}, fmt.Errorf("%s admin activity status %d: %s", serviceName, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var result ServiceActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ServiceActivityResponse{}, err
+	}
+
+	return result, nil
 }
 
 func (s *Server) fetchKayVeeActivity(maxResults, nextToken string) (KayVeeActivityResponse, error) {
@@ -2300,6 +3397,594 @@ func (s *Server) callKayVeeTarget(targetName string, payload any, target any) er
 			message = http.StatusText(response.StatusCode)
 		}
 		return fmt.Errorf("kay-vee target %s failed (%d): %s", targetName, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// --- Scheduler handlers ---
+
+func (s *Server) handleSchedulerSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchSchedulerSummary()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handleSchedulerResources(w http.ResponseWriter, _ *http.Request) {
+	resources, err := s.fetchSchedulerResources()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resources)
+}
+
+func (s *Server) handleSchedulerActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := r.URL.Query().Get("maxResults")
+	if maxResults == "" {
+		maxResults = "50"
+	}
+	nextToken := r.URL.Query().Get("nextToken")
+	activity, err := s.fetchSchedulerActivity(maxResults, nextToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, activity)
+}
+
+func (s *Server) fetchSchedulerSummary() (SchedulerSummaryResponse, error) {
+	resp, err := s.client.Get("http://scheduler:9342/admin/api/summary")
+	if err != nil {
+		return SchedulerSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return SchedulerSummaryResponse{}, fmt.Errorf("scheduler summary status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var summary SchedulerSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return SchedulerSummaryResponse{}, err
+	}
+	return summary, nil
+}
+
+func (s *Server) fetchSchedulerResources() ([]SchedulerGroupDetail, error) {
+	resp, err := s.client.Get("http://scheduler:9342/admin/api/resources")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("scheduler resources status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var resources []SchedulerGroupDetail
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+func (s *Server) fetchSchedulerActivity(maxResults, nextToken string) (SchedulerActivityResponse, error) {
+	u := fmt.Sprintf("http://scheduler:9342/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	if nextToken != "" {
+		u += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+	resp, err := s.client.Get(u)
+	if err != nil {
+		return SchedulerActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return SchedulerActivityResponse{}, fmt.Errorf("scheduler activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var activity SchedulerActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return SchedulerActivityResponse{}, err
+	}
+	return activity, nil
+}
+
+func (s *Server) handleSchedulerCreateGroup(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerCreateGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.CreateScheduleGroup", map[string]any{"Name": name}, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleSchedulerDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerDeleteGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	if name == "default" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("cannot delete the default schedule group"))
+		return
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.DeleteScheduleGroup", map[string]any{"Name": name}, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleSchedulerCreateSchedule(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerCreateScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	schedExpr := strings.TrimSpace(req.ScheduleExpression)
+	if schedExpr == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("schedule_expression is required"))
+		return
+	}
+
+	payload := map[string]any{
+		"Name":               name,
+		"ScheduleExpression": schedExpr,
+	}
+	if group := strings.TrimSpace(req.GroupName); group != "" {
+		payload["GroupName"] = group
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	state := strings.TrimSpace(req.State)
+	if state == "" {
+		state = "ENABLED"
+	}
+	payload["State"] = state
+	if aac := strings.TrimSpace(req.ActionAfterCompletion); aac != "" {
+		payload["ActionAfterCompletion"] = aac
+	}
+
+	targetArn := strings.TrimSpace(req.TargetArn)
+	if targetArn != "" {
+		target := map[string]any{"Arn": targetArn}
+		if input := strings.TrimSpace(req.TargetInput); input != "" {
+			target["Input"] = input
+		}
+		payload["Target"] = target
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.CreateSchedule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handleSchedulerDeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	var req SchedulerDeleteScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	payload := map[string]any{"Name": name}
+	if group := strings.TrimSpace(req.GroupName); group != "" {
+		payload["GroupName"] = group
+	}
+
+	if err := s.callSchedulerTarget("AWSScheduler.DeleteSchedule", payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) callSchedulerTarget(targetName string, payload any, target any) error {
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "http://scheduler:9342/", bytes.NewReader(encodedPayload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	request.Header.Set("X-Amz-Target", targetName)
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		var awsErr struct {
+			Type    string `json:"__type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(responseBody, &awsErr); err == nil && strings.TrimSpace(awsErr.Type) != "" {
+			return fmt.Errorf("%s: %s", awsErr.Type, awsErr.Message)
+		}
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("scheduler target %s failed (%d): %s", targetName, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Server) callDrawbridgeTarget(targetName string, payload any, target any) error {
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "http://drawbridge:9340/", bytes.NewReader(encodedPayload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	request.Header.Set("X-Amz-Target", targetName)
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		var awsErr struct {
+			Type    string `json:"__type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(responseBody, &awsErr); err == nil && strings.TrimSpace(awsErr.Type) != "" {
+			return fmt.Errorf("%s: %s", awsErr.Type, awsErr.Message)
+		}
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("drawbridge target %s failed (%d): %s", targetName, response.StatusCode, message)
+	}
+
+	if target == nil {
+		return nil
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// --- Pipes handlers ---
+
+func (s *Server) handlePipesSummary(w http.ResponseWriter, _ *http.Request) {
+	summary, err := s.fetchPipesSummary()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) handlePipesResources(w http.ResponseWriter, _ *http.Request) {
+	resources, err := s.fetchPipesResources()
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resources)
+}
+
+func (s *Server) handlePipesActivity(w http.ResponseWriter, r *http.Request) {
+	maxResults := r.URL.Query().Get("maxResults")
+	if maxResults == "" {
+		maxResults = "50"
+	}
+	nextToken := r.URL.Query().Get("nextToken")
+	activity, err := s.fetchPipesActivity(maxResults, nextToken)
+	if err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, activity)
+}
+
+func (s *Server) handlePipesCreatePipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesCreatePipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("source is required"))
+		return
+	}
+	target := strings.TrimSpace(req.Target)
+	if target == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("target is required"))
+		return
+	}
+
+	roleArn := strings.TrimSpace(req.RoleArn)
+	if roleArn == "" {
+		roleArn = "arn:aws:iam::000000000000:role/pipe-role"
+	}
+
+	payload := map[string]any{
+		"Source":  source,
+		"Target":  target,
+		"RoleArn": roleArn,
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	if req.State == "STOPPED" {
+		payload["DesiredState"] = "STOPPED"
+	}
+	if filter := strings.TrimSpace(req.Filter); filter != "" {
+		payload["SourceParameters"] = map[string]any{
+			"FilterCriteria": map[string]any{
+				"Filters": []map[string]any{
+					{"Pattern": filter},
+				},
+			},
+		}
+	}
+	if enrich := strings.TrimSpace(req.Enrichment); enrich != "" {
+		payload["Enrichment"] = enrich
+	}
+
+	if err := s.callPipesREST(http.MethodPost, "/v1/pipes/"+name, payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesUpdatePipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesUpdatePipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	roleArn := strings.TrimSpace(req.RoleArn)
+	if roleArn == "" {
+		roleArn = "arn:aws:iam::000000000000:role/pipe-role"
+	}
+
+	payload := map[string]any{
+		"RoleArn": roleArn,
+	}
+	if desc := strings.TrimSpace(req.Description); desc != "" {
+		payload["Description"] = desc
+	}
+	if target := strings.TrimSpace(req.Target); target != "" {
+		payload["Target"] = target
+	}
+	if req.State != "" {
+		payload["DesiredState"] = req.State
+	}
+
+	if err := s.callPipesREST(http.MethodPut, "/v1/pipes/"+name, payload, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesDeletePipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesDeletePipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callPipesREST(http.MethodDelete, "/v1/pipes/"+name, nil, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesStartPipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesStartStopPipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callPipesREST(http.MethodPost, "/v1/pipes/"+name+"/start", nil, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) handlePipesStopPipe(w http.ResponseWriter, r *http.Request) {
+	var req PipesStartStopPipeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("invalid request body"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		awserrors.WriteJSONGeneric(w, http.StatusBadRequest, fmt.Errorf("name is required"))
+		return
+	}
+
+	if err := s.callPipesREST(http.MethodPost, "/v1/pipes/"+name+"/stop", nil, nil); err != nil {
+		awserrors.WriteJSONGeneric(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": name})
+}
+
+func (s *Server) fetchPipesSummary() (PipesSummaryResponse, error) {
+	resp, err := s.client.Get("http://pipes:9344/admin/api/summary")
+	if err != nil {
+		return PipesSummaryResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return PipesSummaryResponse{}, fmt.Errorf("pipes summary status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var summary PipesSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return PipesSummaryResponse{}, err
+	}
+	return summary, nil
+}
+
+func (s *Server) fetchPipesResources() ([]PipesPipeDetail, error) {
+	resp, err := s.client.Get("http://pipes:9344/admin/api/resources")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("pipes resources status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var resources []PipesPipeDetail
+	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+func (s *Server) fetchPipesActivity(maxResults, nextToken string) (PipesActivityResponse, error) {
+	u := fmt.Sprintf("http://pipes:9344/admin/api/activity?maxResults=%s", url.QueryEscape(maxResults))
+	if nextToken != "" {
+		u += "&nextToken=" + url.QueryEscape(nextToken)
+	}
+	resp, err := s.client.Get(u)
+	if err != nil {
+		return PipesActivityResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return PipesActivityResponse{}, fmt.Errorf("pipes activity status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var activity PipesActivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&activity); err != nil {
+		return PipesActivityResponse{}, err
+	}
+	return activity, nil
+}
+
+func (s *Server) callPipesREST(method, path string, body any, target any) error {
+	var reqBody io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reqBody = bytes.NewReader(encoded)
+	}
+
+	request, err := http.NewRequest(method, "http://pipes:9344"+path, reqBody)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		responseBody, _ := io.ReadAll(response.Body)
+		var awsErr struct {
+			Type    string `json:"__type"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(responseBody, &awsErr); err == nil && strings.TrimSpace(awsErr.Type) != "" {
+			return fmt.Errorf("%s: %s", awsErr.Type, awsErr.Message)
+		}
+		message := strings.TrimSpace(string(responseBody))
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return fmt.Errorf("pipes %s %s failed (%d): %s", method, path, response.StatusCode, message)
 	}
 
 	if target == nil {
